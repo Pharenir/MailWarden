@@ -3,7 +3,9 @@ namespace MailWarden.Core.Classification;
 /// <summary>
 /// Derives <see cref="AuthStatus"/> from the parsed top-most Authentication-Results header (rules of AP-07a, planner
 /// decisions C11/C12/C22): the provider's DMARC result takes precedence –
-/// DMARC fail → Failed (an aligned SPF/DKIM pass does not rescue it);
+/// DMARC fail and Microsoft compauth pass → Unknown (AP-07b E1: the provider's composite authentication overrules
+/// its own DMARC fail, typically for forwarders and mailing lists, so the sender is merely unverified);
+/// DMARC fail otherwise → Failed (an aligned SPF/DKIM pass does not rescue it);
 /// DMARC pass whose header.from is absent or aligned with the From domain → Authenticated;
 /// otherwise (no DMARC, other verdicts, a pass for another domain, or a header.from without a determinable domain)
 /// DKIM pass for an aligned domain or SPF pass for
@@ -20,7 +22,7 @@ internal static class AuthStatusEvaluator
     {
         if (IsDmarcFail(authentication))
         {
-            return AuthStatus.Failed;
+            return IsDmarcFailOverruledByCompAuth(authentication) ? AuthStatus.Unknown : AuthStatus.Failed;
         }
 
         if (DescribePass(authentication, fromDomain) is not null)
@@ -87,6 +89,17 @@ internal static class AuthStatusEvaluator
     public static bool AllDkimFailed(AuthenticationResults authentication)
     {
         return authentication.Dkim.Count > 0 && authentication.Dkim.All(dkim => dkim.Verdict == AuthVerdict.Fail);
+    }
+
+    /// <summary>
+    /// True when DMARC failed but Microsoft's composite authentication passed (AP-07b E1). The state is then
+    /// <see cref="AuthStatus.Unknown"/>, and the authentication signal adds no failure points.
+    /// </summary>
+    /// <param name="authentication">Parsed header.</param>
+    /// <returns>True for DMARC fail together with compauth pass.</returns>
+    public static bool IsDmarcFailOverruledByCompAuth(AuthenticationResults authentication)
+    {
+        return IsDmarcFail(authentication) && authentication.CompAuth == AuthVerdict.Pass;
     }
 
     private static bool IsDmarcFail(AuthenticationResults authentication)

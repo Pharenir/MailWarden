@@ -5,7 +5,10 @@ namespace MailWarden.Core.Classification;
 /// </summary>
 public enum AuthVerdict
 {
-    /// <summary>"none": the method was not applicable (e.g. message not signed).</summary>
+    /// <summary>
+    /// "none": the method was not applicable (e.g. message not signed); also Microsoft's "bestguesspass" (no DMARC
+    /// record published). For <see cref="AuthenticationResults.CompAuth"/> it also means "absent".
+    /// </summary>
     None,
 
     /// <summary>"pass".</summary>
@@ -20,7 +23,7 @@ public enum AuthVerdict
     /// <summary>"neutral".</summary>
     Neutral,
 
-    /// <summary>"temperror": temporary failure while checking.</summary>
+    /// <summary>"temperror" (also "timeout"): temporary failure while checking.</summary>
     TempError,
 
     /// <summary>"permerror": permanent error while checking (e.g. broken record).</summary>
