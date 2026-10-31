@@ -16,4 +16,12 @@ public sealed record AuthenticationResults(
 {
     /// <summary>Result without any information (no header, or nothing parseable).</summary>
     public static AuthenticationResults Empty { get; } = new(null, null, Array.Empty<AuthMethodResult>(), null);
+
+    /// <summary>
+    /// True when the kept DMARC result has a <c>header.from</c> property that is present but yields no domain
+    /// (e.g. <c>header.from=""</c>). Distinguishes that ambiguous case from an absent <c>header.from</c>, which both
+    /// give <c>Dmarc.Domain == null</c>; a DMARC pass is not trusted in the first case (planner decision C22).
+    /// Set by <see cref="AuthenticationResultsParser"/> only.
+    /// </summary>
+    internal bool IsDmarcHeaderFromWithoutDomain { get; init; }
 }

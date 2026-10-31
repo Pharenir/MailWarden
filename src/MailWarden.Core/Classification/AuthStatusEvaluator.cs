@@ -2,10 +2,11 @@ namespace MailWarden.Core.Classification;
 
 /// <summary>
 /// Derives <see cref="AuthStatus"/> from the parsed top-most Authentication-Results header (rules of AP-07a, planner
-/// decisions C11/C12): the provider's DMARC result takes precedence –
+/// decisions C11/C12/C22): the provider's DMARC result takes precedence –
 /// DMARC fail → Failed (an aligned SPF/DKIM pass does not rescue it);
-/// DMARC pass whose header.from is null or aligned with the From domain → Authenticated;
-/// otherwise (no DMARC, other verdicts, or a pass for another domain) DKIM pass for an aligned domain or SPF pass for
+/// DMARC pass whose header.from is absent or aligned with the From domain → Authenticated;
+/// otherwise (no DMARC, other verdicts, a pass for another domain, or a header.from without a determinable domain)
+/// DKIM pass for an aligned domain or SPF pass for
 /// an aligned domain → Authenticated; Failed = not Authenticated and (SPF fail, or at least one DKIM result and all of
 /// them fail); Unknown otherwise.
 /// </summary>
@@ -47,15 +48,17 @@ internal static class AuthStatusEvaluator
         }
 
         // A DMARC pass counts only for the From domain (C12); a pass for another domain falls through to DKIM/SPF.
+        // Domain null: trusted only when header.from is absent; present without a determinable domain is ambiguous
+        // input and falls through as well (C22).
         var dmarc = authentication.Dmarc;
         if (dmarc?.Verdict == AuthVerdict.Pass)
         {
-            if (dmarc.Domain is null)
+            if (dmarc.Domain is null && !authentication.IsDmarcHeaderFromWithoutDomain)
             {
                 return "DMARC pass";
             }
 
-            if (IsAligned(dmarc.Domain, fromDomain))
+            if (dmarc.Domain is not null && IsAligned(dmarc.Domain, fromDomain))
             {
                 return $"DMARC pass for '{ReasonText.Truncate(dmarc.Domain)}'";
             }

@@ -81,53 +81,81 @@ public static class AuthenticationResultsParser
 
     // Reads "key=value" pairs; the first pair is the method, later pairs are its properties, unless a later key is
     // spf/dkim/dmarc again (missing ';'). Stray tokens (version numbers) are skipped. A value is one contiguous run
-    // (see ReadValue), so '=' or "dmarc=" inside a value never starts a new pair or result.
+    // (see ReadValue), so '=' or "dmarc=" inside a value never starts a new pair or result. "key=" at the end of the
+    // statement is a present property with an empty value (C21).
     private static void ParseStatement(List<HeaderToken> tokens, int start, int end, ResultCollector collector)
     {
         PendingMethod? currentMethod = null;
         var position = start;
         while (position < end)
         {
-            var isPairStart = position + 2 < end
-                && tokens[position].Kind == HeaderTokenKind.Word
-                && tokens[position + 1].Kind == HeaderTokenKind.EqualsSign;
-            if (!isPairStart)
+            if (!IsKeyAt(tokens, position, end))
             {
                 position++;
                 continue;
             }
 
             var key = tokens[position].Text;
-            position = ReadValue(tokens, position + 2, end, out var value);
+            var startsMethod = currentMethod is null || IsEvaluatedMethodName(key);
+            position = ReadValue(tokens, position + 2, end, isPropertyValue: !startsMethod, out var value);
 
-            if (currentMethod is null || IsEvaluatedMethodName(key))
+            if (currentMethod is not null && !startsMethod)
             {
-                collector.Add(currentMethod);
-                currentMethod = new PendingMethod(GetMethodName(key), ParseVerdict(value.Text));
+                currentMethod.SetProperty(key, value);
             }
             else
             {
-                currentMethod.SetProperty(key, value);
+                collector.Add(currentMethod);
+                currentMethod = new PendingMethod(GetMethodName(key), ParseVerdict(value.Text));
             }
         }
 
         collector.Add(currentMethod);
     }
 
+    // A Word directly followed by '=' (whitespace in between allowed, e.g. "dkim = pass").
+    private static bool IsKeyAt(List<HeaderToken> tokens, int position, int end)
+    {
+        return position + 1 < end
+            && tokens[position].Kind == HeaderTokenKind.Word
+            && tokens[position + 1].Kind == HeaderTokenKind.EqualsSign;
+    }
+
     // RFC 8601 pvalue: the value after "key =" is one contiguous run up to whitespace, ';' or a comment (outside
     // quotes). Adjacent word, quoted and '=' parts are concatenated without separator, so a quoted local part stays
     // part of the value ("\"x@victim.test\"@attacker.test") and VERP/SRS local parts with '=' are not split.
+    // C21: "key=" followed by whitespace and another "key=" (or by the statement end) is an empty value; the next
+    // word starts a new pair ("smtp.mailfrom= dmarc=fail"). A first token after whitespace that is not a key is still
+    // the value ("dkim = pass").
+    // C20: CFWS between local part and "@domain" is ignored (RFC 5322): in a property value, a following word that
+    // starts with '@' and is not itself a key is appended with its joined run ("\"x@victim.test\" (c) @attacker.test").
     // Domain part (C17): the text after the last '@' outside quotes, up to the next quoted part (a domain name never
     // contains a quoted string); "x@attacker.test\"@victim.test\"" → "attacker.test". A value whose '@' signs are all
-    // inside quotes has no domain ("\"x@victim.test\"" → null); a value without any '@' is the domain itself
-    // ("example.test", Outlook.com smtp.mailfrom, header.d, header.from).
-    // start points at the first token after '=' (start < end); returns the index after the value. Linear: every
-    // token is visited once and its text scanned once.
-    private static int ReadValue(List<HeaderToken> tokens, int start, int end, out PropertyValue value)
+    // inside quotes has no domain ("\"a\"\"b@c.test\"" → null); a value without any '@' is the domain itself
+    // ("example.test", Outlook.com smtp.mailfrom, header.d, header.from). C19: a value that is exactly one quoted
+    // string is unquoted first.
+    // start points at the first token after '='; returns the index after the value. Linear: every token is visited
+    // once and its text scanned once.
+    private static int ReadValue(List<HeaderToken> tokens, int start, int end, bool isPropertyValue, out PropertyValue value)
     {
-        var position = start + 1;
-        while (position < end && tokens[position].IsJoinedToPrevious)
+        var isEmptyValue = start >= end || (!tokens[start].IsJoinedToPrevious && IsKeyAt(tokens, start, end));
+        if (isEmptyValue)
         {
+            value = new PropertyValue(string.Empty, null);
+            return start;
+        }
+
+        var position = start + 1;
+        while (position < end)
+        {
+            var token = tokens[position];
+            var continuesValue = token.IsJoinedToPrevious
+                || (isPropertyValue && IsAddressDomainContinuation(tokens, position, end));
+            if (!continuesValue)
+            {
+                break;
+            }
+
             position++;
         }
 
@@ -178,6 +206,16 @@ public static class AuthenticationResultsParser
 
         value = new PropertyValue(valueText, domainPart);
         return position;
+    }
+
+    // C20: a separated Word starting with '@' that is not a key belongs to the preceding address value. Quoted words
+    // count too: appending them makes the value mixed, whose quoted '@' never yields a domain (fail-safe).
+    private static bool IsAddressDomainContinuation(List<HeaderToken> tokens, int position, int end)
+    {
+        var token = tokens[position];
+        return token.Kind == HeaderTokenKind.Word
+            && token.Text.StartsWith('@')
+            && !IsKeyAt(tokens, position, end);
     }
 
     // Semicolons never occur inside a statement, so only Word and '=' remain.
@@ -276,6 +314,7 @@ public static class AuthenticationResultsParser
         private readonly List<AuthMethodResult> dkimResults = [];
         private AuthMethodResult? spfResult;
         private AuthMethodResult? dmarcResult;
+        private bool isDmarcHeaderFromWithoutDomain;
 
         public string? AuthServId { get; set; }
 
@@ -289,8 +328,10 @@ public static class AuthenticationResultsParser
                 case "dkim":
                     dkimResults.Add(new AuthMethodResult(method.Verdict, ToDomain(method.HeaderD) ?? ToDomain(method.HeaderI)));
                     break;
-                case "dmarc":
-                    dmarcResult ??= new AuthMethodResult(method.Verdict, ToDomain(method.HeaderFrom));
+                case "dmarc" when dmarcResult is null:
+                    var headerFromDomain = ToDomain(method.HeaderFrom);
+                    dmarcResult = new AuthMethodResult(method.Verdict, headerFromDomain);
+                    isDmarcHeaderFromWithoutDomain = method.HeaderFrom is not null && headerFromDomain is null;
                     break;
             }
         }
@@ -302,7 +343,10 @@ public static class AuthenticationResultsParser
                 return AuthenticationResults.Empty;
             }
 
-            return new AuthenticationResults(AuthServId, spfResult, dkimResults.AsReadOnly(), dmarcResult);
+            return new AuthenticationResults(AuthServId, spfResult, dkimResults.AsReadOnly(), dmarcResult)
+            {
+                IsDmarcHeaderFromWithoutDomain = isDmarcHeaderFromWithoutDomain,
+            };
         }
     }
 }
