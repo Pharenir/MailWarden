@@ -55,6 +55,8 @@ Original-Headern (Outlook.com); 1.870 ohne Header (vermutlich IMAP-/Gmail-Ordner
   `--xxxx.yyyy.site` oder `AAA.comXXXX…` → künstliche Fixtures daraus bauen
 - [ ] `display-name-mismatch` hat in diesen Daten nie gefeuert (C4 hier nicht belegt)
 - [ ] Kein Parser-Ausfall: in keinem Header fehlte eine Methode, die im Rohtext stand
+- Freigabe Dennis 2026-10-31: zur Feinabstimmung der Filter darf die Probe auch Mail-Bodys auswerten, solange davon
+  nichts ins Repo gelangt (nur anonymisierte Kennzahlen bzw. daraus abgeleitete künstliche Fixtures).
 
 ## Entschieden (2026-10-31)
 - Name/Ablage `K:\Projekte\Windows-Tools\MailWarden`, Lizenz PolyForm Noncommercial 1.0.0
