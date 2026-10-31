@@ -1,16 +1,12 @@
 # TODO – MailWarden
 
 ## Offen
-- [ ] Dennis: AP-01 Fall 30 – WinUI-App starten (Pfad unten unter „Übergabe“)
+- [ ] **Dennis: manuelle Tests nach `work\manual-tests.md`** (AP-01 Fall 30, AP-02a Fälle 28–30, AP-03a Fall 28,
+  Begründungstexte AP-07a/b) – ersetzt die Einzelpunkte unten; „fertig“ erst danach
 - [ ] AP-13: `.ico` aus `assets\mailwarden-512.png` erzeugen (Exe-Icon, Installer)
 - [ ] AP-13: WindowsAppSDK-Metapaket zieht ~38 MB KI-Komponenten (onnxruntime/DirectML) → nur benötigte Teilpakete? (Paketentscheidung Dennis)
 - [ ] AP-04: ungültiges `MAILWARDEN_DATA_DIR` beendet die App beim Start stumm → Logger + Meldungsfenster
 - [ ] AP-03/AP-04: EML überschreiben scheitert bei offenem Leser → Lesebereich lädt EML in den Speicher, Befehlswarteschlange wiederholt
-- [ ] Dennis: AP-02a Fälle 28–30 mit der AuthProbe (Anleitung `work\AP-02a\impl-notes.md`, „AuthProbe usage for
-  Dennis“ – Worktree ist entfernt: statt `cd .worktrees\feat-ap-02a` aus dem Projektordner starten, die Probe liegt
-  jetzt unter `_scratch\auth-probe`); dabei prüfen: `%APPDATA%\Google.Apis.Auth` entsteht **nicht**; Abbruch auf der
-  Google-Seite meldet UserCancelled/AccessDenied, nicht `state_mismatch`
-- [ ] Dennis: AP-07a Begründungstexte ansehen (`docs\classifier.md`; Probe `_scratch\ClassifierProbe`)
 
 ### Vertagt aus AP-02a (A18, secure.1/2, review.2)
 - [ ] Gemeinsamer Atomic-Write-Helfer für `FileEmlStore`/`DpapiCredentialStore` (berührt AP-01-Code)
@@ -19,8 +15,7 @@
   ein `MicrosoftTokenProvider` je Store
 - [ ] Logging-Regel (AP-02b/AP-04): bei `AuthenticationFailedException` nur Provider, Reason, ProviderErrorCode, Message,
   Typ der inneren Ausnahme – nie `ToString()` (innere Meldungen enthalten Servertexte bzw. Dateipfade mit Benutzername)
-- [ ] AP-13: ACL des Credentials-Ordners bzw. Ort des Datenordners (`<install>\data` erbt Rechte); Obergrenze für
-  Credential-Dateien (z. B. 1 MB, heute `OverflowException` > 2 GB)
+- [ ] AP-13: Obergrenze für Credential-Dateien (z. B. 1 MB, heute `OverflowException` > 2 GB)
 - [ ] Widerruf beim Server beim Entfernen eines Kontos (Google revoke-Endpunkt)
 - [ ] Aufräumen verwaister Grants beim Start, **einschließlich `*.tmp`** im Credentials-Ordner (secure N5/N7)
 - [ ] Zugriff mehrerer Prozesse auf denselben Credentials-Ordner (AuthProbe + App) ist ungeschützt (A9: Sperre nur im Prozess)
@@ -66,10 +61,14 @@ Original-Headern (Outlook.com); 1.870 ohne Header (vermutlich IMAP-/Gmail-Ordner
 - Gruppenansichten: Posteingang, Gesendet, Postausgang (lokale Versandwarteschlange), Screener, Junk, Quarantäne – jeweils über alle Konten und je Konto
 - Screener: `LikelyLegit` landet im Screener; Posteingang nur bekannte Absender; „kein Junk“ → Absender ins Adressbuch
 - AP-07a und AP-02a parallel zu AP-01 vorgezogen (Dennis 2026-10-31)
+- Erster Abgleich lädt **alle** Mails: `SyncOptions.InitialSyncDays` Standard 0 statt 90 (Dennis 2026-10-31, vor dem
+  Merge in AP-03a umgesetzt)
+- Datenordner/Credentials ohne eigene ACL und am bisherigen Ort: Dennis ist einziger Benutzer des Rechners (Entscheidung
+  zu secure M2 AP-03a und AP-02a-ACL-Punkt, 2026-10-31) → bewusst akzeptiert, keine Änderung
 
 ## Testzähler
-Testzähler: 0/4 seit letztem S3 (zuletzt 2026-10-31: S3 auf `main` @ `e45b892` nach allen vier Merges, 542/542 –
-Core.Tests 299, Infrastructure.Tests 243; Bericht `work\S3-main-2026-10-31.md`)
+Testzähler: 0/4 seit letztem S3 (zuletzt 2026-10-31: S3 auf `main` @ `e0481ef` nach Merge von AP-07b und AP-03a,
+752/752 – Core.Tests 360, Infrastructure.Tests 392; Bericht `work\S3-main-2026-10-31-b.md`)
 
 ## Stand 2026-10-31 (Session 2, Ende)
 **CPM erledigt:** `chore/app-icon`, AP-01, AP-07a, AP-02a per `--no-ff` nach `main` gemergt, Build grün
@@ -87,22 +86,26 @@ zusammengeführt. „Fertig“ im Sinne von Dennis erst nach seinen manuellen Pr
   `.env.example` um Google-Variablen ergänzt. Offen: Dennis Fälle 28–30 mit AuthProbe.
 
 ## Übergabe – so geht es weiter
-1. Dieser Handover liegt auf `chore/session-handover` (lokal, nicht gepusht) → beim nächsten CPM mit nach `main`.
-2. Aufgeräumt 2026-10-31 (Freigabe Dennis): alle sechs AP-Worktrees und sieben Branches (inkl. `chore/app-icon`)
+1. CPM Sitzung 3 erledigt (2026-10-31): `chore/session-handover`, AP-07b, AP-03a per `--no-ff` nach `main`; README-Konflikt
+   (Statussatz) zusammengeführt; Build grün, S3 752/752, `main` @ `e0481ef` gepusht. SyncProbe nach
+   `_scratch\sync-probe` gerettet und gebaut. Dieser Handover + `work\manual-tests.md` liegen auf
+   `chore/manual-test-list` (lokal) → beim nächsten CPM mit nach `main`.
+2. Erledigt: gemergte Worktrees/Branches entfernt. Läuft: AP-03a fix.3 (siehe „Worktrees“).
+3. Nächste APs: AP-03b (Befehlswarteschlange, IDLE, Reconnect; Punkte „Vertagt aus AP-03a“), danach AP-07c
+   (Klassifizierer an Mails/Ordner); AP-04 (UI inkl. Konten-UI). Vor Start: Anforderung je AP (Planer).
+4. Aufgeräumt 2026-10-31 (Freigabe Dennis): alle sechs AP-Worktrees und sieben Branches (inkl. `chore/app-icon`)
    entfernt, leere Datei `AuthenticationResultsParser.cs` gelöscht; Probe-DBs gab es keine mehr. AuthProbe und
    ClassifierProbe vorher nach `_scratch\auth-probe` bzw. `_scratch\ClassifierProbe` im Hauptordner gerettet.
    `MailWarden.sln` ohne BOM halten (`dotnet sln` fügt es wieder ein).
-3. Nächste APs laut PLAN: AP-03 (Sync-Engine) und AP-07b (Klassifizierer an Mails/Ordner, Punkte oben), AP-04 (UI
-   inkl. AP-02b Konten-UI). Vor Start: Anforderung je AP schreiben (Planer), Modellwahl wie bisher.
 
 ## Worktrees (alle unter `.worktrees\`, git-ignoriert)
-Abgezweigt von `chore/session-handover` @ `d39915b` (enthält Anforderungen AP-03a/AP-07b):
+AP-03a/AP-07b-Worktrees und -Branches sowie `chore/session-handover` entfernt (Freigabe Dennis 2026-10-31).
+AP-03a fix.3 (verlorene UIDs, Freigabe Dennis), abgezweigt von `main` @ `e0481ef`, Anforderung `7b1135c`:
 | Worktree | Branch |
 |---|---|
-| `feat-ap-03a` | `feat/ap-03a-sync-down` |
-| `test-ap-03a` | `test/ap-03a-sync-down` |
-| `feat-ap-07b` | `feat/ap-07b-classifier-calibration` |
-| `test-ap-07b` | `test/ap-07b-classifier-calibration` |
+| `fix-ap-03a` | `fix/ap-03a-missed-uids` |
+| `test-ap-03a-fix` | `test/ap-03a-missed-uids` |
+Fall 30 (AuthProbe abbrechen) bleibt vorerst offen (Dennis 2026-10-31).
 
 ## Session 3 (2026-10-31)
 - AP-03 geteilt in AP-03a (Abgleich Server → lokal, Schema v2) und AP-03b (Befehlswarteschlange, IDLE); AP-07 in
@@ -110,26 +113,38 @@ Abgezweigt von `chore/session-handover` @ `d39915b` (enthält Anforderungen AP-0
   Grund: AP-07b ist unabhängig vom Sync und läuft parallel; AP-07c braucht die Befehlswarteschlange.
 - Planer-Entscheidungen AP-07b aus PstProbe-Daten (E1–E4 in `work\AP-07b\requirement.md`): `compauth=pass` neutralisiert
   DMARC fail zu „nicht verifiziert“ (0 Punkte); Inhalts-Signale ohne Punkte bei authentifizierten Mails.
-- AP-03a: Erstabgleich Standard 90 Tage (`InitialSyncDays`, 0 = alles) – Ich bin mir unsicher, ob Dennis mehr will.
+- AP-03a: Erstabgleich zunächst Standard 90 Tage; Dennis entschied „alles laden“ → Standard 0 (vor dem Merge geändert,
+  Test angepasst).
 - implement.1 + author.0 für beide APs gestartet.
 - **AP-07b Gate erreicht** (`feat/ap-07b-classifier-calibration`): verify.2 395/395 (S2), review.1 APPROVE, fix.2
   (SHOULD 1 + NITs) erledigt, PstProbe: Fehlalarm weg, Junk unverändert; Doku (README, `docs\classifier.md` lokal).
-  Wartet auf CPM (zusammen mit AP-03a, ein S3).
-
-- **AP-03a Gate erreicht** (verify.1 S3 646/646, review.1 APPROVE, secure.1 0/0/2/4); fix.2 (F1–F7) läuft.
+  Gemergt und gepusht.
+- **AP-03a Gate erreicht** (verify.2 S3 658/658, review.1 + review.2 APPROVE, secure.1 0/0/2/4, fix.2 F1–F7).
+  Gemergt und gepusht.
+- **AP-03a fix.3 Gate erreicht** (`fix/ap-03a-missed-uids` @ `a221b2e`): verify.1 S3 761/761 (Core 360, Infrastructure
+  401), review-fix3 APPROVE (SHOULDs = Doku, vom Planer erledigt), echte Konten auf Datenkopie: 0 abweichende Ordner.
+  Wartet auf CPM. Nach Merge: `_scratch\sync-check` im Hauptordner auf `SkippedUpToUid` umstellen (Fassung im
+  Fix-Worktree), dann SyncProbe auf `probe-data` (migriert auf v3, lädt die fehlenden Papierkorb-Mails).
 
 ### Vertagt aus AP-03a (review.1/secure.1, Details `work\AP-03a\requirement.md` „Decisions fix.2“)
-- [ ] **Entscheidung Dennis (secure M2):** Mails liegen im Klartext im Datenordner; `K:\` vererbt Lesezugriff für alle
-  angemeldeten Benutzer. Optionen: ACL ohne Vererbung (nur Dennis + SYSTEM) beim Anlegen des Datenordners, oder
-  Standard `%LOCALAPPDATA%\MailWarden`. Vor dem ersten echten Einsatz entscheiden.
 - [ ] AP-03b: gemeinsamer IMAP-Verbindungs-/Ordnerlisten-Code für `MailKitTransport` und `ConnectionProbe` (review SHOULD 2)
 - [ ] AP-03b: nach `ImapProtocolException` neu verbinden und mit dem nächsten Ordner weitermachen (Q4)
 - [ ] AP-03b/AP-05: rein lokale Rollen (Postausgang) von R1 ausnehmen (Q2)
 - [ ] AP-03b: `IEmlStore.DeleteFolderAsync`, Aufräumen verwaister EML/`*.tmp` beim Start; `secure_delete`/`VACUUM` erwägen (Q3, secure N4)
-- [ ] AP-03b: Metadaten aller Kandidaten in einem FETCH; ohne CONDSTORE holt jeder Lauf alle Flags; vorübergehendes
-  FETCH-null vs. `HighestSyncedUid` (review NITs)
-- [ ] AP-03b: Einzelmail-Fehler beim **ersten** Abgleich speichert einen Stand → nächster Lauf ohne Startfenster lädt
-  ältere UIDs über der fehlgeschlagenen einmalig nach (review.2 NIT; z. B. beim Erstabgleich mit Fehlern keinen Stand speichern)
+- [ ] AP-03b: Metadaten aller Kandidaten in einem FETCH; ohne CONDSTORE holt jeder Lauf alle Flags (review NITs)
+- [x] Papierkorb-Mails fehlten (Fall 28) / FETCH-null vs. Hochwassermarke / Einzelfehler beim Erstabgleich → durch
+  AP-03a fix.3 behoben (`fix/ap-03a-missed-uids`: Kandidaten = jede lokal fehlende Server-UID über der
+  Startfenster-Grenze, Schema v3); Nachprüfung echte Konten: alle Ordner deckungsgleich
+- [ ] fix.3 review NIT: UID 0 im Startfenster setzt die Grenze still auf 0 → wie F3 als Protocol-Fehler behandeln
+  (`SyncEngine.cs:492-494`, mit MailKit praktisch unerreichbar)
+- [ ] fix.3 Restrisiko (nur mit Startfenster > 0): liefert SEARCH SINCE beim Erstabgleich unvollständig, liegt die
+  Grenze dauerhaft zu hoch; bei Standard 0 ohne Wirkung
+- [ ] AP-03b: **Tempo** – Fall 28 (2026-10-31): Outlook.com ~4 Mails/s beim Erstabgleich (zwei Round-Trips je Mail);
+  Postfach mit >1.400 Mails braucht viele Minuten → FETCH bündeln (Body + Metadaten in einem Kommando, Blöcke à n UIDs)
+- [ ] AP-03b/AP-04: Fortschritt während des Abgleichs melden (`IProgress<…>` am `SyncEngine`); die SyncProbe zeigt bis
+  zum Ende nichts an und wirkt deshalb hängend
+- [ ] Provider-Profil Gmail: `[Gmail]/Important` kam ohne `\Important`-Attribut (Rolle None, sichtbar) → wird als
+  normaler Ordner abgeglichen (Duplikate) → per Profil ausblenden wie All Mail
 - [ ] AP-03b: Mail, die jedes Mal `ImapProtocolException` auslöst, blockiert weiter das Konto (MailKit trennt) → mit Reconnect lösen
 - [ ] AP-04: Logging-Regel `SyncReport` – nur Typ, Rolle, Ordner-ID; nie `Error`-Text oder Ordnername (secure N1)
 - [ ] UI-AP: Steuer-/Bidi-Zeichen (RTLO) in Betreff/Absendername/Ordnernamen beim Anzeigen entschärfen
@@ -149,9 +164,5 @@ WinUI-App für Fall 30: im Projektordner `dotnet build MailWarden.sln`, dann
 - Sitzung 2 (2026-10-31): Builder AP-07a ×1 (+5 Fortsetzungen), AP-02a ×1 (+2 Fortsetzungen) · Tester AP-01 ×1,
   AP-07a ×6, AP-02a ×4 · Reviewer AP-01 ×1, AP-07a ×4, AP-02a ×3 · Security AP-02a ×2 · Documenter ×3
 - Sitzung 3 (2026-10-31): Tester S3 main ×1 · AP-07b: Builder ×1 (+1 Fortsetzung), Tester ×2 (+1), Reviewer ×1,
-  Documenter ×1 · AP-03a: Builder ×1 (+2 Fortsetzungen), Tester ×2 (+2), Reviewer ×2, Security ×1, Documenter ×1
-
-**CPM-Reihenfolge (wenn Dennis freigibt):** `chore/session-handover` → `feat/ap-07b-classifier-calibration` →
-`feat/ap-03a-sync-down` (alles `--no-ff`). Probe-Merge: nur `README.md` kollidiert zwischen AP-07b und AP-03a (beide
-Documenter-Ergänzungen zusammenführen). Danach Build + S3 auf `main`, dann Push; SyncProbe aus
-`.worktrees\feat-ap-03a\_scratch\sync-probe` nach `_scratch\sync-probe` im Hauptordner retten.
+  Documenter ×1 · AP-03a: Builder ×1 (+2 Fortsetzungen), Tester ×2 (+2), Reviewer ×2, Security ×1, Documenter ×1 ·
+  CPM: Tester ×2 (Testanpassung Standard 0, S3 main)
