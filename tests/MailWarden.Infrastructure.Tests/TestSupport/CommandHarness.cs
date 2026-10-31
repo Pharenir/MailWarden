@@ -174,7 +174,7 @@ internal sealed class CommandQueueFixture : IAsyncDisposable
 
     public MailFolder Archive { get; private set; } = null!;
 
-    /// <summary>Creates account and folders Inbox, Junk, Trash, Archive (UIDVALIDITY 1000 each).</summary>
+    /// <summary>Creates account and folders Inbox (local UIDs 1..9), Junk, Trash, Archive (UIDVALIDITY 1000 each).</summary>
     public static async Task<CommandQueueFixture> CreateAsync(bool withTrash = true)
     {
         StorageFixture storage = await StorageFixture.CreateAsync();
@@ -190,7 +190,17 @@ internal sealed class CommandQueueFixture : IAsyncDisposable
             fixture.Trash = await storage.AddFolderAsync(account.Id, FolderRole.Trash, "Trash");
         }
 
+        await fixture.SeedAsync(fixture.Inbox, 1, 2, 3, 4, 5, 6, 7, 8, 9);
         return fixture;
+    }
+
+    /// <summary>Stores local messages with the given UIDs (enqueue requires locally stored UIDs).</summary>
+    public async Task SeedAsync(MailFolder folder, params uint[] uids)
+    {
+        foreach (uint uid in uids)
+        {
+            await Storage.AddMessageAsync(folder, uid);
+        }
     }
 
     public async Task<long> CommandRowCountAsync() => await Storage.CountRowsAsync("mail_commands");

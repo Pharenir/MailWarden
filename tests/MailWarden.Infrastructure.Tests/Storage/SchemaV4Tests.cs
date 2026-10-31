@@ -157,7 +157,7 @@ public sealed class SchemaV4Tests
         Assert.Equal(SeedSyncedAt, state.LastSyncedAt);
         var queue = new SqliteMailCommandQueue(database, new FixedTimeProvider(SyncHarness.FixedNow));
         Assert.Empty(await queue.ListAsync(SeedAccountId));
-        MailCommand command = await queue.EnqueueSetFlagsAsync(7, [11], MessageFlags.Seen, MessageFlags.None);
+        MailCommand command = await queue.EnqueueSetFlagsAsync(7, 4242, [11], MessageFlags.Seen, MessageFlags.None);
         Assert.Equal(4242u, command.FolderUidValidity);
     }
 
@@ -172,7 +172,7 @@ public sealed class SchemaV4Tests
         await using (SqliteDatabase first = SqliteDatabase.ForFile(databasePath))
         {
             await first.InitializeAsync();
-            await new SqliteMailCommandQueue(first, clock).EnqueueDeletePermanentlyAsync(7, [11]);
+            await new SqliteMailCommandQueue(first, clock).EnqueueDeletePermanentlyAsync(7, 4242, [11]);
         }
 
         SqliteConnection.ClearAllPools();
@@ -188,9 +188,10 @@ public sealed class SchemaV4Tests
     public async Task Deleting_a_folder_removes_its_commands_as_source_and_as_target()
     {
         await using CommandQueueFixture fixture = await CommandQueueFixture.CreateAsync();
-        MailCommand sourceOnly = await fixture.Queue.EnqueueSetFlagsAsync(fixture.Junk.Id, [1], MessageFlags.Seen, MessageFlags.None);
-        MailCommand movedIn = await fixture.Queue.EnqueueMoveAsync(fixture.Inbox.Id, [2], fixture.Archive.Id);
-        MailCommand unrelated = await fixture.Queue.EnqueueSetFlagsAsync(fixture.Inbox.Id, [3], MessageFlags.Seen, MessageFlags.None);
+        await fixture.SeedAsync(fixture.Junk, 1);
+        MailCommand sourceOnly = await fixture.Queue.EnqueueSetFlagsAsync(fixture.Junk.Id, fixture.Junk.UidValidity, [1], MessageFlags.Seen, MessageFlags.None);
+        MailCommand movedIn = await fixture.Queue.EnqueueMoveAsync(fixture.Inbox.Id, fixture.Inbox.UidValidity, [2], fixture.Archive.Id);
+        MailCommand unrelated = await fixture.Queue.EnqueueSetFlagsAsync(fixture.Inbox.Id, fixture.Inbox.UidValidity, [3], MessageFlags.Seen, MessageFlags.None);
 
         await fixture.Storage.Folders.DeleteAsync(fixture.Junk.Id);
         Assert.DoesNotContain(sourceOnly.Id, (await fixture.Queue.ListAsync(fixture.Account.Id)).Select(command => command.Id));
@@ -207,8 +208,9 @@ public sealed class SchemaV4Tests
     public async Task Deleting_the_account_removes_all_its_commands()
     {
         await using CommandQueueFixture fixture = await CommandQueueFixture.CreateAsync();
-        await fixture.Queue.EnqueueSetFlagsAsync(fixture.Inbox.Id, [1], MessageFlags.Seen, MessageFlags.None);
-        await fixture.Queue.EnqueueDeletePermanentlyAsync(fixture.Junk.Id, [2]);
+        await fixture.SeedAsync(fixture.Junk, 2);
+        await fixture.Queue.EnqueueSetFlagsAsync(fixture.Inbox.Id, fixture.Inbox.UidValidity, [1], MessageFlags.Seen, MessageFlags.None);
+        await fixture.Queue.EnqueueDeletePermanentlyAsync(fixture.Junk.Id, fixture.Junk.UidValidity, [2]);
 
         await fixture.Storage.Accounts.DeleteAsync(fixture.Account.Id);
 

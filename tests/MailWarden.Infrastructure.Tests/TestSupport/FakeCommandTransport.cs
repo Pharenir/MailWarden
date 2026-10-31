@@ -49,6 +49,9 @@ internal sealed partial class FakeMailServer
     /// <summary>When true, MoveAsync moves the messages but returns an empty COPYUID map.</summary>
     public bool OmitCopyUid { get; set; }
 
+    /// <summary>Rewrites the COPYUID map MoveAsync returns (e.g. duplicate or foreign UIDs, other UIDVALIDITY).</summary>
+    public Func<CopyUidMap, CopyUidMap>? CopyUidMapTransform { get; set; }
+
     /// <summary>Source UIDs for which MoveAsync leaves out the COPYUID mapping (the message is moved anyway).</summary>
     public HashSet<uint> OmitCopyUidFor { get; } = [];
 
@@ -127,7 +130,7 @@ internal sealed class FakeCommandTransport(FakeMailServer server) : IMailCommand
         return Task.CompletedTask;
     }
 
-    public Task<IReadOnlyDictionary<uint, uint>> MoveAsync(
+    public Task<CopyUidMap> MoveAsync(
         IReadOnlyList<uint> uids,
         string targetFullName,
         CancellationToken ct = default)
@@ -149,7 +152,8 @@ internal sealed class FakeCommandTransport(FakeMailServer server) : IMailCommand
             }
         }
 
-        return Task.FromResult<IReadOnlyDictionary<uint, uint>>(map);
+        CopyUidMap result = server.OmitCopyUid ? CopyUidMap.Empty : new CopyUidMap(target.UidValidity, map);
+        return Task.FromResult(server.CopyUidMapTransform?.Invoke(result) ?? result);
     }
 
     public Task ExpungeAsync(IReadOnlyList<uint> uids, CancellationToken ct = default)

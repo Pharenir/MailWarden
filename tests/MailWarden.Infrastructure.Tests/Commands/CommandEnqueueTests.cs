@@ -22,7 +22,7 @@ public sealed class CommandEnqueueTests
         await fixture.Storage.AddMessageAsync(fixture.Inbox, 2);
 
         MailCommand command = await fixture.Queue.EnqueueSetFlagsAsync(
-            fixture.Inbox.Id, [5, 2], MessageFlags.Seen, MessageFlags.None);
+            fixture.Inbox.Id, fixture.Inbox.UidValidity, [5, 2], MessageFlags.Seen, MessageFlags.None);
 
         Assert.True(command.Id > 0);
         Assert.Equal(fixture.Account.Id, command.AccountId);
@@ -52,7 +52,7 @@ public sealed class CommandEnqueueTests
         await using CommandQueueFixture fixture = await CommandQueueFixture.CreateAsync();
 
         MailCommand command = await fixture.Queue.EnqueueSetFlagsAsync(
-            fixture.Inbox.Id, [9, 3, 9, 1, 3], MessageFlags.Flagged, MessageFlags.None);
+            fixture.Inbox.Id, fixture.Inbox.UidValidity, [9, 3, 9, 1, 3], MessageFlags.Flagged, MessageFlags.None);
 
         Assert.Equal(new uint[] { 1, 3, 9 }, command.Uids);
         Assert.Equal(new uint[] { 1, 3, 9 }, (await fixture.Queue.ListAsync(fixture.Account.Id)).Single().Uids);
@@ -63,8 +63,9 @@ public sealed class CommandEnqueueTests
     {
         await using CommandQueueFixture fixture = await CommandQueueFixture.CreateAsync();
         uint[] uids = Enumerable.Range(1, 1000).Select(value => (uint)value).ToArray();
+        await fixture.SeedAsync(fixture.Inbox, uids);
 
-        MailCommand command = await fixture.Queue.EnqueueMoveAsync(fixture.Inbox.Id, uids, fixture.Archive.Id);
+        MailCommand command = await fixture.Queue.EnqueueMoveAsync(fixture.Inbox.Id, fixture.Inbox.UidValidity, uids, fixture.Archive.Id);
 
         Assert.Equal(uids, command.Uids);
     }
@@ -75,12 +76,12 @@ public sealed class CommandEnqueueTests
         await using CommandQueueFixture fixture = await CommandQueueFixture.CreateAsync();
 
         MailCommand add = await fixture.Queue.EnqueueSetFlagsAsync(
-            fixture.Inbox.Id, [1], MessageFlags.Seen | MessageFlags.Flagged | MessageFlags.Answered | MessageFlags.Draft,
+            fixture.Inbox.Id, fixture.Inbox.UidValidity, [1], MessageFlags.Seen | MessageFlags.Flagged | MessageFlags.Answered | MessageFlags.Draft,
             MessageFlags.None);
         MailCommand remove = await fixture.Queue.EnqueueSetFlagsAsync(
-            fixture.Inbox.Id, [1], MessageFlags.None, MessageFlags.Seen | MessageFlags.Flagged);
+            fixture.Inbox.Id, fixture.Inbox.UidValidity, [1], MessageFlags.None, MessageFlags.Seen | MessageFlags.Flagged);
         MailCommand both = await fixture.Queue.EnqueueSetFlagsAsync(
-            fixture.Inbox.Id, [1], MessageFlags.Seen, MessageFlags.Flagged);
+            fixture.Inbox.Id, fixture.Inbox.UidValidity, [1], MessageFlags.Seen, MessageFlags.Flagged);
 
         Assert.Equal(MessageFlags.Seen | MessageFlags.Flagged | MessageFlags.Answered | MessageFlags.Draft, add.FlagsToAdd);
         Assert.Equal(MessageFlags.Seen | MessageFlags.Flagged, remove.FlagsToRemove);
@@ -92,7 +93,7 @@ public sealed class CommandEnqueueTests
     {
         await using CommandQueueFixture fixture = await CommandQueueFixture.CreateAsync();
 
-        MailCommand command = await fixture.Queue.EnqueueMoveAsync(fixture.Inbox.Id, [4], fixture.Archive.Id);
+        MailCommand command = await fixture.Queue.EnqueueMoveAsync(fixture.Inbox.Id, fixture.Inbox.UidValidity, [4], fixture.Archive.Id);
 
         Assert.Equal(MailCommandKind.Move, command.Kind);
         Assert.Equal(fixture.Archive.Id, command.TargetFolderId);
@@ -104,7 +105,7 @@ public sealed class CommandEnqueueTests
     {
         await using CommandQueueFixture fixture = await CommandQueueFixture.CreateAsync();
 
-        MailCommand command = await fixture.Queue.EnqueueMoveToTrashAsync(fixture.Inbox.Id, [4, 6]);
+        MailCommand command = await fixture.Queue.EnqueueMoveToTrashAsync(fixture.Inbox.Id, fixture.Inbox.UidValidity, [4, 6]);
 
         Assert.Equal(MailCommandKind.MoveToTrash, command.Kind);
         Assert.Equal(fixture.Trash.Id, command.TargetFolderId);
@@ -115,9 +116,10 @@ public sealed class CommandEnqueueTests
     public async Task DeletePermanently_is_allowed_from_every_folder_including_trash()
     {
         await using CommandQueueFixture fixture = await CommandQueueFixture.CreateAsync();
+        await fixture.SeedAsync(fixture.Trash, 2);
 
-        MailCommand fromInbox = await fixture.Queue.EnqueueDeletePermanentlyAsync(fixture.Inbox.Id, [1]);
-        MailCommand fromTrash = await fixture.Queue.EnqueueDeletePermanentlyAsync(fixture.Trash.Id, [2]);
+        MailCommand fromInbox = await fixture.Queue.EnqueueDeletePermanentlyAsync(fixture.Inbox.Id, fixture.Inbox.UidValidity, [1]);
+        MailCommand fromTrash = await fixture.Queue.EnqueueDeletePermanentlyAsync(fixture.Trash.Id, fixture.Trash.UidValidity, [2]);
 
         Assert.Equal(MailCommandKind.DeletePermanently, fromInbox.Kind);
         Assert.Null(fromInbox.TargetFolderId);
@@ -130,10 +132,10 @@ public sealed class CommandEnqueueTests
     {
         await using CommandQueueFixture fixture = await CommandQueueFixture.CreateAsync();
 
-        await AssertRejectedAsync(fixture, () => fixture.Queue.EnqueueSetFlagsAsync(fixture.Inbox.Id, [], MessageFlags.Seen, MessageFlags.None));
-        await AssertRejectedAsync(fixture, () => fixture.Queue.EnqueueMoveAsync(fixture.Inbox.Id, [], fixture.Archive.Id));
-        await AssertRejectedAsync(fixture, () => fixture.Queue.EnqueueMoveToTrashAsync(fixture.Inbox.Id, []));
-        await AssertRejectedAsync(fixture, () => fixture.Queue.EnqueueDeletePermanentlyAsync(fixture.Inbox.Id, []));
+        await AssertRejectedAsync(fixture, () => fixture.Queue.EnqueueSetFlagsAsync(fixture.Inbox.Id, fixture.Inbox.UidValidity, [], MessageFlags.Seen, MessageFlags.None));
+        await AssertRejectedAsync(fixture, () => fixture.Queue.EnqueueMoveAsync(fixture.Inbox.Id, fixture.Inbox.UidValidity, [], fixture.Archive.Id));
+        await AssertRejectedAsync(fixture, () => fixture.Queue.EnqueueMoveToTrashAsync(fixture.Inbox.Id, fixture.Inbox.UidValidity, []));
+        await AssertRejectedAsync(fixture, () => fixture.Queue.EnqueueDeletePermanentlyAsync(fixture.Inbox.Id, fixture.Inbox.UidValidity, []));
     }
 
     [Fact(Timeout = TestTimeouts.PerTestMilliseconds)]
@@ -141,10 +143,10 @@ public sealed class CommandEnqueueTests
     {
         await using CommandQueueFixture fixture = await CommandQueueFixture.CreateAsync();
 
-        await AssertRejectedAsync(fixture, () => fixture.Queue.EnqueueSetFlagsAsync(fixture.Inbox.Id, [1, 0], MessageFlags.Seen, MessageFlags.None));
-        await AssertRejectedAsync(fixture, () => fixture.Queue.EnqueueMoveAsync(fixture.Inbox.Id, [0], fixture.Archive.Id));
-        await AssertRejectedAsync(fixture, () => fixture.Queue.EnqueueMoveToTrashAsync(fixture.Inbox.Id, [0]));
-        await AssertRejectedAsync(fixture, () => fixture.Queue.EnqueueDeletePermanentlyAsync(fixture.Inbox.Id, [0, 2]));
+        await AssertRejectedAsync(fixture, () => fixture.Queue.EnqueueSetFlagsAsync(fixture.Inbox.Id, fixture.Inbox.UidValidity, [1, 0], MessageFlags.Seen, MessageFlags.None));
+        await AssertRejectedAsync(fixture, () => fixture.Queue.EnqueueMoveAsync(fixture.Inbox.Id, fixture.Inbox.UidValidity, [0], fixture.Archive.Id));
+        await AssertRejectedAsync(fixture, () => fixture.Queue.EnqueueMoveToTrashAsync(fixture.Inbox.Id, fixture.Inbox.UidValidity, [0]));
+        await AssertRejectedAsync(fixture, () => fixture.Queue.EnqueueDeletePermanentlyAsync(fixture.Inbox.Id, fixture.Inbox.UidValidity, [0, 2]));
     }
 
     [Fact(Timeout = TestTimeouts.PerTestMilliseconds)]
@@ -153,10 +155,10 @@ public sealed class CommandEnqueueTests
         await using CommandQueueFixture fixture = await CommandQueueFixture.CreateAsync();
         uint[] tooMany = Enumerable.Range(1, 1001).Select(value => (uint)value).ToArray();
 
-        await AssertRejectedAsync(fixture, () => fixture.Queue.EnqueueSetFlagsAsync(fixture.Inbox.Id, tooMany, MessageFlags.Seen, MessageFlags.None));
-        await AssertRejectedAsync(fixture, () => fixture.Queue.EnqueueMoveAsync(fixture.Inbox.Id, tooMany, fixture.Archive.Id));
-        await AssertRejectedAsync(fixture, () => fixture.Queue.EnqueueMoveToTrashAsync(fixture.Inbox.Id, tooMany));
-        await AssertRejectedAsync(fixture, () => fixture.Queue.EnqueueDeletePermanentlyAsync(fixture.Inbox.Id, tooMany));
+        await AssertRejectedAsync(fixture, () => fixture.Queue.EnqueueSetFlagsAsync(fixture.Inbox.Id, fixture.Inbox.UidValidity, tooMany, MessageFlags.Seen, MessageFlags.None));
+        await AssertRejectedAsync(fixture, () => fixture.Queue.EnqueueMoveAsync(fixture.Inbox.Id, fixture.Inbox.UidValidity, tooMany, fixture.Archive.Id));
+        await AssertRejectedAsync(fixture, () => fixture.Queue.EnqueueMoveToTrashAsync(fixture.Inbox.Id, fixture.Inbox.UidValidity, tooMany));
+        await AssertRejectedAsync(fixture, () => fixture.Queue.EnqueueDeletePermanentlyAsync(fixture.Inbox.Id, fixture.Inbox.UidValidity, tooMany));
     }
 
     // Case 2 – folder
@@ -166,10 +168,10 @@ public sealed class CommandEnqueueTests
         await using CommandQueueFixture fixture = await CommandQueueFixture.CreateAsync();
         const long unknownFolderId = 987_654;
 
-        await AssertRejectedAsync(fixture, () => fixture.Queue.EnqueueSetFlagsAsync(unknownFolderId, [1], MessageFlags.Seen, MessageFlags.None));
-        await AssertRejectedAsync(fixture, () => fixture.Queue.EnqueueMoveAsync(unknownFolderId, [1], fixture.Archive.Id));
-        await AssertRejectedAsync(fixture, () => fixture.Queue.EnqueueMoveToTrashAsync(unknownFolderId, [1]));
-        await AssertRejectedAsync(fixture, () => fixture.Queue.EnqueueDeletePermanentlyAsync(unknownFolderId, [1]));
+        await AssertRejectedAsync(fixture, () => fixture.Queue.EnqueueSetFlagsAsync(unknownFolderId, 1000, [1], MessageFlags.Seen, MessageFlags.None));
+        await AssertRejectedAsync(fixture, () => fixture.Queue.EnqueueMoveAsync(unknownFolderId, 1000, [1], fixture.Archive.Id));
+        await AssertRejectedAsync(fixture, () => fixture.Queue.EnqueueMoveToTrashAsync(unknownFolderId, 1000, [1]));
+        await AssertRejectedAsync(fixture, () => fixture.Queue.EnqueueDeletePermanentlyAsync(unknownFolderId, 1000, [1]));
         await AssertRejectedAsync(fixture, () => fixture.Queue.EnqueueEmptyFolderAsync(unknownFolderId));
     }
 
@@ -180,10 +182,10 @@ public sealed class CommandEnqueueTests
         MailFolder unsynced = await fixture.Storage.Folders.UpsertAsync(
             TestData.NewFolder(fixture.Account.Id, "Unsynced", FolderRole.Junk, uidValidity: 0));
 
-        await AssertRejectedAsync(fixture, () => fixture.Queue.EnqueueSetFlagsAsync(unsynced.Id, [1], MessageFlags.Seen, MessageFlags.None));
-        await AssertRejectedAsync(fixture, () => fixture.Queue.EnqueueMoveAsync(unsynced.Id, [1], fixture.Archive.Id));
-        await AssertRejectedAsync(fixture, () => fixture.Queue.EnqueueMoveToTrashAsync(unsynced.Id, [1]));
-        await AssertRejectedAsync(fixture, () => fixture.Queue.EnqueueDeletePermanentlyAsync(unsynced.Id, [1]));
+        await AssertRejectedAsync(fixture, () => fixture.Queue.EnqueueSetFlagsAsync(unsynced.Id, unsynced.UidValidity, [1], MessageFlags.Seen, MessageFlags.None));
+        await AssertRejectedAsync(fixture, () => fixture.Queue.EnqueueMoveAsync(unsynced.Id, unsynced.UidValidity, [1], fixture.Archive.Id));
+        await AssertRejectedAsync(fixture, () => fixture.Queue.EnqueueMoveToTrashAsync(unsynced.Id, unsynced.UidValidity, [1]));
+        await AssertRejectedAsync(fixture, () => fixture.Queue.EnqueueDeletePermanentlyAsync(unsynced.Id, unsynced.UidValidity, [1]));
         await AssertRejectedAsync(fixture, () => fixture.Queue.EnqueueEmptyFolderAsync(unsynced.Id));
     }
 
@@ -194,7 +196,7 @@ public sealed class CommandEnqueueTests
         await using CommandQueueFixture fixture = await CommandQueueFixture.CreateAsync();
 
         await AssertRejectedAsync(fixture, () => fixture.Queue.EnqueueSetFlagsAsync(
-            fixture.Inbox.Id, [1], MessageFlags.Seen | MessageFlags.Flagged, MessageFlags.Flagged));
+            fixture.Inbox.Id, fixture.Inbox.UidValidity, [1], MessageFlags.Seen | MessageFlags.Flagged, MessageFlags.Flagged));
     }
 
     [Fact(Timeout = TestTimeouts.PerTestMilliseconds)]
@@ -203,7 +205,7 @@ public sealed class CommandEnqueueTests
         await using CommandQueueFixture fixture = await CommandQueueFixture.CreateAsync();
 
         await AssertRejectedAsync(fixture, () => fixture.Queue.EnqueueSetFlagsAsync(
-            fixture.Inbox.Id, [1], MessageFlags.None, MessageFlags.None));
+            fixture.Inbox.Id, fixture.Inbox.UidValidity, [1], MessageFlags.None, MessageFlags.None));
     }
 
     [Fact(Timeout = TestTimeouts.PerTestMilliseconds)]
@@ -212,11 +214,11 @@ public sealed class CommandEnqueueTests
         await using CommandQueueFixture fixture = await CommandQueueFixture.CreateAsync();
 
         await AssertRejectedAsync(fixture, () => fixture.Queue.EnqueueSetFlagsAsync(
-            fixture.Inbox.Id, [1], MessageFlags.Deleted, MessageFlags.None));
+            fixture.Inbox.Id, fixture.Inbox.UidValidity, [1], MessageFlags.Deleted, MessageFlags.None));
         await AssertRejectedAsync(fixture, () => fixture.Queue.EnqueueSetFlagsAsync(
-            fixture.Inbox.Id, [1], MessageFlags.Seen | MessageFlags.Deleted, MessageFlags.None));
+            fixture.Inbox.Id, fixture.Inbox.UidValidity, [1], MessageFlags.Seen | MessageFlags.Deleted, MessageFlags.None));
         await AssertRejectedAsync(fixture, () => fixture.Queue.EnqueueSetFlagsAsync(
-            fixture.Inbox.Id, [1], MessageFlags.None, MessageFlags.Deleted));
+            fixture.Inbox.Id, fixture.Inbox.UidValidity, [1], MessageFlags.None, MessageFlags.Deleted));
     }
 
     [Fact(Timeout = TestTimeouts.PerTestMilliseconds)]
@@ -225,7 +227,7 @@ public sealed class CommandEnqueueTests
         await using CommandQueueFixture fixture = await CommandQueueFixture.CreateAsync();
 
         await AssertRejectedAsync(fixture, () => fixture.Queue.EnqueueSetFlagsAsync(
-            fixture.Inbox.Id, [1], (MessageFlags)64, MessageFlags.None));
+            fixture.Inbox.Id, fixture.Inbox.UidValidity, [1], (MessageFlags)64, MessageFlags.None));
     }
 
     // Case 2 – move target
@@ -234,7 +236,7 @@ public sealed class CommandEnqueueTests
     {
         await using CommandQueueFixture fixture = await CommandQueueFixture.CreateAsync();
 
-        await AssertRejectedAsync(fixture, () => fixture.Queue.EnqueueMoveAsync(fixture.Inbox.Id, [1], fixture.Inbox.Id));
+        await AssertRejectedAsync(fixture, () => fixture.Queue.EnqueueMoveAsync(fixture.Inbox.Id, fixture.Inbox.UidValidity, [1], fixture.Inbox.Id));
     }
 
     [Fact(Timeout = TestTimeouts.PerTestMilliseconds)]
@@ -242,7 +244,7 @@ public sealed class CommandEnqueueTests
     {
         await using CommandQueueFixture fixture = await CommandQueueFixture.CreateAsync();
 
-        await AssertRejectedAsync(fixture, () => fixture.Queue.EnqueueMoveAsync(fixture.Inbox.Id, [1], 987_654));
+        await AssertRejectedAsync(fixture, () => fixture.Queue.EnqueueMoveAsync(fixture.Inbox.Id, fixture.Inbox.UidValidity, [1], 987_654));
     }
 
     [Fact(Timeout = TestTimeouts.PerTestMilliseconds)]
@@ -252,7 +254,7 @@ public sealed class CommandEnqueueTests
         Account other = await fixture.Storage.AddAccountAsync("Account_B");
         MailFolder foreign = await fixture.Storage.AddFolderAsync(other.Id, FolderRole.Archive, "Archive");
 
-        await AssertRejectedAsync(fixture, () => fixture.Queue.EnqueueMoveAsync(fixture.Inbox.Id, [1], foreign.Id));
+        await AssertRejectedAsync(fixture, () => fixture.Queue.EnqueueMoveAsync(fixture.Inbox.Id, fixture.Inbox.UidValidity, [1], foreign.Id));
     }
 
     // Case 2 – trash
@@ -260,8 +262,9 @@ public sealed class CommandEnqueueTests
     public async Task MoveToTrash_from_the_trash_folder_is_rejected()
     {
         await using CommandQueueFixture fixture = await CommandQueueFixture.CreateAsync();
+        await fixture.SeedAsync(fixture.Trash, 1);
 
-        await AssertRejectedAsync(fixture, () => fixture.Queue.EnqueueMoveToTrashAsync(fixture.Trash.Id, [1]));
+        await AssertRejectedAsync(fixture, () => fixture.Queue.EnqueueMoveToTrashAsync(fixture.Trash.Id, fixture.Trash.UidValidity, [1]));
     }
 
     [Fact(Timeout = TestTimeouts.PerTestMilliseconds)]
@@ -269,7 +272,7 @@ public sealed class CommandEnqueueTests
     {
         await using CommandQueueFixture fixture = await CommandQueueFixture.CreateAsync(withTrash: false);
 
-        await Assert.ThrowsAsync<InvalidOperationException>(() => fixture.Queue.EnqueueMoveToTrashAsync(fixture.Inbox.Id, [1]));
+        await Assert.ThrowsAsync<InvalidOperationException>(() => fixture.Queue.EnqueueMoveToTrashAsync(fixture.Inbox.Id, fixture.Inbox.UidValidity, [1]));
 
         Assert.Equal(0, await fixture.CommandRowCountAsync());
     }
@@ -330,12 +333,14 @@ public sealed class CommandEnqueueTests
         await using CommandQueueFixture fixture = await CommandQueueFixture.CreateAsync();
         Account other = await fixture.Storage.AddAccountAsync("Account_B");
         MailFolder otherInbox = await fixture.Storage.AddFolderAsync(other.Id, FolderRole.Inbox, "INBOX");
-        MailCommand first = await fixture.Queue.EnqueueSetFlagsAsync(fixture.Inbox.Id, [1], MessageFlags.Seen, MessageFlags.None);
+        await fixture.SeedAsync(otherInbox, 1);
+        await fixture.SeedAsync(fixture.Junk, 2);
+        MailCommand first = await fixture.Queue.EnqueueSetFlagsAsync(fixture.Inbox.Id, fixture.Inbox.UidValidity, [1], MessageFlags.Seen, MessageFlags.None);
         fixture.Clock.Now += TimeSpan.FromSeconds(1);
-        MailCommand second = await fixture.Queue.EnqueueDeletePermanentlyAsync(fixture.Junk.Id, [2]);
+        MailCommand second = await fixture.Queue.EnqueueDeletePermanentlyAsync(fixture.Junk.Id, fixture.Junk.UidValidity, [2]);
         fixture.Clock.Now += TimeSpan.FromSeconds(1);
-        MailCommand third = await fixture.Queue.EnqueueMoveAsync(fixture.Inbox.Id, [3], fixture.Archive.Id);
-        await fixture.Queue.EnqueueSetFlagsAsync(otherInbox.Id, [1], MessageFlags.Seen, MessageFlags.None);
+        MailCommand third = await fixture.Queue.EnqueueMoveAsync(fixture.Inbox.Id, fixture.Inbox.UidValidity, [3], fixture.Archive.Id);
+        await fixture.Queue.EnqueueSetFlagsAsync(otherInbox.Id, otherInbox.UidValidity, [1], MessageFlags.Seen, MessageFlags.None);
         await fixture.Queue.RecordFailureAsync(second.Id, "boom", null, permanent: true);
 
         IReadOnlyList<MailCommand> listed = await fixture.Queue.ListAsync(fixture.Account.Id);
@@ -349,9 +354,9 @@ public sealed class CommandEnqueueTests
     public async Task Discard_removes_pending_and_failed_commands_and_unknown_id_is_a_no_op()
     {
         await using CommandQueueFixture fixture = await CommandQueueFixture.CreateAsync();
-        MailCommand pending = await fixture.Queue.EnqueueSetFlagsAsync(fixture.Inbox.Id, [1], MessageFlags.Seen, MessageFlags.None);
-        MailCommand failed = await fixture.Queue.EnqueueSetFlagsAsync(fixture.Inbox.Id, [2], MessageFlags.Seen, MessageFlags.None);
-        MailCommand kept = await fixture.Queue.EnqueueSetFlagsAsync(fixture.Inbox.Id, [3], MessageFlags.Seen, MessageFlags.None);
+        MailCommand pending = await fixture.Queue.EnqueueSetFlagsAsync(fixture.Inbox.Id, fixture.Inbox.UidValidity, [1], MessageFlags.Seen, MessageFlags.None);
+        MailCommand failed = await fixture.Queue.EnqueueSetFlagsAsync(fixture.Inbox.Id, fixture.Inbox.UidValidity, [2], MessageFlags.Seen, MessageFlags.None);
+        MailCommand kept = await fixture.Queue.EnqueueSetFlagsAsync(fixture.Inbox.Id, fixture.Inbox.UidValidity, [3], MessageFlags.Seen, MessageFlags.None);
         await fixture.Queue.RecordFailureAsync(failed.Id, "boom", null, permanent: true);
 
         await fixture.Queue.DiscardAsync(pending.Id);
@@ -366,12 +371,12 @@ public sealed class CommandEnqueueTests
     {
         await using CommandQueueFixture fixture = await CommandQueueFixture.CreateAsync();
         DateTimeOffset now = fixture.Clock.Now;
-        MailCommand noRetry = await fixture.Queue.EnqueueSetFlagsAsync(fixture.Inbox.Id, [1], MessageFlags.Seen, MessageFlags.None);
+        MailCommand noRetry = await fixture.Queue.EnqueueSetFlagsAsync(fixture.Inbox.Id, fixture.Inbox.UidValidity, [1], MessageFlags.Seen, MessageFlags.None);
         fixture.Clock.Now += TimeSpan.FromSeconds(1);
-        MailCommand past = await fixture.Queue.EnqueueSetFlagsAsync(fixture.Inbox.Id, [2], MessageFlags.Seen, MessageFlags.None);
-        MailCommand future = await fixture.Queue.EnqueueSetFlagsAsync(fixture.Inbox.Id, [3], MessageFlags.Seen, MessageFlags.None);
-        MailCommand exactlyNow = await fixture.Queue.EnqueueSetFlagsAsync(fixture.Inbox.Id, [4], MessageFlags.Seen, MessageFlags.None);
-        MailCommand failedInPast = await fixture.Queue.EnqueueSetFlagsAsync(fixture.Inbox.Id, [5], MessageFlags.Seen, MessageFlags.None);
+        MailCommand past = await fixture.Queue.EnqueueSetFlagsAsync(fixture.Inbox.Id, fixture.Inbox.UidValidity, [2], MessageFlags.Seen, MessageFlags.None);
+        MailCommand future = await fixture.Queue.EnqueueSetFlagsAsync(fixture.Inbox.Id, fixture.Inbox.UidValidity, [3], MessageFlags.Seen, MessageFlags.None);
+        MailCommand exactlyNow = await fixture.Queue.EnqueueSetFlagsAsync(fixture.Inbox.Id, fixture.Inbox.UidValidity, [4], MessageFlags.Seen, MessageFlags.None);
+        MailCommand failedInPast = await fixture.Queue.EnqueueSetFlagsAsync(fixture.Inbox.Id, fixture.Inbox.UidValidity, [5], MessageFlags.Seen, MessageFlags.None);
         await fixture.Queue.RecordFailureAsync(past.Id, "boom", now - TimeSpan.FromMinutes(5), permanent: false);
         await fixture.Queue.RecordFailureAsync(future.Id, "boom", now + TimeSpan.FromMinutes(5), permanent: false);
         await fixture.Queue.RecordFailureAsync(exactlyNow.Id, "boom", now, permanent: false);
@@ -391,7 +396,7 @@ public sealed class CommandEnqueueTests
     {
         await using CommandQueueFixture fixture = await CommandQueueFixture.CreateAsync();
         Account other = await fixture.Storage.AddAccountAsync("Account_B");
-        await fixture.Queue.EnqueueSetFlagsAsync(fixture.Inbox.Id, [1], MessageFlags.Seen, MessageFlags.None);
+        await fixture.Queue.EnqueueSetFlagsAsync(fixture.Inbox.Id, fixture.Inbox.UidValidity, [1], MessageFlags.Seen, MessageFlags.None);
 
         Assert.Empty(await fixture.Queue.ListDueAsync(other.Id, fixture.Clock.Now));
     }
@@ -400,7 +405,7 @@ public sealed class CommandEnqueueTests
     public async Task RecordFailure_counts_the_attempt_and_stores_error_and_next_attempt()
     {
         await using CommandQueueFixture fixture = await CommandQueueFixture.CreateAsync();
-        MailCommand command = await fixture.Queue.EnqueueSetFlagsAsync(fixture.Inbox.Id, [1], MessageFlags.Seen, MessageFlags.None);
+        MailCommand command = await fixture.Queue.EnqueueSetFlagsAsync(fixture.Inbox.Id, fixture.Inbox.UidValidity, [1], MessageFlags.Seen, MessageFlags.None);
         DateTimeOffset next = fixture.Clock.Now + TimeSpan.FromMinutes(2);
 
         await fixture.Queue.RecordFailureAsync(command.Id, "ProtocolFailure", next, permanent: false);
@@ -417,7 +422,7 @@ public sealed class CommandEnqueueTests
     public async Task RecordFailure_permanent_sets_status_failed()
     {
         await using CommandQueueFixture fixture = await CommandQueueFixture.CreateAsync();
-        MailCommand command = await fixture.Queue.EnqueueSetFlagsAsync(fixture.Inbox.Id, [1], MessageFlags.Seen, MessageFlags.None);
+        MailCommand command = await fixture.Queue.EnqueueSetFlagsAsync(fixture.Inbox.Id, fixture.Inbox.UidValidity, [1], MessageFlags.Seen, MessageFlags.None);
 
         await fixture.Queue.RecordFailureAsync(command.Id, "UIDVALIDITY changed", null, permanent: true);
 
@@ -432,8 +437,8 @@ public sealed class CommandEnqueueTests
     public async Task Complete_removes_only_that_command()
     {
         await using CommandQueueFixture fixture = await CommandQueueFixture.CreateAsync();
-        MailCommand done = await fixture.Queue.EnqueueSetFlagsAsync(fixture.Inbox.Id, [1], MessageFlags.Seen, MessageFlags.None);
-        MailCommand kept = await fixture.Queue.EnqueueSetFlagsAsync(fixture.Inbox.Id, [2], MessageFlags.Seen, MessageFlags.None);
+        MailCommand done = await fixture.Queue.EnqueueSetFlagsAsync(fixture.Inbox.Id, fixture.Inbox.UidValidity, [1], MessageFlags.Seen, MessageFlags.None);
+        MailCommand kept = await fixture.Queue.EnqueueSetFlagsAsync(fixture.Inbox.Id, fixture.Inbox.UidValidity, [2], MessageFlags.Seen, MessageFlags.None);
 
         await fixture.Queue.CompleteAsync(done.Id);
 
@@ -457,10 +462,10 @@ public sealed class CommandEnqueueTests
         Assert.Equal(MailCommandKind.DeletePermanently, command.Kind);
         Assert.Equal(1L, await fixture.CommandRowCountAsync());
         uint[] tooMany = Enumerable.Range(1, 1001).Select(value => (uint)value).ToArray();
-        await Assert.ThrowsAnyAsync<ArgumentException>(() => fixture.Queue.EnqueueSetFlagsAsync(fixture.Inbox.Id, tooMany, MessageFlags.Seen, MessageFlags.None));
-        await Assert.ThrowsAnyAsync<ArgumentException>(() => fixture.Queue.EnqueueMoveAsync(fixture.Inbox.Id, tooMany, fixture.Archive.Id));
-        await Assert.ThrowsAnyAsync<ArgumentException>(() => fixture.Queue.EnqueueMoveToTrashAsync(fixture.Inbox.Id, tooMany));
-        await Assert.ThrowsAnyAsync<ArgumentException>(() => fixture.Queue.EnqueueDeletePermanentlyAsync(fixture.Inbox.Id, tooMany));
+        await Assert.ThrowsAnyAsync<ArgumentException>(() => fixture.Queue.EnqueueSetFlagsAsync(fixture.Inbox.Id, fixture.Inbox.UidValidity, tooMany, MessageFlags.Seen, MessageFlags.None));
+        await Assert.ThrowsAnyAsync<ArgumentException>(() => fixture.Queue.EnqueueMoveAsync(fixture.Inbox.Id, fixture.Inbox.UidValidity, tooMany, fixture.Archive.Id));
+        await Assert.ThrowsAnyAsync<ArgumentException>(() => fixture.Queue.EnqueueMoveToTrashAsync(fixture.Inbox.Id, fixture.Inbox.UidValidity, tooMany));
+        await Assert.ThrowsAnyAsync<ArgumentException>(() => fixture.Queue.EnqueueDeletePermanentlyAsync(fixture.Inbox.Id, fixture.Inbox.UidValidity, tooMany));
         Assert.Equal(1L, await fixture.CommandRowCountAsync());
     }
 }

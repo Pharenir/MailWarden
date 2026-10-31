@@ -22,7 +22,7 @@ public sealed class CommandFailureTests
 
     private static async Task<MailCommand> EnqueueSeenAsync(CommandHarness harness, SeededFolder folder, uint uid)
     {
-        MailCommand command = await harness.Queue.EnqueueSetFlagsAsync(folder.Folder.Id, [uid], MessageFlags.Seen, MessageFlags.None);
+        MailCommand command = await harness.Queue.EnqueueSetFlagsAsync(folder.Folder.Id, folder.Folder.UidValidity, [uid], MessageFlags.Seen, MessageFlags.None);
         harness.Advance(TimeSpan.FromSeconds(1));
         return command;
     }
@@ -269,7 +269,7 @@ public sealed class CommandFailureTests
         await using CommandHarness harness = await CommandHarness.CreateAsync();
         SeededFolder inbox = await harness.SeedFolderAsync("INBOX", FolderRole.Inbox, messageCount: 2);
         SeededFolder archive = await harness.SeedFolderAsync("Archive", FolderRole.Archive);
-        await harness.Queue.EnqueueMoveAsync(inbox.Folder.Id, [1], archive.Folder.Id);
+        await harness.Queue.EnqueueMoveAsync(inbox.Folder.Id, inbox.Folder.UidValidity, [1], archive.Folder.Id);
         harness.Messages.FailDeleteByUids = true;
 
         CommandRunReport report = await harness.ExecuteAsync();
@@ -301,7 +301,7 @@ public sealed class CommandFailureTests
         await using CommandHarness harness = await CommandHarness.CreateAsync();
         SeededFolder junk = await harness.SeedFolderAsync("Junk", FolderRole.Junk, messageCount: 2);
         harness.FaultyEml.FailDeleteWhen = path => path.EndsWith("/1.eml", StringComparison.Ordinal);
-        await harness.Queue.EnqueueDeletePermanentlyAsync(junk.Folder.Id, [1, 2]);
+        await harness.Queue.EnqueueDeletePermanentlyAsync(junk.Folder.Id, junk.Folder.UidValidity, [1, 2]);
 
         CommandRunReport report = await harness.ExecuteAsync();
 
@@ -404,7 +404,7 @@ public sealed class CommandFailureTests
         SeededFolder inbox = await harness.SeedFolderAsync("INBOX", FolderRole.Inbox, messageCount: 2);
         SeededFolder archive = await harness.SeedFolderAsync("Archive", FolderRole.Archive);
         string[] paths = await harness.EmlPathsAsync(inbox.Folder, 1, 2);
-        await harness.Queue.EnqueueMoveAsync(inbox.Folder.Id, [1], archive.Folder.Id);
+        await harness.Queue.EnqueueMoveAsync(inbox.Folder.Id, inbox.Folder.UidValidity, [1], archive.Folder.Id);
         harness.Server.CommandFailure = FailOn(CommandCall.Move, () => Protocol());
 
         CommandRunReport report = await harness.ExecuteAsync();
@@ -422,7 +422,7 @@ public sealed class CommandFailureTests
         await using CommandHarness harness = await CommandHarness.CreateAsync();
         SeededFolder junk = await harness.SeedFolderAsync("Junk", FolderRole.Junk, messageCount: 2);
         string[] paths = await harness.EmlPathsAsync(junk.Folder, 1, 2);
-        await harness.Queue.EnqueueDeletePermanentlyAsync(junk.Folder.Id, [1]);
+        await harness.Queue.EnqueueDeletePermanentlyAsync(junk.Folder.Id, junk.Folder.UidValidity, [1]);
         harness.Server.CommandFailure = FailOn(CommandCall.Expunge, () => Protocol());
 
         CommandRunReport report = await harness.ExecuteAsync();
@@ -439,7 +439,7 @@ public sealed class CommandFailureTests
         await using CommandHarness harness = await CommandHarness.CreateAsync();
         SeededFolder inbox = await harness.SeedFolderAsync("INBOX", FolderRole.Inbox, messageCount: 2);
         await harness.SeedFolderAsync("Trash", FolderRole.Trash);
-        await harness.Queue.EnqueueDeletePermanentlyAsync(inbox.Folder.Id, [1, 2]);
+        await harness.Queue.EnqueueDeletePermanentlyAsync(inbox.Folder.Id, inbox.Folder.UidValidity, [1, 2]);
         harness.Server.CommandFailure = FailOn(CommandCall.Move, () => Protocol());
 
         CommandRunReport report = await harness.ExecuteAsync();
@@ -457,7 +457,7 @@ public sealed class CommandFailureTests
         SeededFolder inbox = await harness.SeedFolderAsync("INBOX", FolderRole.Inbox, messageCount: 3);
         SeededFolder trash = await harness.SeedFolderAsync("Trash", FolderRole.Trash);
         uint preExisting = trash.Server.AddMessage(SyncTestEml.Plain("old_in_trash", "body"));
-        await harness.Queue.EnqueueDeletePermanentlyAsync(inbox.Folder.Id, [1, 2]);
+        await harness.Queue.EnqueueDeletePermanentlyAsync(inbox.Folder.Id, inbox.Folder.UidValidity, [1, 2]);
         harness.Server.CommandFailure = call =>
             call is { Kind: CommandCall.Select, Folder: "Trash" } ? Protocol() : null;
 
