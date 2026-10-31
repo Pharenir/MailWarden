@@ -90,8 +90,7 @@ zusammengeführt. „Fertig“ im Sinne von Dennis erst nach seinen manuellen Pr
    (Statussatz) zusammengeführt; Build grün, S3 752/752, `main` @ `e0481ef` gepusht. SyncProbe nach
    `_scratch\sync-probe` gerettet und gebaut. Dieser Handover + `work\manual-tests.md` liegen auf
    `chore/manual-test-list` (lokal) → beim nächsten CPM mit nach `main`.
-2. Offen (Freigabe Dennis): Worktrees `feat-ap-03a`, `test-ap-03a`, `feat-ap-07b`, `test-ap-07b` und die vier
-   Branches sowie `chore/session-handover` entfernen (alle gemergt).
+2. Erledigt: gemergte Worktrees/Branches entfernt. Läuft: AP-03a fix.3 (siehe „Worktrees“).
 3. Nächste APs: AP-03b (Befehlswarteschlange, IDLE, Reconnect; Punkte „Vertagt aus AP-03a“), danach AP-07c
    (Klassifizierer an Mails/Ordner); AP-04 (UI inkl. Konten-UI). Vor Start: Anforderung je AP (Planer).
 4. Aufgeräumt 2026-10-31 (Freigabe Dennis): alle sechs AP-Worktrees und sieben Branches (inkl. `chore/app-icon`)
@@ -100,13 +99,13 @@ zusammengeführt. „Fertig“ im Sinne von Dennis erst nach seinen manuellen Pr
    `MailWarden.sln` ohne BOM halten (`dotnet sln` fügt es wieder ein).
 
 ## Worktrees (alle unter `.worktrees\`, git-ignoriert)
-Abgezweigt von `chore/session-handover` @ `d39915b` (enthält Anforderungen AP-03a/AP-07b):
+AP-03a/AP-07b-Worktrees und -Branches sowie `chore/session-handover` entfernt (Freigabe Dennis 2026-10-31).
+AP-03a fix.3 (verlorene UIDs, Freigabe Dennis), abgezweigt von `main` @ `e0481ef`, Anforderung `7b1135c`:
 | Worktree | Branch |
 |---|---|
-| `feat-ap-03a` | `feat/ap-03a-sync-down` |
-| `test-ap-03a` | `test/ap-03a-sync-down` |
-| `feat-ap-07b` | `feat/ap-07b-classifier-calibration` |
-| `test-ap-07b` | `test/ap-07b-classifier-calibration` |
+| `fix-ap-03a` | `fix/ap-03a-missed-uids` |
+| `test-ap-03a-fix` | `test/ap-03a-missed-uids` |
+Fall 30 (AuthProbe abbrechen) bleibt vorerst offen (Dennis 2026-10-31).
 
 ## Session 3 (2026-10-31)
 - AP-03 geteilt in AP-03a (Abgleich Server → lokal, Schema v2) und AP-03b (Befehlswarteschlange, IDLE); AP-07 in
