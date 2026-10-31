@@ -92,3 +92,37 @@ No tests written or changed. Line numbers refer to the committed state.
 - Ich bin mir unsicher whether Outlook.com answers a 50-UID `BODY.PEEK[]` FETCH in UID order; if not, every batch
   would fall back to single fetches (visible as no speed-up in case 18). The out-of-order Protocol message would then
   appear nowhere in the report (the fallback succeeds). If case 18 shows no speed-up, this is the first suspect.
+
+## fix.2 (K1–K4 + NITs, builder)
+Contract: `requirement.md`, section "Decisions fix.2"; review: `review.md`. No tests written or changed. Build
+`dotnet build MailWarden.sln -warnaserror` green for the whole solution (0 warnings, 0 errors). As a self-check only
+(not a tester run), the sync tests at this state passed: 128/128 (`Category=feature:sync`).
+
+| Item | File | Lines | Change |
+|---|---|---|---|
+| K1 | `src\MailWarden.Infrastructure\Sync\SyncEngine.cs` | 150–181 | Reconnect check moved: **before** every folder with index > 0, `IsConnected == false` → count, budget check (`MailTransportException(Network)`), dispose old, connect new, then sync that folder. No check after the last folder, no reconnect directly after a failure. Disposal guarantee unchanged (variable nulled before dispose). |
+| K1 | same | 276–303 | `SyncFolderAsync` returns `FolderSyncResult` again (the "folder failed" flag of implement.1 is no longer needed). |
+| K1 | same | 36–45 | Class remarks: reconnect "before every folder after the first". |
+| K2 | `src\MailWarden.Core\Sync\IMailTransport.cs` | 46–53 | `FetchMessagesAsync` doc: Content is valid only until the task returned by the callback completes; do not keep it or hand it on. |
+| K3 | `SyncEngine.cs` | 153–154, 110–115 | Comment at the reconnect matches the code; progress doc: no folder-end report when the pass aborts (cancellation, authentication, reconnect failure, budget); an exception of `IProgress.Report` aborts the pass (review NIT). |
+| K4 | `src\MailWarden.Infrastructure\Sync\MailKitTransport.cs` | 413–414, 224–228, 380 | `Classify` maps `MessageNotFoundException` → Protocol, so a batch with such a failure falls back to single fetches (B2). The single fetch still catches it itself first and returns null (unchanged, line 205). Docs updated. |
+| NIT | `MailKitTransport.cs` | 28–31, 184, 253 | `MessageMetadataItems` constant shared by single and batch fetch. |
+| NIT | `SyncEngine.cs` | 160–164 | "lost too often" message built with `string.Create(CultureInfo.InvariantCulture, …)`. |
+| NIT | `src\MailWarden.Core\Accounts\FolderRoleResolver.cs` | 5–10 | Class summary reflowed (≤ 120 chars). |
+
+### K4 – MailKit source check
+- 4.18.1 source (`ImapFolderFetch.cs`) and the 4.18.2 XML doc: the multi-UID `GetStreamsAsync(IList<UniqueId>,
+  ImapFetchStreamAsyncCallback, …)` documents **no** `MessageNotFoundException` (only ArgumentNull/Argument,
+  ObjectDisposed, ServiceNotConnected/NotAuthenticated, FolderNotOpen, OperationCanceled, IOException,
+  ImapProtocolException, ImapCommandException). The code only runs `UID FETCH set (BODY.PEEK[])`, calls the callback
+  per returned body and then `ThrowIfNotOk("FETCH")`. `MessageNotFoundException` is thrown only by the single-message
+  methods (`GetStream`, `GetHeaders`, `GetBodyPart`) when the requested section is missing.
+- Consequence: a UID expunged between the metadata and the body command simply gets no callback (it stays missing and
+  is retried next pass, as the contract says for "server returns nothing"). If the server answers the FETCH with NO
+  instead, that is an `ImapCommandException` → Protocol → fallback, where the single fetch returns null for the vanished
+  UID. The `MessageNotFoundException` mapping is defensive (for a future MailKit version); it does not change the
+  behaviour of 4.18.2.
+
+### Not done (NITs, builder's choice)
+- `ToSocketOptions` stays in `ConnectionProbe` (moving it is a refactoring outside fix.2; review: acceptable).
+- Review SHOULD 3 (positive control `ConnectionProbe`) was done by the planner (case 18 / AuthProbe).
