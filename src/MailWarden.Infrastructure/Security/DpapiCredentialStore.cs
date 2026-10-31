@@ -14,7 +14,8 @@ namespace MailWarden.Infrastructure.Security;
 /// Keys are effectively case-insensitive here because NTFS is: two keys that differ only in case address the same
 /// file. Callers use lower-case keys (see <see cref="ICredentialStore"/>). Read, write and delete of one instance
 /// are serialised, so concurrent calls (e.g. a token read while a refresh writes) never collide; use exactly one
-/// instance per directory, because Windows denies replacing a file that another instance or process is reading.
+/// instance per directory (all token providers share it), because Windows denies replacing a file that another
+/// instance or process is reading.
 /// File system failures surface as <see cref="IOException"/> or <see cref="UnauthorizedAccessException"/>.
 /// </remarks>
 public sealed class DpapiCredentialStore : ICredentialStore

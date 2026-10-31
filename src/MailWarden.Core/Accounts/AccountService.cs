@@ -150,7 +150,7 @@ public sealed class AccountService
         Account? otherStoredAccount = await FindByAddressAsync(signedInAddress, ct).ConfigureAwait(false);
         if (otherStoredAccount is null || otherStoredAccount.Provider != account.Provider)
         {
-            await tokenProvider.SignOutAsync(signedInAddress, ct).ConfigureAwait(false);
+            await SignOutBestEffortAsync(tokenProvider, signedInAddress).ConfigureAwait(false);
         }
 
         throw new AuthenticationFailedException(account.Provider, AuthFailureReason.AccessDenied, OtherAccountMessage);
@@ -181,15 +181,20 @@ public sealed class AccountService
             }
             catch (AuthenticationFailedException)
             {
-                // Ignored on purpose: the user wants the account gone; a grant left behind is unusable without it.
+                // Only AuthenticationFailedException is swallowed (the user wants the account gone); cancellation and
+                // other exceptions propagate and keep the account. The grant may then remain on disk (e.g. the
+                // credential file was locked): encrypted, unused by MailWarden, but still valid at the provider until
+                // revoked there (orphaned-grant cleanup is a TODO).
             }
         }
 
         await accountStore.DeleteAsync(account.Id, ct).ConfigureAwait(false);
     }
 
-    // Cleanup of a fresh grant that must not stay (another provider's address, failed store). Runs to completion even
-    // if the caller cancelled; a sign-out failure must not replace the error that triggered the cleanup.
+    // Cleanup of a fresh grant that must not stay (wrong account on re-auth, another provider's address, failed store).
+    // Runs with CancellationToken.None, so it completes even if the caller cancelled. Only an
+    // AuthenticationFailedException of the sign-out is swallowed (the triggering result stays); any other exception
+    // still replaces it. A swallowed failure can leave the grant on disk (orphaned-grant cleanup is a TODO).
     private static async Task SignOutBestEffortAsync(ITokenProvider tokenProvider, string username)
     {
         try
