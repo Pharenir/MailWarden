@@ -89,9 +89,33 @@ public sealed class MailboxServiceIdleTests
         Assert.False(harness.HasPendingDelay(FirstBackoff));
     }
 
-    // D4 step 5 (derived from the contract text, no numbered case)
+    // Case 20 (fix.2 G2)
+    [Theory(Timeout = TestTimeouts.PerTestMilliseconds)]
+    [InlineData(AuthFailureReason.Network)]
+    [InlineData(AuthFailureReason.AccessDenied)]
+    [InlineData(AuthFailureReason.Unknown)]
+    public async Task Other_authentication_failures_in_the_watcher_reconnect_after_the_backoff_without_RetryAccount(AuthFailureReason reason)
+    {
+        Account account = MailboxServiceHarness.NewAccount("A", MailProvider.Google);
+        await using MailboxServiceHarness harness = new([account]);
+        harness.SetIdleScript(
+            account.Id,
+            IdleStep.Throw(new AuthenticationFailedException(MailProvider.Google, reason, "Injected authentication failure.")));
+
+        await harness.Service.StartAsync();
+        await harness.WaitForPendingDelayAsync(FirstBackoff);
+        await harness.WaitForSuccessAsync(account.Id);
+        Assert.Equal(1, harness.ConnectCount(account.Id));
+
+        await harness.CompleteDelayAsync(FirstBackoff);
+
+        await harness.WaitForConnectCountAsync(account.Id, 2);
+        Assert.Equal(1, harness.SyncCount(account.Id));
+    }
+
+    // Case 21 (fix.2 G2; formerly the D4 step 5 extra test)
     [Fact(Timeout = TestTimeouts.PerTestMilliseconds)]
-    public async Task Authentication_failure_in_the_watcher_stops_it_until_RetryAccount()
+    public async Task InteractionRequired_in_the_watcher_stops_it_until_RetryAccount()
     {
         Account account = MailboxServiceHarness.NewAccount("A", MailProvider.Google);
         await using MailboxServiceHarness harness = new([account]) { AutoCompleteDebounce = true };

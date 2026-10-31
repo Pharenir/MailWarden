@@ -55,3 +55,7 @@ Branch `test/ap-03d-mailbox-service`. Tests live in `tests\MailWarden.Infrastruc
    (tests create it). What if the directory is missing?
 9. Exception text of case 2 must contain "in use".
 10. `tests\test-map.json` gained entries for `Infrastructure\Background` (sync + storage).
+
+## fix.2
+- Case 20: `MailboxServiceIdleTests.Other_authentication_failures_in_the_watcher_reconnect_after_the_backoff_...` (theory: Network, AccessDenied, Unknown).
+- Case 21: `MailboxServiceIdleTests.InteractionRequired_in_the_watcher_stops_it_until_RetryAccount` (was the D4 step 5 extra test; already used InteractionRequired, only renamed).
