@@ -31,7 +31,6 @@ namespace MailWarden.Infrastructure.Sync;
 /// </remarks>
 internal sealed class MailKitCommandTransport : IMailCommandTransport
 {
-    private const int DisconnectTimeoutMilliseconds = 5_000;
     private const int CleanupTimeoutMilliseconds = 10_000;
 
     // Flags a command may add or remove; \Deleted is reserved for ExpungeAsync.
@@ -210,22 +209,7 @@ internal sealed class MailKitCommandTransport : IMailCommandTransport
 
         isDisposed = true;
         selectedFolder = null;
-        try
-        {
-            if (client.IsConnected)
-            {
-                using var disconnectTimeout = new CancellationTokenSource(DisconnectTimeoutMilliseconds);
-                await client.DisconnectAsync(quit: true, disconnectTimeout.Token).ConfigureAwait(false);
-            }
-        }
-        catch (Exception exception) when (exception is not OutOfMemoryException)
-        {
-            // Ignored on purpose: the session is over either way; disposing below releases the socket.
-        }
-        finally
-        {
-            client.Dispose();
-        }
+        await MailKitTransport.DisconnectQuietlyAsync(client).ConfigureAwait(false);
     }
 
     private Task StoreFlagsAsync(

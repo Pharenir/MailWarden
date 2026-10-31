@@ -18,6 +18,8 @@
     "src/MailWarden.Infrastructure/Mime/**": ["@feature:sync"],
     "tests/MailWarden.Infrastructure.Tests/Sync/**": ["@feature:sync"],
     "tests/MailWarden.Infrastructure.Tests/Mime/**": ["@feature:sync"],
+    "src/MailWarden.Infrastructure/Background/**": ["@feature:sync", "@feature:storage"],
+    "tests/MailWarden.Infrastructure.Tests/Background/**": ["@feature:sync", "@feature:storage"],
     "src/MailWarden.Core/Accounts/**": ["@feature:accounts"],
     "src/MailWarden.Infrastructure/Security/**": ["@feature:accounts"],
     "src/MailWarden.Infrastructure/Auth/**": ["@feature:accounts"],

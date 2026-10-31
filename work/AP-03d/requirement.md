@@ -198,3 +198,23 @@ public interface IMailIdleWatcherFactory
   itself; the commands come from AP-03c.
 - Documenter: README (background service, poll interval, IDLE, lock), PLAN rows AP-03d.
 - Case 19 green (planner, with Dennis sending one test mail).
+
+## Decisions fix.2 (planner, 2026-10-31, after verify.1 PASS 961/961 and review.1 APPROVE)
+Case 19 has started (ServiceProbe on a copy of probe-data). A test mail from Dennis to the Gmail account was reported
+by IDLE at 19:19:53. The cycle started after the 2 s debounce (19:19:55) and was finished at 19:19:56, with Inbox
+added 1. A second instance failed with "data folder is in use".
+- G1 (review SHOULD 1): `StopAsync` waits for all loops even when cancelling the token source throws. That
+  exception is added to the collected failures, and the lock is released only after all loops ended.
+- G2 (review SHOULD 2, contract change D4 step 5): only `AuthenticationFailedException` with reason
+  `InteractionRequired` stops the watcher until `RetryAccount`. Every other `AuthenticationFailedException` is
+  handled like `MailTransportException`, i.e. watcher reconnect after its backoff.
+- G3 (review SHOULD 3): exceptions from `StatusChanged` handlers stay swallowed in AP-03d (the UI must not stop the
+  service). AP-04 logs them as critical (TODO); the XML doc of the event says so.
+- G4 (review SHOULD 4): one shared "disconnect, ignoring failures" helper for the three MailKit classes.
+- NITs: builder's choice.
+
+### Additional test cases (fix.2)
+| # | Case | Expected |
+|---|---|---|
+| 20 | Watcher throws AuthenticationFailedException with a reason other than InteractionRequired (e.g. Network) | watcher reconnects after backoff (factory called again) without RetryAccount |
+| 21 | Watcher throws AuthenticationFailedException InteractionRequired | watcher stops; RetryAccount → factory called again |

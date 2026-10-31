@@ -24,7 +24,8 @@ public sealed class MailKitTransportFactory(AccountService accountService) : IMa
     /// <exception cref="OperationCanceledException">The operation was cancelled.</exception>
     public async Task<IMailTransport> ConnectAsync(Account account, CancellationToken ct = default)
     {
-        (ImapClient client, ServerEndpoint endpoint) = await ConnectClientAsync(account, ct).ConfigureAwait(false);
+        (ImapClient client, ServerEndpoint endpoint) = await ConnectClientAsync(accountService, account, ct)
+            .ConfigureAwait(false);
         return new MailKitTransport(client, endpoint);
     }
 
@@ -35,12 +36,23 @@ public sealed class MailKitTransportFactory(AccountService accountService) : IMa
     /// <exception cref="OperationCanceledException">The operation was cancelled.</exception>
     public async Task<IMailCommandTransport> ConnectForCommandsAsync(Account account, CancellationToken ct = default)
     {
-        (ImapClient client, ServerEndpoint endpoint) = await ConnectClientAsync(account, ct).ConfigureAwait(false);
+        (ImapClient client, ServerEndpoint endpoint) = await ConnectClientAsync(accountService, account, ct)
+            .ConfigureAwait(false);
         return new MailKitCommandTransport(client, endpoint);
     }
 
-    // Token, connect and XOAUTH2 login; shared by the read-only sync session and the command session.
-    private async Task<(ImapClient Client, ServerEndpoint Endpoint)> ConnectClientAsync(Account account, CancellationToken ct)
+    /// <summary>
+    /// Token, connect and XOAUTH2 login; shared by the read-only sync session, the command session and the inbox
+    /// watcher (<see cref="MailKitIdleWatcherFactory"/>).
+    /// </summary>
+    /// <param name="accountService">Supplies the access token of the account.</param>
+    /// <param name="account">Account to connect.</param>
+    /// <param name="ct">Cancellation token.</param>
+    /// <returns>The authenticated client and its endpoint; the caller owns and disposes the client.</returns>
+    internal static async Task<(ImapClient Client, ServerEndpoint Endpoint)> ConnectClientAsync(
+        AccountService accountService,
+        Account account,
+        CancellationToken ct)
     {
         ArgumentNullException.ThrowIfNull(account);
         if (account.Provider == MailProvider.GenericImap)

@@ -12,11 +12,11 @@ database and EML file store), the core of the spam classifier (a library in `Mai
 message headers and with a settings file loader; not yet connected to any mail), account and sign-in library (OAuth for
 Outlook.com and Gmail, encrypted token storage, provider profiles with a connection check), the one-way sync from the
 server to the local store (folders, messages, flags, deletions; read-only towards the server) and an empty WinUI 3 main
-window. The sync is a library only: it has no user interface, no schedule and no IDLE yet, and it never changes anything
-on the server. It fetches missing messages in batches (50 by default), reports progress per folder (number, role,
+window. The sync is a library only: it has no user interface and it never changes anything on the server. It fetches missing messages in batches (50 by default), reports progress per folder (number, role,
 processed/missing; no names), reconnects within a pass if the connection was lost (at most 3 times) and does not sync
 the Gmail folder "Important". A command queue (local to server: flags, move, trash, delete, empty folder; see
-"Command queue") is implemented as a library as well. Account setup in the app comes with AP-04; there is no inbox view
+"Command queue") and a background service with schedule and IDLE (see "Background service") are implemented as
+libraries as well. Account setup in the app comes with AP-04; there is no inbox view
 yet, and the classifier does not sort or move any mail yet.
 
 ## Command queue
@@ -39,8 +39,28 @@ Errors: after a network failure the command is tried again later. If the server 
 delay (1, 2, 4 ... at most 60 minutes) and marked "failed" after 5 attempts. A sign-in failure aborts the run without
 counting an attempt. The sync stays read-only towards the server.
 
-Not available yet: there is no user interface for this (AP-04) and nothing runs automatically (background service with
-schedule and IDLE: AP-03d).
+Not available yet: there is no user interface for this (AP-04). The background service executes the queue.
+
+## Background service
+A service keeps all accounts current without user action. It is a library; the app does not start it yet (AP-04).
+
+- **Cycle:** per account, first the queued commands are executed, then the account is synced. Accounts run
+  independently and in parallel; one account never blocks the others.
+- **Schedule:** a new cycle every 15 minutes.
+- **New mail:** the service keeps an IDLE connection (read-only) on the inbox and renews it every 9 minutes. A change
+  in the inbox (new mail, deleted mail, changed flags) starts a cycle after about 2 seconds. If a server has no IDLE,
+  only the schedule applies. Other folders follow the schedule only.
+- **Errors:** after a network or server error the account waits 1, 2, 4, 8, 16, then 30 minutes before the next try
+  (success resets this). If a new sign-in is needed, the account waits until you retry; it does not retry by itself.
+  Other accounts keep running.
+- **Status per account:** Running, Idle (ready), WaitingAfterError, NeedsSignIn, Stopped, with time of the last
+  success, time of the next run and progress. It contains no error messages, names or mail content, only the error
+  type.
+- **One process per data folder:** the service holds the lock file `mailwarden.lock` in the data folder. A second
+  instance on the same folder does not start and reports that the data folder is in use. The file disappears when
+  the service stops; after a crash the lock is released automatically.
+- **Stopping:** the service ends running cycles and closes the connections. With a dead connection this can take up
+  to about 15 seconds.
 
 ## Requirements
 - Windows 11
