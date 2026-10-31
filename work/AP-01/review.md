@@ -127,3 +127,63 @@ specified. One contract guarantee is broken (BLOCK 1); the rest are improvements
    "whitespace only" and `"\0"` alone returns an empty result.
 3. The worktree has an uncommitted change in `tests\MailWarden.Infrastructure.Tests\Storage\FileEmlStoreTests.cs`
    (seen in `git status`, not read). Not part of this review; please clarify whose it is before the next commit.
+
+# review.2 (2026-10-31)
+
+Verdict: **APPROVE**
+
+Scope: `git diff main...25d5256 -- . ":(exclude)tests"` (complete AP), focus `git diff d24f184 25d5256` (fix.2).
+Basis: `requirement.md` incl. D1–D16, `impl-notes.md` (fix.2), review.1, project `CLAUDE.md`, global rules.
+`tests\`, `test-plan.md`, `test-result.md` not read.
+Build: Core + Infrastructure from `git archive 25d5256` with `-warnaserror` → 0 warnings, 0 errors (reviewer). App not
+rebuilt (fix.2 touches only an XML doc comment in `App.xaml.cs`).
+Probe (reviewer, scratchpad, public API of `25d5256`): results quoted below. Test suite not run.
+
+## review.1 findings – status
+| Finding | Status | Evidence |
+|---|---|---|
+| BLOCK 1 NUL in search | fixed (D2) | `MessageSearchIndex.cs:126` (`IsTokenSeparator`), `:173` (`SplitTokens`), `SqliteMessageStore.cs:189-195`. Probe: `"alpha\0x"` → 1 hit, `"\u0001alpha"` → 1 hit, `"\0"`, `"\t\0 "`, `"\u0085"` → `ArgumentException`; `"!!!"`, `"\u200B"` → empty, no exception |
+| SHOULD 1 account vs. folder | fixed (D3, D15) | `SchemaMigrations.cs:30,48-50`, `SqliteMessageStore.cs:55-56`. Probe: insert AccountId B into A's folder → `StorageException` (FOREIGN KEY constraint failed); update of existing row with B → `StorageException`, row unchanged (account A, old subject); same UID in B's folder accepted; `pragma_foreign_key_list(messages)` = composite `(folder_id, account_id) → folders (id, account_id) CASCADE` + `account_id → accounts CASCADE` |
+| SHOULD 2 indexes | fixed (D4) | `SchemaMigrations.cs:55-56` match `NewestFirst` (`SqliteMessageStore.cs:24`). Probe plans: role + account list `SCAN m USING INDEX ix_messages_date` + `SEARCH f USING INTEGER PRIMARY KEY`, account-only list `SCAN m USING INDEX ix_messages_date`; no temp B-tree |
+| SHOULD 3 overwrite comment | fixed (D10) | `FileEmlStore.cs:84-85`, `IEmlStore.cs:24-27` |
+| SHOULD 4 path aliases | fixed (D5, D14) | `DataPaths.cs:96-109,127-132`. Probe: `COM¹`, `con.eml`, `CON .eml`, `COM1 .x`, `AUX.` rejected; ` x.eml`, `a/b..eml` accepted (Windows keeps them 1:1). `CONIN$`/`CONOUT$`/`COM0`/`LPT0` checked on this machine: created as normal files in a subdirectory, so no gap |
+| SHOULD 5 FTS delete outside index class | fixed (D11) | `MessageSearchIndex.cs:71-92`, call `SqliteMessageStore.cs:271`; `messages_fts` is written only in `MessageSearchIndex.cs` (grep over `src`) |
+| NIT 1–7 | all done | blank line `SqliteMessageStore.cs:146`; `FileEmlStore.cs:18-20`; Uid check `SqliteMessageStore.cs:32-35` (D7); ms comment `:22-23`; `App.xaml.cs:12-15`; `IAccountStore.cs:12-15`, `IFolderStore.cs:13-16` (D9); BOM removed from `MailWarden.sln` |
+
+D16 (cascades leave no FTS rows) confirmed by probe: after `IFolderStore.DeleteAsync` / `IAccountStore.DeleteAsync` the
+search for a word only the deleted messages contained returns 0.
+
+No new errors from fix.2 found: failed upserts roll back (`await using` transaction without commit), the FK error
+surfaces as `StorageException` via `SqliteValues.Wrap`, argument checks run before any DB access, all SQL stays
+parameterised, Core still has no package reference and no IO, new members carry XML docs (CS1591 enforced).
+
+## BLOCK
+none
+
+## SHOULD
+none
+
+## NIT
+1. `src\MailWarden.Infrastructure\Storage\DataPaths.cs:65-69` – the `ResolveMailPath` exception doc lists
+   `COM1`–`COM9`/`LPT1`–`LPT9` but not the superscript variants that D14 accepted and `:24` rejects. Add
+   "and `COM¹`–`³`/`LPT¹`–`³`" so the doc matches the behaviour.
+2. `src\MailWarden.Infrastructure\Storage\SchemaMigrations.cs:35` – no index on `messages.account_id`. Account delete
+   (FK `account_id → accounts`) and `MessageSearchIndex.DeleteForAccountAsync` (`MessageSearchIndex.cs:116`) scan the
+   whole `messages` table (probe plan: `LIST SUBQUERY 1 | SCAN messages`). Rare operation, so harmless now; since v1 is
+   still unreleased it is cheapest to decide now (see question 1).
+3. `src\MailWarden.Infrastructure\Storage\MessageSearchIndex.cs:9` – "the single place that knows the index layout"
+   is not quite true: `SqliteMessageStore.cs:210-211` builds the `JOIN messages_fts ON messages_fts.rowid = m.id …
+   MATCH` itself. Either soften the sentence ("the only writer") or move the join/match fragment into
+   `MessageSearchIndex` as a constant.
+4. `PLAN.md:132` (AP-01 row 3) still says "Gleiche (Konto, Ordner, UID)"; after D3 the key is (Ordner, UID) and the
+   account must be the folder's account – no `PLAN.md` row names that rule yet (only `requirement.md` D3/D15). Planner
+   task when marking the rows at verify.
+
+## Questions to the planner
+1. `messages.account_id`: keep the single-column FK to `accounts` (contract line 201) and add
+   `CREATE INDEX ix_messages_account ON messages (account_id)` in v1, or drop that FK (the composite FK plus
+   `folders.account_id → accounts` already guarantee the account and cascade the delete)? Either is fine; doing nothing
+   means a later v2 migration if account deletes ever get slow.
+2. Schema v1 was edited in place while keeping version 1: any file database created by earlier probes (`_scratch\…`)
+   keeps the old layout without a version error. No released data exists, so only a note – delete such probe DBs
+   before relying on them.
