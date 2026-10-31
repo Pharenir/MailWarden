@@ -9,8 +9,10 @@ Privacy policy: `PRIVACY.md` · Terms of service: `TERMS.md`.
 
 Status: early development (see `PLAN.md`). Implemented so far: solution skeleton, local storage layer (SQLite
 database and EML file store), the core of the spam classifier (a library in `MailWarden.Core`, not yet connected to
-any mail) and an empty WinUI 3 main window. There is no mail functionality yet: no account setup, no
-synchronisation, no inbox view; the classifier does not sort or move any mail yet.
+any mail), account and sign-in library (OAuth for Outlook.com and Gmail, encrypted token storage, provider profiles
+with a connection check) and an empty WinUI 3 main window. The account library has no user interface yet; account
+setup in the app comes with AP-04. There is no synchronisation and no inbox view yet; the classifier does not sort or
+move any mail yet.
 
 ## Requirements
 - Windows 11
@@ -29,7 +31,7 @@ dotnet run --project src\MailWarden.App
 ```
 
 - Build: the first build restores NuGet packages and needs internet access.
-- Tests: `dotnet test` runs the unit tests of the storage layer and the spam classifier core. They use temporary folders and artificial data only.
+- Tests: `dotnet test` runs the unit tests of the storage layer, the account library and the spam classifier core. They use temporary folders and artificial data only.
 - Start: `dotnet run` opens the main window (currently empty). Alternatively start the built
   `src\MailWarden.App\bin\x64\Debug\net9.0-windows10.0.19041.0\win-x64\MailWarden.App.exe`. The app is
   self-contained; no separate Windows App SDK runtime has to be installed.
@@ -46,6 +48,8 @@ Layout:
 |---|---|
 | `mailwarden.db` | SQLite database: accounts, folders, message metadata, full-text search index |
 | `mail\` | one `.eml` file per message |
+| `credentials\` | DPAPI-encrypted sign-in tokens, one `.bin` file per entry |
+| `auth-config.json` | optional OAuth client configuration (see Environment variables) |
 | `logs\` | log files |
 
 On start the app creates the data folder itself. The database, `mail\` and `logs\` are created by the storage layer
@@ -53,16 +57,28 @@ as soon as it is used; the app does not use it yet, so a fresh start leaves the 
 
 ## Project structure
 ```
-src\MailWarden.Core            domain model, storage interfaces and the spam classifier core (no I/O, no packages)
-src\MailWarden.Infrastructure  SQLite stores and EML file store
+src\MailWarden.Core            domain model, storage interfaces, account service and the spam classifier core
+                               (no I/O, no packages)
+src\MailWarden.Infrastructure  SQLite stores, EML file store, OAuth sign-in (Microsoft, Google), DPAPI credential
+                               store, provider profiles and connection check
 src\MailWarden.App             WinUI 3 app (main window only)
 tests\MailWarden.Core.Tests             unit tests for the spam classifier core
-tests\MailWarden.Infrastructure.Tests   unit tests for the storage layer
+tests\MailWarden.Infrastructure.Tests   unit tests for the storage layer and the account library
 ```
 
 ## Environment variables
-Only `MAILWARDEN_DATA_DIR` (see above) is evaluated. It is optional. Credentials will be stored encrypted with
-Windows DPAPI in the data folder once account setup exists. See `.env.example`.
+All variables are optional overrides; see `.env.example`.
+
+| Variable | Purpose |
+|---|---|
+| `MAILWARDEN_DATA_DIR` | data folder (see above) |
+| `MAILWARDEN_MS_CLIENT_ID` | client ID of your Microsoft app registration |
+| `MAILWARDEN_GOOGLE_CLIENT_ID` | client ID of your Google OAuth desktop client |
+| `MAILWARDEN_GOOGLE_CLIENT_SECRET` | client secret of that Google client |
+
+The three client values can alternatively be placed in `auth-config.json` in the data folder; environment variables
+take precedence. Details: `docs\auth-setup.md`. Tokens are stored encrypted with Windows DPAPI in `credentials\` in
+the data folder.
 
 ## License
 [PolyForm Noncommercial 1.0.0](https://polyformproject.org/licenses/noncommercial/1.0.0), see `LICENSE`:

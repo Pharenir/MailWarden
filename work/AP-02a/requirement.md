@@ -262,5 +262,45 @@ name `Junk-E-Mail`; case 25 must fail if the mismatched grant is not signed out.
 - Tester: tests in `tests\MailWarden.Infrastructure.Tests\Accounts\` (existing project from AP-01; add package
   references only if needed, none expected), `TestSupport\FakeTokenProvider.cs`, `work\AP-02a\test-plan.md`,
   `tests\test-map.json` entries for the new source folders → `["@feature:accounts"]`.
+- See "Planner decisions" below for amendments.
 - Planner: merge, S2 via Tester, review + **security review** (credentials, tokens, auth – trigger in the security
   profile), Dennis runs cases 28–30.
+
+## Planner decisions 2026-10-31 (implement.1 continued) – binding, supersede the text above where they differ
+Source: builder deviations/open questions (`impl-notes.md`), tester assumptions (`test-plan.md`).
+
+| # | Decision | Builder | Tester |
+|---|---|---|---|
+| A1 | `ListKeysAsync(prefix)`: `""` = all keys; `null` → ArgumentNullException; a non-empty prefix must use the key alphabet and be ≤ 128 chars, else ArgumentException. Case 4 ("every method") applies to Read/Write/Delete; for ListKeys only `null` and invalid non-empty prefixes. | fix | smoke as written (`ListKeysAsync("")` = all) |
+| A2 | Malformed / non-object / non-string `auth-config.json` → `AuthenticationFailedException(Configuration)` at `Load` time with `Provider = GenericImap` (file is shared by both providers); message names file and position, never content. | keep | optional case |
+| A3 | `ReauthenticateAsync` with a wrong account: AccessDenied, account unchanged; the wrong grant is signed out **only if its address is not itself a stored account** (otherwise a legitimate grant of another MailWarden account would be destroyed). | keep | new case 25a: fake signs in the address of a second stored account → AccessDenied, **no** SignOut, both accounts unchanged |
+| A4 | Interactive sign-in (Microsoft **and** Google) ends after **5 minutes** without redirect → `AuthenticationFailedException(Unknown)`, code `sign_in_timeout`, own fixed sentence. Caller cancellation stays `OperationCanceledException`. Timeout is a constructor parameter with default `TimeSpan.FromMinutes(5)` (optional trailing parameter, so the contract ctor stays source-compatible). | fix | none (interactive) |
+| A5 | Google credential key = `"google." + lower-case hex SHA-256 of the UTF-8 address after Trim + ToLowerInvariant` (71 chars) – no collisions, no length limit, no case issue. Replaces "characters outside the key alphabet replaced by '_'". Nothing is released, no migration. | fix | none (key format not tested) |
+| A6 | `DpapiCredentialStore` keys are effectively case-insensitive (NTFS). Documented in the XML doc of `ICredentialStore`; callers use lower-case keys. No behaviour change. | doc | none |
+| A7 | Microsoft special folder names (`Archive`, `Notes`, `Outbox`, `Scheduled`, `Synchronisierungsprobleme`) are compared case-insensitively (`OUTBOX` = `Outbox`). | keep/verify | as written |
+| A8 | Removing an account deletes the grant locally only; server-side revocation is out of scope (TODO, later AP). `RemoveAccountAsync` without a registered token provider deletes without sign-out. | keep | none |
+
+## Planner decisions 2026-10-31 (fix.2) – binding, supersede the text above where they differ
+Source: verify.1 PASS (237/237), review.1 APPROVE with SHOULDs (`review.md`), secure.1 0/0/0/6 (`security-review.md`).
+Small round before the merge: SHOULDs and cheap low-severity findings.
+
+| # | Decision | Builder | Tester |
+|---|---|---|---|
+| A9 | `DpapiCredentialStore.ReadAsync` opens with `FileShare.Read \| FileShare.Delete` (like `FileEmlStore`), so a concurrent `WriteAsync` of the same key can replace the file. Temp-file cleanup in `WriteAsync` is best effort and never hides the original exception. (review SHOULD 1/3) | fix | none |
+| A10 | Token providers map IO failures of the credential store (`IOException`, `UnauthorizedAccessException`) to `AuthenticationFailedException(Unknown)`, code `credential_store_unavailable`, inner exception kept; `CredentialStoreException` keeps its documented mapping. `ITokenProvider` doc stays ("every failure arrives as AuthenticationFailedException", except cancellation and argument errors). (review SHOULD 1) | fix | none |
+| A11 | **Removal is never blocked by sign-out:** `RemoveAccountAsync` deletes the account even if `SignOutAsync` throws `AuthenticationFailedException` (e.g. Microsoft without configuration); the exception is not rethrown. Other exceptions propagate. (review SHOULD 2) | fix | new case 26a: fake SignOut throws AuthenticationFailedException(Configuration) → account gone, no exception |
+| A12 | **Address matching includes the provider.** `AddAccountAsync`: signed-in address already stored under **another** provider → sign out the fresh grant, `AuthenticationFailedException(AccessDenied)`, code `address_in_use`, store unchanged (schema allows one account per address). `ReauthenticateAsync`: A3 "is a stored account" means stored **with the same provider**. (review NIT 5, secure N4) | fix | new case 22a: address stored as Google, fake Microsoft provider signs in the same address → AccessDenied, SignOut called on the Microsoft fake, account unchanged |
+| A13 | `AddAccountAsync` signs out a fresh grant of a **new** address when storing the account fails (exception rethrown). (secure N5) | fix | none (needs a failing store) |
+| A14 | Google interactive sign-in sets a random `state` (32 bytes, Base64Url) and compares it in constant time; mismatch → `AuthenticationFailedException(Unknown)`, code `state_mismatch`. `ProviderErrorCode` taken from a redirect URL is kept only if it matches `[a-z_]{1,64}`, else null. (secure N2) | fix | none (interactive) |
+| A15 | No e-mail address in exception messages of `ProviderProfiles` (domain or nothing). (review NIT 7, secure N1) | fix | none |
+| A16 | `ConnectionProbe`: an exception in `DisconnectAsync` after a successful login does not turn `ImapOk`/`SmtpOk` false. (review NIT 10) | fix | none |
+| A17 | `MicrosoftTokenProvider` class doc: one instance per credential store. Review NITs 8, 9: at the builder's discretion (do not change the contract sentence of NIT 8). | doc | none |
+| A18 | Out of scope → `TODO.md`: shared atomic-write helper for `FileEmlStore`/`DpapiCredentialStore` (review SHOULD 3, touches AP-01); `DataPaths.CredentialsDirectory`/`AuthConfigPath` (AP-02b/AP-04); logging rule "never `ToString()` of auth exceptions" (AP-02b, secure N1); ACL / location of the data folder (AP-13, secure N3); server-side revoke (secure N6); cleanup of orphaned grants at start. | – | – |
+
+## Planner decisions 2026-10-31 (fix.3) – binding
+Source: verify.2 PASS (242/242), review.2 APPROVE with one SHOULD, secure.2 0/0/0/1 (N7 → A18 TODO).
+
+| # | Decision | Builder | Tester |
+|---|---|---|---|
+| A19 | `ReauthenticateAsync` signs out the wrong grant **best effort** like `AddAccountAsync` (`SignOutBestEffortAsync`, `CancellationToken.None`): a sign-out failure never replaces the AccessDenied result. (review.2 SHOULD 1) | fix | new case 25c: fake signs in another (not stored) address and its SignOut throws AuthenticationFailedException → still AccessDenied, account unchanged |
+| A20 | Comments in `AccountService.cs` around removal / best-effort sign-out describe exactly what is swallowed (only `AuthenticationFailedException`) and that a grant may remain on disk (→ A18). `DpapiCredentialStore`: one instance per folder is a requirement for the AP-04 composition root (→ TODO). (review.2 NIT 3/4) | doc | none |

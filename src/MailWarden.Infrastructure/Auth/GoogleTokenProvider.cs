@@ -1,0 +1,392 @@
+using System.Buffers.Text;
+using System.Security.Cryptography;
+using System.Text;
+using Google.Apis.Auth;
+using Google.Apis.Auth.OAuth2;
+using Google.Apis.Auth.OAuth2.Flows;
+using Google.Apis.Auth.OAuth2.Requests;
+using Google.Apis.Auth.OAuth2.Responses;
+using Google.Apis.Json;
+using MailWarden.Core.Accounts;
+using MailWarden.Core.Model;
+
+namespace MailWarden.Infrastructure.Auth;
+
+/// <summary>
+/// <see cref="ITokenProvider"/> for Google accounts: installed-app flow with PKCE, loopback redirect and the system
+/// browser; scopes <c>https://mail.google.com/</c>, <c>openid</c>, <c>email</c>. The signed-in address is taken
+/// from the validated ID token (signature, issuer, audience = client id, expiry, verified email), never from the
+/// hint. The token response (incl. refresh token, without ID token) is stored in the credential store under
+/// <c>google.&lt;lower-case hex SHA-256 of the normalised address&gt;</c>. An interactive sign-in that does not
+/// complete within the sign-in timeout (default 5 minutes) fails with <see cref="AuthFailureReason.Unknown"/> and
+/// provider error code <c>sign_in_timeout</c>. The redirect must carry the random <c>state</c> of the request
+/// (otherwise code <c>state_mismatch</c>); an <c>error</c> value from the redirect is only kept as provider error code
+/// if it matches <c>[a-z_]{1,64}</c>. File system failures of the credential store surface as
+/// <see cref="AuthFailureReason.Unknown"/> with code <c>credential_store_unavailable</c>.
+/// </summary>
+public sealed class GoogleTokenProvider : ITokenProvider
+{
+    private const string CredentialKeyPrefix = "google.";
+    private const string ConsentPrompt = "consent select_account";
+    private const string PendingUserId = "pending-sign-in";
+    private const string StoredGrantUnreadableCode = "stored_grant_unreadable";
+    private const string InvalidIdTokenCode = "invalid_id_token";
+    private const string EmailNotVerifiedCode = "email_not_verified";
+    private const string MissingAuthorizationCodeCode = "missing_authorization_code";
+    private const string StateMismatchCode = "state_mismatch";
+    private const int StateByteCount = 32;
+    private const int MaxRedirectErrorCodeLength = 64;
+
+    private static readonly string[] Scopes = ["https://mail.google.com/", "openid", "email"];
+
+    private readonly AuthConfiguration configuration;
+    private readonly ICredentialStore credentialStore;
+    private readonly TimeSpan interactiveSignInTimeout;
+
+    /// <summary>Creates the provider. Configuration is checked on first use.</summary>
+    /// <param name="configuration">Client configuration (Google client id and secret).</param>
+    /// <param name="credentialStore">Store for the token responses.</param>
+    /// <param name="interactiveSignInTimeout">
+    /// Time limit of <see cref="SignInInteractiveAsync"/>; null = 5 minutes. When it expires the sign-in fails with
+    /// <see cref="AuthFailureReason.Unknown"/> and provider error code <c>sign_in_timeout</c>.
+    /// </param>
+    /// <exception cref="ArgumentNullException">A parameter is null.</exception>
+    /// <exception cref="ArgumentOutOfRangeException">The timeout is not positive or too large.</exception>
+    public GoogleTokenProvider(
+        AuthConfiguration configuration,
+        ICredentialStore credentialStore,
+        TimeSpan? interactiveSignInTimeout = null)
+    {
+        ArgumentNullException.ThrowIfNull(configuration);
+        ArgumentNullException.ThrowIfNull(credentialStore);
+        this.configuration = configuration;
+        this.credentialStore = credentialStore;
+        this.interactiveSignInTimeout = InteractiveSignInTimeout.Resolve(
+            interactiveSignInTimeout,
+            nameof(interactiveSignInTimeout));
+    }
+
+    /// <inheritdoc />
+    public MailProvider Provider => MailProvider.Google;
+
+    /// <inheritdoc />
+    public async Task<AccessToken> GetAccessTokenSilentAsync(string username, CancellationToken ct = default)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(username);
+        string emailAddress = username.Trim();
+        string credentialKey = CredentialKeyFor(emailAddress);
+
+        TokenResponse? storedToken = await ReadStoredTokenAsync(credentialKey, ct).ConfigureAwait(false);
+        if (storedToken is null)
+        {
+            throw AuthFailures.Create(Provider, AuthFailureReason.InteractionRequired);
+        }
+
+        // Cached access token still good (not within the library's refresh window) → no network.
+        if (!string.IsNullOrEmpty(storedToken.AccessToken) && !storedToken.IsStale)
+        {
+            return ToAccessToken(storedToken, emailAddress);
+        }
+
+        if (string.IsNullOrEmpty(storedToken.RefreshToken))
+        {
+            throw AuthFailures.Create(Provider, AuthFailureReason.InteractionRequired);
+        }
+
+        // Refresh with the stored refresh token; Google usually omits a new refresh token, so keep the old one.
+        TokenResponse refreshedToken = await TranslateFailuresAsync(
+            async () =>
+            {
+                using GoogleAuthorizationCodeFlow flow = CreateFlow(loginHint: null);
+                return await flow
+                    .RefreshTokenAsync(emailAddress, storedToken.RefreshToken, ct)
+                    .ConfigureAwait(false);
+            },
+            ct).ConfigureAwait(false);
+        refreshedToken.RefreshToken ??= storedToken.RefreshToken;
+
+        await WriteStoredTokenAsync(credentialKey, refreshedToken, ct).ConfigureAwait(false);
+        return ToAccessToken(refreshedToken, emailAddress);
+    }
+
+    /// <inheritdoc />
+    public async Task<AccessToken> SignInInteractiveAsync(string? loginHint, CancellationToken ct = default)
+    {
+        (string clientId, _) = configuration.RequireGoogleClient();
+
+        // The whole browser round trip is bounded: an error page that never redirects (e.g. the 403 of an
+        // unpublished app) would otherwise keep the loopback listener waiting until the caller cancels.
+        return await InteractiveSignInTimeout.RunAsync(
+            Provider,
+            interactiveSignInTimeout,
+            signInCt => SignInWithBrowserAsync(loginHint, clientId, signInCt),
+            ct).ConfigureAwait(false);
+    }
+
+    /// <inheritdoc />
+    public async Task SignOutAsync(string username, CancellationToken ct = default)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(username);
+        try
+        {
+            await credentialStore.DeleteAsync(CredentialKeyFor(username.Trim()), ct).ConfigureAwait(false);
+        }
+        catch (Exception exception) when (AuthFailures.IsCredentialStoreFailure(exception))
+        {
+            throw AuthFailures.CredentialStoreUnavailable(Provider, exception);
+        }
+    }
+
+    // Browser → loopback listener → authorization code (+ PKCE verifier) → token response → validated address.
+    private async Task<AccessToken> SignInWithBrowserAsync(string? loginHint, string clientId, CancellationToken ct)
+    {
+        return await TranslateFailuresAsync(
+            async () =>
+            {
+                using PkceGoogleAuthorizationCodeFlow flow = CreateFlow(
+                    string.IsNullOrWhiteSpace(loginHint) ? null : loginHint.Trim());
+
+                var codeReceiver = new LocalServerCodeReceiver();
+                string redirectUri = codeReceiver.RedirectUri;
+                AuthorizationCodeRequestUrl authorizationRequest =
+                    flow.CreateAuthorizationCodeRequest(redirectUri, out string codeVerifier);
+
+                // Own state: a redirect to the loopback port that did not come from this request is rejected.
+                string expectedState = CreateState();
+                authorizationRequest.State = expectedState;
+                AuthorizationCodeResponseUrl authorizationResponse = await codeReceiver
+                    .ReceiveCodeAsync(authorizationRequest, ct)
+                    .ConfigureAwait(false);
+
+                // State first, so that neither an injected error nor an injected code is evaluated.
+                if (!IsExpectedState(expectedState, authorizationResponse.State))
+                {
+                    throw AuthFailures.Create(Provider, AuthFailureReason.Unknown, StateMismatchCode);
+                }
+
+                if (!string.IsNullOrEmpty(authorizationResponse.Error))
+                {
+                    string? errorCode = SanitizeRedirectErrorCode(authorizationResponse.Error);
+                    throw AuthFailures.Create(Provider, AuthErrorMapping.FromGoogleError(errorCode), errorCode);
+                }
+
+                if (string.IsNullOrEmpty(authorizationResponse.Code))
+                {
+                    throw AuthFailures.Create(Provider, AuthFailureReason.Unknown, MissingAuthorizationCodeCode);
+                }
+
+                TokenResponse token = await flow
+                    .ExchangeCodeForTokenAsync(PendingUserId, authorizationResponse.Code, codeVerifier, redirectUri, ct)
+                    .ConfigureAwait(false);
+
+                // The account that actually signed in comes from the validated ID token.
+                string emailAddress = await ValidateSignedInAddressAsync(token.IdToken, clientId).ConfigureAwait(false);
+                string credentialKey = CredentialKeyFor(emailAddress);
+
+                // Re-consent normally returns a refresh token (prompt=consent); keep the old one if it did not.
+                if (string.IsNullOrEmpty(token.RefreshToken))
+                {
+                    TokenResponse? previousToken = await TryReadStoredTokenAsync(credentialKey, ct).ConfigureAwait(false);
+                    token.RefreshToken = previousToken?.RefreshToken;
+                }
+
+                await WriteStoredTokenAsync(credentialKey, token, ct).ConfigureAwait(false);
+                return ToAccessToken(token, emailAddress);
+            },
+            ct).ConfigureAwait(false);
+    }
+
+    /// <summary>
+    /// Credential store key for an address: <c>google.</c> + lower-case hex SHA-256 of the UTF-8 address after
+    /// trimming and lower-casing (71 characters). Collision-free, independent of address length and case, and keeps
+    /// the address out of the file name.
+    /// </summary>
+    /// <param name="emailAddress">Account address.</param>
+    /// <returns>The credential store key.</returns>
+    internal static string CredentialKeyFor(string emailAddress)
+    {
+        byte[] addressBytes = Encoding.UTF8.GetBytes(emailAddress.Trim().ToLowerInvariant());
+        return CredentialKeyPrefix + Convert.ToHexStringLower(SHA256.HashData(addressBytes));
+    }
+
+    /// <summary>Creates the OAuth <c>state</c> value: 32 random bytes, Base64Url without padding (43 characters).</summary>
+    /// <returns>A fresh state value.</returns>
+    internal static string CreateState()
+    {
+        return Base64Url.EncodeToString(RandomNumberGenerator.GetBytes(StateByteCount));
+    }
+
+    /// <summary>Compares the returned <c>state</c> with the expected one in constant time.</summary>
+    /// <param name="expectedState">State sent with the authorization request.</param>
+    /// <param name="returnedState">State from the redirect URL, or null.</param>
+    /// <returns>True only for an exact match.</returns>
+    internal static bool IsExpectedState(string expectedState, string? returnedState)
+    {
+        return returnedState is not null
+            && CryptographicOperations.FixedTimeEquals(
+                Encoding.UTF8.GetBytes(expectedState),
+                Encoding.UTF8.GetBytes(returnedState));
+    }
+
+    /// <summary>
+    /// Keeps an <c>error</c> value from the redirect URL only if it looks like an OAuth error code
+    /// (<c>[a-z_]{1,64}</c>); anything else (attacker-controlled text) becomes null.
+    /// </summary>
+    /// <param name="error">Raw error value, or null.</param>
+    /// <returns>The error code, or null.</returns>
+    internal static string? SanitizeRedirectErrorCode(string? error)
+    {
+        bool isErrorCode = error is { Length: > 0 and <= MaxRedirectErrorCodeLength }
+            && error.All(character => character is (>= 'a' and <= 'z') or '_');
+        return isErrorCode ? error : null;
+    }
+
+    private PkceGoogleAuthorizationCodeFlow CreateFlow(string? loginHint)
+    {
+        (string clientId, string clientSecret) = configuration.RequireGoogleClient();
+
+        // No DataStore: persistence is done explicitly through the credential store.
+        return new PkceGoogleAuthorizationCodeFlow(new GoogleAuthorizationCodeFlow.Initializer
+        {
+            ClientSecrets = new ClientSecrets { ClientId = clientId, ClientSecret = clientSecret },
+            Scopes = Scopes,
+            Prompt = ConsentPrompt,
+            LoginHint = loginHint,
+        });
+    }
+
+    private async Task<string> ValidateSignedInAddressAsync(string? idToken, string clientId)
+    {
+        if (string.IsNullOrEmpty(idToken))
+        {
+            throw AuthFailures.Create(Provider, AuthFailureReason.Unknown, InvalidIdTokenCode);
+        }
+
+        GoogleJsonWebSignature.Payload payload;
+        try
+        {
+            payload = await GoogleJsonWebSignature
+                .ValidateAsync(idToken, new GoogleJsonWebSignature.ValidationSettings { Audience = [clientId] })
+                .ConfigureAwait(false);
+        }
+        catch (InvalidJwtException exception)
+        {
+            throw AuthFailures.Create(Provider, AuthFailureReason.Unknown, InvalidIdTokenCode, exception);
+        }
+
+        if (string.IsNullOrWhiteSpace(payload.Email) || !payload.EmailVerified)
+        {
+            throw AuthFailures.Create(Provider, AuthFailureReason.Unknown, EmailNotVerifiedCode);
+        }
+
+        return payload.Email.Trim();
+    }
+
+    // Stored grant: decrypt + deserialize; unreadable data means the user has to sign in again.
+    private async Task<TokenResponse?> ReadStoredTokenAsync(string credentialKey, CancellationToken ct)
+    {
+        byte[]? serializedToken;
+        try
+        {
+            serializedToken = await credentialStore.ReadAsync(credentialKey, ct).ConfigureAwait(false);
+        }
+        catch (CredentialStoreException exception)
+        {
+            throw AuthFailures.Create(
+                Provider,
+                AuthFailureReason.InteractionRequired,
+                StoredGrantUnreadableCode,
+                exception);
+        }
+        catch (Exception exception) when (AuthFailures.IsCredentialStoreFailure(exception))
+        {
+            throw AuthFailures.CredentialStoreUnavailable(Provider, exception);
+        }
+
+        if (serializedToken is null)
+        {
+            return null;
+        }
+
+        try
+        {
+            return NewtonsoftJsonSerializer.Instance.Deserialize<TokenResponse>(Encoding.UTF8.GetString(serializedToken))
+                ?? throw AuthFailures.Create(Provider, AuthFailureReason.InteractionRequired, StoredGrantUnreadableCode);
+        }
+        catch (Exception exception) when (exception is not AuthenticationFailedException)
+        {
+            // No inner exception: JSON parser messages may quote parts of the token.
+            throw AuthFailures.Create(Provider, AuthFailureReason.InteractionRequired, StoredGrantUnreadableCode);
+        }
+        finally
+        {
+            CryptographicOperations.ZeroMemory(serializedToken);
+        }
+    }
+
+    private async Task<TokenResponse?> TryReadStoredTokenAsync(string credentialKey, CancellationToken ct)
+    {
+        try
+        {
+            return await ReadStoredTokenAsync(credentialKey, ct).ConfigureAwait(false);
+        }
+        catch (AuthenticationFailedException)
+        {
+            // An unreadable previous grant is replaced by the new one.
+            return null;
+        }
+    }
+
+    private async Task WriteStoredTokenAsync(string credentialKey, TokenResponse token, CancellationToken ct)
+    {
+        // The ID token was only needed to identify the user; it is not kept.
+        token.IdToken = null;
+        byte[] serializedToken = Encoding.UTF8.GetBytes(NewtonsoftJsonSerializer.Instance.Serialize(token));
+        try
+        {
+            await credentialStore.WriteAsync(credentialKey, serializedToken, ct).ConfigureAwait(false);
+        }
+        catch (Exception exception) when (AuthFailures.IsCredentialStoreFailure(exception))
+        {
+            throw AuthFailures.CredentialStoreUnavailable(Provider, exception);
+        }
+        finally
+        {
+            CryptographicOperations.ZeroMemory(serializedToken);
+        }
+    }
+
+    private AccessToken ToAccessToken(TokenResponse token, string emailAddress)
+    {
+        if (string.IsNullOrEmpty(token.AccessToken))
+        {
+            throw AuthFailures.Create(Provider, AuthFailureReason.Unknown);
+        }
+
+        DateTime issuedUtc = DateTime.SpecifyKind(token.IssuedUtc, DateTimeKind.Utc);
+        DateTimeOffset expiresOn = new DateTimeOffset(issuedUtc).AddSeconds(token.ExpiresInSeconds ?? 0);
+        return new AccessToken(token.AccessToken, expiresOn, emailAddress);
+    }
+
+    // Translates Google and transport failures into AuthenticationFailedException; cancellation stays cancellation.
+    private async Task<TResult> TranslateFailuresAsync<TResult>(Func<Task<TResult>> operation, CancellationToken ct)
+    {
+        try
+        {
+            return await operation().ConfigureAwait(false);
+        }
+        catch (TokenResponseException) when (ct.IsCancellationRequested)
+        {
+            throw new OperationCanceledException(ct);
+        }
+        catch (TokenResponseException exception)
+        {
+            string? error = exception.Error?.Error;
+            throw AuthFailures.Create(Provider, AuthErrorMapping.FromGoogleError(error), error, exception);
+        }
+        catch (HttpRequestException exception)
+        {
+            throw AuthFailures.Create(Provider, AuthFailureReason.Network, inner: exception);
+        }
+    }
+}
