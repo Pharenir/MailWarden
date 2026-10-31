@@ -148,3 +148,63 @@ covered by the probe setup), Unicode/IDN labels, `bestguesspass` from Outlook.
    (instead of e.g. +10). OK?
 8. `PLAN.md` column *Umgesetzt* not filled (coordinator rule: builder does not edit `PLAN.md`); AP-07 rows 2, 3
    (tier part), 4 (tier part), 5, 6, 8 are implemented in Core; rows 1, 4a, 4b, 7 belong to AP-07b/AP-08.
+
+---
+
+## fix.2 (2026-10-31)
+
+STEP-RESULT: done
+
+Basis: planner decisions C10–C16 (`requirement.md`), review.1 (`review.md`). Commit `d86d0a8` on
+`feat/ap-07a-classifier-core`. Build `dotnet build MailWarden.sln -warnaserror` → 0 warnings, 0 errors.
+Changed only `src\MailWarden.Core\Classification\**` (12 files changed, 1 new: `ReasonText.cs`) and this file.
+No package, no IO, no public signature changed (`HeaderToken` is internal and got a third member).
+`tests\`, `test-plan.md`, `test-result.md` not read.
+
+### Decision → change → verification
+| # | Change (file:line) | Verified by |
+|---|---|---|
+| C10 | Tokenizer marks every token `IsJoinedToPrevious` (no whitespace/control/comment before it): `AuthenticationResultsTokenizer.cs:24`, `:43`, `:53`, `:73`, `:93-97`. Parser reads the value after `key =` as the run of joined Word/`=` tokens and concatenates them: `AuthenticationResultsParser.cs:100` (call), `:121-141` (`ReadValue`); key detection no longer needs a Word right after `=`. Domain = part after the last `@` (unchanged, `:189`). Whitespace around `=` still allowed (case 3). Linear: every token visited once in `ReadValue`, no backtracking. | Probe: `"x@victim.test"@attacker.test` → `attacker.test`; `bounces+123-user=example.test@mailer.test` → `mailer.test`; `SRS0=h=tt=example.com=u@fwd.test` → `fwd.test`; `x=dmarc=none@a.test; dmarc=fail header.from=a.test` → Dmarc Fail (also without `;`); injected `x=dkim=pass@a.test` → single DKIM Fail; `header.b=Ab+/Cd==` keeps the following `header.d`; comment directly after a value ends it; `dkim = pass header.d = …`; whole-value quotes; quoted local part with space/`;`/`=`. #1–#5 unchanged. Hostile 1 MB inputs incl. 250 000 joined `"a"=` parts: ≤ 141 ms. End-to-end B1.1/B1.3: spoofed contact with `dmarc=fail` → Failed, not TrustedContact; without DMARC → Unknown. |
+| C11 | `AuthStatusEvaluator.cs:20` DMARC fail → Failed before any pass check; `:44` `DescribePass` returns null on DMARC fail (stays consistent with `Evaluate`); SPF fail / all DKIM fail as before (`:30-31`). | Probe #21a (aligned SPF pass + DMARC fail → Failed, `authentication` +40; contact → not TrustedContact, LikelySpam); aligned DKIM pass + DMARC fail → Failed; DMARC none / temperror / bestguesspass + aligned pass → Authenticated; aligned DMARC pass + SPF fail → Authenticated (unchanged). |
+| C12 | `AuthStatusEvaluator.cs:50-62`: DMARC pass counts when `Domain` is null (`"DMARC pass"`) or aligned (`:58`); otherwise falls through to DKIM/SPF. | Probe #22a (`dmarc=pass header.from=other.test` → Unknown, no finding); without header.from → Authenticated; `news.example.test` → Authenticated; other-domain pass + aligned DKIM → Authenticated via DKIM; other-domain pass + SPF fail → Failed; contact with other-domain pass → unverified contact (LikelyLegit + override). |
+| C13 | `SpamClassifier.cs:103` call, `:115-127` `EnsureValidFinding`: `SignalId` ordinal-equal to `signal.Id`, `Reason` not null/whitespace → `InvalidOperationException("Signal '<id>' returned a result with a different SignalId." / "... without a reason.")`. No message data in the text. XML doc `<exception>` added on `Classify`. | Probe: empty, whitespace, null reason; different id, case-different id (`Stub` vs `stub`), null id → IOE naming `'stub'`; valid stub accepted. |
+| C14 | New `ReasonText.Truncate` (`ReasonText.cs:18`): > 100 chars → first 100 + `…` (99 when char 100 would split a surrogate pair). Applied to every message value in reasons: `AuthenticationSignal.cs:34/74`, `DisplayNameMismatchSignal.cs:39`, `DomainNotInBodySignal.cs:44`, `LinkDomainMismatchSignal.cs:58`, `RandomDomainSignal.cs:43`, `ReplyToMismatchSignal.cs:37/43`, `SuspiciousTldSignal.cs:35`, and the pass descriptions `AuthStatusEvaluator.cs:60/68/75` (thus also the contact override text). | Probe #30a: 1 000-char display-name token → reason 179 chars, value = 100 × `a` + `…`. All 7 signals with ~250–300-char values → every reason contains `…`, max 281 chars. Override with long DMARC domain → 158 chars. Short values unchanged (`'qzxkvb73' … (score 0.92)`). Surrogate pair at the cut → no lone surrogate. |
+| C15 | N1 `SpamClassifier.cs:183` returns `SpamTier.LikelyLegit` directly (score tier only computed on the score path). N2 `RandomDomainScorer.cs:13` docstring "letters and digits − 1". N3 `SpamClassifier.cs:132` `FromAddress` in the null check → `ArgumentException` (param `input`, "… must not be null"). | Probe: null FromAddress → ArgumentException, ParamName `input`; contact + Unknown → LikelyLegit (#17, C15). N2 docs only. |
+| C16 | nothing (AP-07b). | – |
+
+### Probe (`_scratch\ClassifierProbe`, git-ignored, not a test)
+`dotnet run --project _scratch\ClassifierProbe` → **126 checks OK, 0 FAIL** ("ALL OK", exit 0). Contains the
+previous cases (#1–#17, #19–#25, #27–#29, hostile inputs, 700 kB display name) unchanged, plus new: #18, #26
+(stub 29/30/69/70), #30 (all reasons non-empty), #31 (smoke = #13/#14 with empty directory), all C10–C15 examples
+above. #11 scores unchanged (scorer untouched apart from the docstring).
+
+Self-check with existing tests (punctual, via watchdog, not a test stage):
+- `FullyQualifiedName~AuthenticationResultsParser` → 43/43 passed.
+- `FullyQualifiedName~Classifier` → 102/104; the 2 failures are expected contract changes (see note to the tester).
+
+### Tested vs. untested
+- Verified by probe: everything in the table above.
+- Untested / by reasoning only: Unicode/IDN domains in values; a quoted part after the `@`
+  (`x@attacker.test"@victim.test"`, see open question 1); real Gmail/Outlook headers with VERP/SRS (AP-07b).
+
+### Note to the tester – existing contract cases whose behaviour changes
+Seen in the self-check output (test names only, file not read):
+1. `SpamClassifierTests.AuthStatus_is_derived_from_the_header(header: "mx.test; dmarc=pass header.from=other.test",
+   expected: Authenticated)` → now **Unknown** (C12; matches new case 22a).
+2. `SpamClassifierTests.AuthStatus_is_derived_from_the_header(header: "mx.test; dmarc=fail header.from=paypal.test;
+   dkim=…", expected: Authenticated)` → now **Failed** (C11; DMARC fail is no longer rescued by an aligned DKIM pass).
+Other places that could change (not seen failing, worth a look): any case combining `dmarc=fail` with an aligned
+SPF/DKIM pass (contacts/allow list then lose TrustedContact, `authentication` gives + points instead of −20); any
+DMARC pass whose `header.from` differs from From; parser cases that relied on a value ending at `=` or at a quoted
+string (e.g. `header.b=…==` padding, `smtp.mailfrom="…"@…`); reason texts with values > 100 chars (now cut + `…`);
+null `FromAddress` (message text changed, still ArgumentException/`input`); custom stub signals whose `SignalId`
+differs from `Id` or whose reason is empty now throw `InvalidOperationException`.
+
+### Open questions (fix.2)
+1. `src\MailWarden.Core\Classification\AuthenticationResultsParser.cs:189` – C10 "domain after the last `@`" is
+   applied to the joined value, so a quote after the `@` (`smtp.mailfrom=x@attacker.test"@victim.test"`, not valid
+   SMTP) yields `victim.test`. An alternative would be "last `@` outside quotes" (→ `attacker.test`). Followed C10
+   literally; with C11 a provider DMARC fail still wins. Keep?
+2. `src\MailWarden.Core\Classification\ISpamSignal.cs:10` – the interface doc does not mention the C13 validation
+   (only `Classify` documents the `InvalidOperationException`). Left unchanged on purpose (`I*.cs` is an S3
+   trigger); add a doc line?
