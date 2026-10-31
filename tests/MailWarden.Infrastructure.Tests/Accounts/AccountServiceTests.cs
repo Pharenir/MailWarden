@@ -58,6 +58,44 @@ public sealed class AccountServiceTests
         Assert.Empty(await storage.Accounts.ListAsync());
     }
 
+    // Case 22a (A12)
+    [Fact(Timeout = TestTimeouts.PerTestMilliseconds)]
+    public async Task AddAccount_with_address_stored_under_other_provider_throws_AccessDenied_and_signs_out()
+    {
+        await using StorageFixture storage = await StorageFixture.CreateAsync();
+        Account googleAccount = TestData.NewAccount("user_a@example.test", "user_a@example.test", MailProvider.Google);
+        await storage.Accounts.UpsertAsync(googleAccount);
+        var microsoftFake = new FakeTokenProvider(MailProvider.Microsoft);
+        microsoftFake.EnqueueSignIn("user_a@example.test");
+        var googleFake = new FakeTokenProvider(MailProvider.Google);
+        var service = new AccountService(storage.Accounts, [microsoftFake, googleFake]);
+
+        AuthenticationFailedException exception =
+            await Assert.ThrowsAsync<AuthenticationFailedException>(() => service.AddAccountAsync(MailProvider.Microsoft, null));
+
+        Assert.Equal(AuthFailureReason.AccessDenied, exception.Reason);
+        Assert.Contains("user_a@example.test", microsoftFake.SignedOutUsernames);
+        Assert.Empty(googleFake.SignedOutUsernames);
+        Account stored = Assert.Single(await storage.Accounts.ListAsync());
+        Assert.Equal(googleAccount, stored);
+    }
+
+    // Case 22b (A12): same-provider duplicate still returns the existing account without sign-out.
+    [Fact(Timeout = TestTimeouts.PerTestMilliseconds)]
+    public async Task AddAccount_with_address_stored_under_same_provider_does_not_sign_out()
+    {
+        await using StorageFixture storage = await StorageFixture.CreateAsync();
+        Account account = await StoreAccountAsync(storage);
+        var fake = new FakeTokenProvider();
+        fake.EnqueueSignIn("user_a@example.test");
+        var service = new AccountService(storage.Accounts, [fake]);
+
+        Account returned = await service.AddAccountAsync(MailProvider.Microsoft, null);
+
+        Assert.Equal(account, returned);
+        Assert.Empty(fake.SignedOutUsernames);
+    }
+
     [Fact(Timeout = TestTimeouts.PerTestMilliseconds)]
     public async Task AddAccount_for_provider_without_token_provider_throws_NotSupported()
     {
@@ -156,6 +194,27 @@ public sealed class AccountServiceTests
         Assert.Equal(secondAccount, await storage.Accounts.GetAsync(secondAccount.Id));
     }
 
+    // Case 25b (A12): an address stored only under another provider is not "a stored account" for this provider.
+    [Fact(Timeout = TestTimeouts.PerTestMilliseconds)]
+    public async Task Reauthenticate_with_address_stored_under_other_provider_signs_out_the_new_grant()
+    {
+        await using StorageFixture storage = await StorageFixture.CreateAsync();
+        Account account = await StoreAccountAsync(storage);
+        Account googleAccount = TestData.NewAccount("user_g@example.test", "user_g@example.test", MailProvider.Google);
+        await storage.Accounts.UpsertAsync(googleAccount);
+        var fake = new FakeTokenProvider(MailProvider.Microsoft);
+        fake.EnqueueSignIn("user_g@example.test");
+        var service = new AccountService(storage.Accounts, [fake]);
+
+        AuthenticationFailedException exception =
+            await Assert.ThrowsAsync<AuthenticationFailedException>(() => service.ReauthenticateAsync(account.Id));
+
+        Assert.Equal(AuthFailureReason.AccessDenied, exception.Reason);
+        Assert.Contains("user_g@example.test", fake.SignedOutUsernames);
+        Assert.Equal(account, await storage.Accounts.GetAsync(account.Id));
+        Assert.Equal(googleAccount, await storage.Accounts.GetAsync(googleAccount.Id));
+    }
+
     [Fact(Timeout = TestTimeouts.PerTestMilliseconds)]
     public async Task Reauthenticate_with_same_account_case_insensitive_returns_token_without_sign_out()
     {
@@ -184,6 +243,36 @@ public sealed class AccountServiceTests
 
         Assert.Equal(["user_a@example.test"], fake.SignedOutUsernames);
         Assert.Null(await storage.Accounts.GetAsync(account.Id));
+    }
+
+    // Case 26a (A11)
+    [Fact(Timeout = TestTimeouts.PerTestMilliseconds)]
+    public async Task RemoveAccount_deletes_account_even_if_sign_out_throws_AuthenticationFailed()
+    {
+        await using StorageFixture storage = await StorageFixture.CreateAsync();
+        Account account = await StoreAccountAsync(storage);
+        var fake = new FakeTokenProvider
+        {
+            SignOutException = new AuthenticationFailedException(MailProvider.Microsoft, AuthFailureReason.Configuration, "Not configured."),
+        };
+        var service = new AccountService(storage.Accounts, [fake]);
+
+        await service.RemoveAccountAsync(account.Id);
+
+        Assert.Equal(["user_a@example.test"], fake.SignedOutUsernames);
+        Assert.Null(await storage.Accounts.GetAsync(account.Id));
+    }
+
+    // A11: only AuthenticationFailedException is swallowed; other exceptions propagate.
+    [Fact(Timeout = TestTimeouts.PerTestMilliseconds)]
+    public async Task RemoveAccount_propagates_other_sign_out_exceptions()
+    {
+        await using StorageFixture storage = await StorageFixture.CreateAsync();
+        Account account = await StoreAccountAsync(storage);
+        var fake = new FakeTokenProvider { SignOutException = new InvalidOperationException("boom") };
+        var service = new AccountService(storage.Accounts, [fake]);
+
+        await Assert.ThrowsAsync<InvalidOperationException>(() => service.RemoveAccountAsync(account.Id));
     }
 
     [Fact(Timeout = TestTimeouts.PerTestMilliseconds)]
