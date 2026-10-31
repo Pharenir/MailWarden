@@ -21,7 +21,7 @@ implementation, not yet compiled or run.
 | 9 | `SqliteMessageStoreTests.Upsert_returns_positive_id_and_get_returns_equal_record`, `Date_keeps_its_original_offset_and_message_id_stays_null` (positive control: asserts `Date.Offset`), `All_fields_round_trip_...` |
 | 10 | `SqliteMessageStoreTests.Upsert_with_same_key_updates_values_and_search_index` (+ body-text keep/replace tests) |
 | 11 | `SqliteMessageStoreTests.Upsert_for_unknown_folder_throws_StorageException` |
-| 11a (D3) | `SqliteMessageStoreTests.Upsert_with_account_different_from_folder_account_throws_StorageException` (also asserts `ListAsync(AccountId: B)` empty and 0 rows) |
+| 11a (D3) | `SqliteMessageStoreTests.Upsert_with_account_different_from_folder_account_throws_StorageException` (also asserts `ListAsync(AccountId: B)` empty and 0 rows); D15 update path: `Upsert_of_existing_message_with_other_account_throws_and_keeps_stored_row` |
 | 12 | `SqliteMessageStoreTests.List_by_role_returns_inbox_messages_of_all_accounts_newest_first_with_id_tie_break` |
 | 13 | `SqliteMessageStoreTests.List_by_role_and_account_returns_only_that_accounts_messages` |
 | 14 | `SqliteMessageStoreTests.List_folder_id_wins_over_role` |
@@ -33,12 +33,12 @@ implementation, not yet compiled or run.
 | 19 | `SqliteMessageSearchTests.Search_with_fts_syntax_characters_does_not_throw` (theory, 9 inputs incl. `"foo" OR bar*` and `(`), `Search_treats_or_operator_as_plain_word` |
 | 20 | `SqliteMessageStoreTests.Delete_removes_message_and_its_search_entries`, `Delete_of_unknown_id_is_a_no_op` |
 | 21 | `SqliteMessageStoreTests.Delete_by_uids_removes_exactly_the_given_uids_of_that_folder`, `Delete_by_uids_with_empty_collection_is_a_no_op` |
-| 22 | `SqliteAccountStoreTests.Delete_cascades_to_folders_and_messages_and_leaves_other_accounts_untouched` |
-| 23 | `SqliteFolderStoreTests.Delete_removes_its_messages_and_keeps_the_account` |
+| 22 | `SqliteAccountStoreTests.Delete_cascades_to_folders_and_messages_and_leaves_other_accounts_untouched`; D16: `Delete_removes_full_text_entries_of_the_deleted_messages_only` |
+| 23 | `SqliteFolderStoreTests.Delete_removes_its_messages_and_keeps_the_account`; D16: `Delete_removes_full_text_entries_of_the_deleted_folder_only` |
 | 24 | `FileEmlStoreTests.Relative_path_uses_lower_case_guid_and_forward_slashes` |
 | 25 | `FileEmlStoreTests.Write_creates_directories_and_content_is_read_back_identically`, `Second_write_overwrites_with_shorter_content_and_leaves_no_tmp_file`, `Empty_content_round_trips` |
 | 26 | `FileEmlStoreTests.Open_read_of_missing_path_throws_EmlNotFoundException_with_relative_path`, `Exists_is_false_and_delete_is_a_no_op_for_missing_path` |
-| 27 | `DataPathsTests.Resolve_rejects_parent_segment_at_start`, `Resolve_rejects_rooted_path`, `Resolve_rejects_parent_segment_in_the_middle`, `Resolve_maps_relative_path_below_mail_root_with_os_separators`; D5: `Resolve_rejects_trailing_dot_space_and_device_names` (theory: `x.eml.`, `x.eml `, `...`, `accounts/...`, `CON`, `nul.txt`, `COM1`, `LPT9.eml`, `accounts/a/aux/1.eml`) |
+| 27 | `DataPathsTests.Resolve_rejects_parent_segment_at_start`, `Resolve_rejects_rooted_path`, `Resolve_rejects_parent_segment_in_the_middle`, `Resolve_maps_relative_path_below_mail_root_with_os_separators`; D5: `Resolve_rejects_trailing_dot_space_and_device_names` (theory: `x.eml.`, `x.eml `, `...`, `accounts/...`, `CON`, `nul.txt`, `COM1`, `LPT9.eml`, `accounts/a/aux/1.eml`; D14: `COM¹`, `CON .eml`) |
 | 27a (D6) | `FileEmlStoreTests.All_methods_reject_paths_outside_the_mail_root` (theory `../x.eml`, `C:\x.eml`; WriteAsync/OpenReadAsync/Exists/DeleteAsync) |
 | 28 | `DataPathsTests.Properties_are_derived_from_the_root` |
 | 29 | `StorageSmokeTests.File_database_and_eml_store_work_end_to_end_and_release_all_handles` |
