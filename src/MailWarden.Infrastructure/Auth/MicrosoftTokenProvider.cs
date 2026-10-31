@@ -14,8 +14,17 @@ namespace MailWarden.Infrastructure.Auth;
 /// <c>sign_in_timeout</c>.
 /// </summary>
 /// <remarks>
+/// <para>
+/// Use exactly one instance per credential store (register it as a singleton): every instance keeps its own
+/// in-memory cache and writes the whole <c>msal.cache</c>, so two instances on the same store overwrite each other's
+/// grants (last writer wins).
+/// </para>
+/// <para>
 /// If the stored cache cannot be decrypted or is no valid MSAL cache, silent requests fail with
 /// <see cref="AuthFailureReason.InteractionRequired"/> and the next interactive sign-in replaces the unreadable cache.
+/// File system failures of the credential store surface as <see cref="AuthFailureReason.Unknown"/> with code
+/// <c>credential_store_unavailable</c>.
+/// </para>
 /// </remarks>
 public sealed class MicrosoftTokenProvider : ITokenProvider
 {
@@ -189,6 +198,11 @@ public sealed class MicrosoftTokenProvider : ITokenProvider
             storedCacheUnreadable = true;
             serializedCache = null;
         }
+        catch (Exception exception) when (AuthFailures.IsCredentialStoreFailure(exception))
+        {
+            // MSAL passes exceptions of cache callbacks through to the caller of the MSAL operation.
+            throw AuthFailures.CredentialStoreUnavailable(Provider, exception);
+        }
 
         try
         {
@@ -224,6 +238,10 @@ public sealed class MicrosoftTokenProvider : ITokenProvider
                 .WriteAsync(CacheKey, serializedCache, notification.CancellationToken)
                 .ConfigureAwait(false);
             storedCacheUnreadable = false;
+        }
+        catch (Exception exception) when (AuthFailures.IsCredentialStoreFailure(exception))
+        {
+            throw AuthFailures.CredentialStoreUnavailable(Provider, exception);
         }
         finally
         {

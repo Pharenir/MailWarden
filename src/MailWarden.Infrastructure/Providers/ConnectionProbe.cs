@@ -123,7 +123,8 @@ public sealed class ConnectionProbe
             }
         }
 
-        await client.DisconnectAsync(quit: true, ct).ConfigureAwait(false);
+        await DisconnectIgnoringFailuresAsync(disconnectCt => client.DisconnectAsync(quit: true, disconnectCt), ct)
+            .ConfigureAwait(false);
         folders.Sort((left, right) => string.CompareOrdinal(left.FullName, right.FullName));
         return folders;
     }
@@ -139,7 +140,27 @@ public sealed class ConnectionProbe
             .ConfigureAwait(false);
         await client.AuthenticateAsync(new SaslMechanismOAuth2(account.EmailAddress, token.Value), ct)
             .ConfigureAwait(false);
-        await client.DisconnectAsync(quit: true, ct).ConfigureAwait(false);
+        await DisconnectIgnoringFailuresAsync(disconnectCt => client.DisconnectAsync(quit: true, disconnectCt), ct)
+            .ConfigureAwait(false);
+    }
+
+    /// <summary>
+    /// Runs the final disconnect after a successful check; its failure (connection dropped, QUIT rejected) does not
+    /// change the outcome. Cancellation by the caller is still thrown.
+    /// </summary>
+    /// <param name="disconnect">The disconnect call.</param>
+    /// <param name="ct">Caller's cancellation token.</param>
+    /// <returns>A task that completes when the disconnect finished or failed.</returns>
+    internal static async Task DisconnectIgnoringFailuresAsync(Func<CancellationToken, Task> disconnect, CancellationToken ct)
+    {
+        try
+        {
+            await disconnect(ct).ConfigureAwait(false);
+        }
+        catch (Exception exception) when (!IsCancellation(exception, ct))
+        {
+            // Ignored on purpose: login (and folder listing) already succeeded; the client is disposed by the caller.
+        }
     }
 
     private static SecureSocketOptions ToSocketOptions(TransportSecurity security)

@@ -1,3 +1,4 @@
+using System.Buffers.Text;
 using System.Security.Cryptography;
 using System.Text;
 using Google.Apis.Auth;
@@ -18,7 +19,10 @@ namespace MailWarden.Infrastructure.Auth;
 /// hint. The token response (incl. refresh token, without ID token) is stored in the credential store under
 /// <c>google.&lt;lower-case hex SHA-256 of the normalised address&gt;</c>. An interactive sign-in that does not
 /// complete within the sign-in timeout (default 5 minutes) fails with <see cref="AuthFailureReason.Unknown"/> and
-/// provider error code <c>sign_in_timeout</c>.
+/// provider error code <c>sign_in_timeout</c>. The redirect must carry the random <c>state</c> of the request
+/// (otherwise code <c>state_mismatch</c>); an <c>error</c> value from the redirect is only kept as provider error code
+/// if it matches <c>[a-z_]{1,64}</c>. File system failures of the credential store surface as
+/// <see cref="AuthFailureReason.Unknown"/> with code <c>credential_store_unavailable</c>.
 /// </summary>
 public sealed class GoogleTokenProvider : ITokenProvider
 {
@@ -28,7 +32,10 @@ public sealed class GoogleTokenProvider : ITokenProvider
     private const string StoredGrantUnreadableCode = "stored_grant_unreadable";
     private const string InvalidIdTokenCode = "invalid_id_token";
     private const string EmailNotVerifiedCode = "email_not_verified";
-    private const string MissingCodeError = "missing_authorization_code";
+    private const string MissingAuthorizationCodeCode = "missing_authorization_code";
+    private const string StateMismatchCode = "state_mismatch";
+    private const int StateByteCount = 32;
+    private const int MaxRedirectErrorCodeLength = 64;
 
     private static readonly string[] Scopes = ["https://mail.google.com/", "openid", "email"];
 
@@ -120,7 +127,14 @@ public sealed class GoogleTokenProvider : ITokenProvider
     public async Task SignOutAsync(string username, CancellationToken ct = default)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(username);
-        await credentialStore.DeleteAsync(CredentialKeyFor(username.Trim()), ct).ConfigureAwait(false);
+        try
+        {
+            await credentialStore.DeleteAsync(CredentialKeyFor(username.Trim()), ct).ConfigureAwait(false);
+        }
+        catch (Exception exception) when (AuthFailures.IsCredentialStoreFailure(exception))
+        {
+            throw AuthFailures.CredentialStoreUnavailable(Provider, exception);
+        }
     }
 
     // Browser → loopback listener → authorization code (+ PKCE verifier) → token response → validated address.
@@ -136,21 +150,29 @@ public sealed class GoogleTokenProvider : ITokenProvider
                 string redirectUri = codeReceiver.RedirectUri;
                 AuthorizationCodeRequestUrl authorizationRequest =
                     flow.CreateAuthorizationCodeRequest(redirectUri, out string codeVerifier);
+
+                // Own state: a redirect to the loopback port that did not come from this request is rejected.
+                string expectedState = CreateState();
+                authorizationRequest.State = expectedState;
                 AuthorizationCodeResponseUrl authorizationResponse = await codeReceiver
                     .ReceiveCodeAsync(authorizationRequest, ct)
                     .ConfigureAwait(false);
 
+                // State first, so that neither an injected error nor an injected code is evaluated.
+                if (!IsExpectedState(expectedState, authorizationResponse.State))
+                {
+                    throw AuthFailures.Create(Provider, AuthFailureReason.Unknown, StateMismatchCode);
+                }
+
                 if (!string.IsNullOrEmpty(authorizationResponse.Error))
                 {
-                    throw AuthFailures.Create(
-                        Provider,
-                        AuthErrorMapping.FromGoogleError(authorizationResponse.Error),
-                        authorizationResponse.Error);
+                    string? errorCode = SanitizeRedirectErrorCode(authorizationResponse.Error);
+                    throw AuthFailures.Create(Provider, AuthErrorMapping.FromGoogleError(errorCode), errorCode);
                 }
 
                 if (string.IsNullOrEmpty(authorizationResponse.Code))
                 {
-                    throw AuthFailures.Create(Provider, AuthFailureReason.Unknown, MissingCodeError);
+                    throw AuthFailures.Create(Provider, AuthFailureReason.Unknown, MissingAuthorizationCodeCode);
                 }
 
                 TokenResponse token = await flow
@@ -185,6 +207,38 @@ public sealed class GoogleTokenProvider : ITokenProvider
     {
         byte[] addressBytes = Encoding.UTF8.GetBytes(emailAddress.Trim().ToLowerInvariant());
         return CredentialKeyPrefix + Convert.ToHexStringLower(SHA256.HashData(addressBytes));
+    }
+
+    /// <summary>Creates the OAuth <c>state</c> value: 32 random bytes, Base64Url without padding (43 characters).</summary>
+    /// <returns>A fresh state value.</returns>
+    internal static string CreateState()
+    {
+        return Base64Url.EncodeToString(RandomNumberGenerator.GetBytes(StateByteCount));
+    }
+
+    /// <summary>Compares the returned <c>state</c> with the expected one in constant time.</summary>
+    /// <param name="expectedState">State sent with the authorization request.</param>
+    /// <param name="returnedState">State from the redirect URL, or null.</param>
+    /// <returns>True only for an exact match.</returns>
+    internal static bool IsExpectedState(string expectedState, string? returnedState)
+    {
+        return returnedState is not null
+            && CryptographicOperations.FixedTimeEquals(
+                Encoding.UTF8.GetBytes(expectedState),
+                Encoding.UTF8.GetBytes(returnedState));
+    }
+
+    /// <summary>
+    /// Keeps an <c>error</c> value from the redirect URL only if it looks like an OAuth error code
+    /// (<c>[a-z_]{1,64}</c>); anything else (attacker-controlled text) becomes null.
+    /// </summary>
+    /// <param name="error">Raw error value, or null.</param>
+    /// <returns>The error code, or null.</returns>
+    internal static string? SanitizeRedirectErrorCode(string? error)
+    {
+        bool isErrorCode = error is { Length: > 0 and <= MaxRedirectErrorCodeLength }
+            && error.All(character => character is (>= 'a' and <= 'z') or '_');
+        return isErrorCode ? error : null;
     }
 
     private PkceGoogleAuthorizationCodeFlow CreateFlow(string? loginHint)
@@ -244,6 +298,10 @@ public sealed class GoogleTokenProvider : ITokenProvider
                 StoredGrantUnreadableCode,
                 exception);
         }
+        catch (Exception exception) when (AuthFailures.IsCredentialStoreFailure(exception))
+        {
+            throw AuthFailures.CredentialStoreUnavailable(Provider, exception);
+        }
 
         if (serializedToken is null)
         {
@@ -287,6 +345,10 @@ public sealed class GoogleTokenProvider : ITokenProvider
         try
         {
             await credentialStore.WriteAsync(credentialKey, serializedToken, ct).ConfigureAwait(false);
+        }
+        catch (Exception exception) when (AuthFailures.IsCredentialStoreFailure(exception))
+        {
+            throw AuthFailures.CredentialStoreUnavailable(Provider, exception);
         }
         finally
         {

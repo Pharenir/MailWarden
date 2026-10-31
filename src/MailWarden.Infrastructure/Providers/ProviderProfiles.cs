@@ -77,7 +77,10 @@ public static class ProviderProfiles
             && !emailAddress.Any(char.IsWhiteSpace);
         if (!isValid)
         {
-            throw new ArgumentException($"Not a valid email address: '{emailAddress}'.", nameof(emailAddress));
+            // The address itself stays out of the message (personal data that could end up in logs).
+            throw new ArgumentException(
+                "Not a valid email address (expected local@domain without whitespace).",
+                nameof(emailAddress));
         }
 
         return emailAddress[(separatorIndex + 1)..];

@@ -12,6 +12,11 @@ public sealed class AccountService
     private const string OtherAccountMessage =
         "The browser was signed in as other account; sign in with the address of this account.";
 
+    private const string AddressInUseMessage =
+        "This address is already used by a MailWarden account of another provider.";
+
+    private const string AddressInUseCode = "address_in_use";
+
     private readonly IAccountStore accountStore;
     private readonly Dictionary<MailProvider, ITokenProvider> tokenProviders;
 
@@ -41,7 +46,10 @@ public sealed class AccountService
 
     /// <summary>
     /// Signs in interactively and creates the account (new id, display name and address = signed-in username). If an
-    /// account with that address already exists (case-insensitive), it is returned unchanged (re-consent).
+    /// account with that address and provider already exists (address case-insensitive), it is returned unchanged
+    /// (re-consent). If the address is stored under another provider, the fresh grant is signed out again and the call
+    /// fails with <see cref="AuthFailureReason.AccessDenied"/>, code <c>address_in_use</c> (one account per address).
+    /// If storing a new account fails, its fresh grant is signed out again and the store exception is rethrown.
     /// </summary>
     /// <param name="provider">Provider to sign in with.</param>
     /// <param name="loginHint">Address pre-filled in the sign-in page, or null.</param>
@@ -50,7 +58,9 @@ public sealed class AccountService
     /// <exception cref="NotSupportedException">
     /// <see cref="MailProvider.GenericImap"/> or no token provider registered for the provider.
     /// </exception>
-    /// <exception cref="AuthenticationFailedException">The sign-in failed.</exception>
+    /// <exception cref="AuthenticationFailedException">
+    /// The sign-in failed, or the address belongs to an account of another provider.
+    /// </exception>
     public async Task<Account> AddAccountAsync(
         MailProvider provider,
         string? loginHint,
@@ -62,13 +72,34 @@ public sealed class AccountService
 
         // Re-consent for a known address keeps the existing account (id, folders, messages).
         Account? existingAccount = await FindByAddressAsync(signedInAddress, ct).ConfigureAwait(false);
-        if (existingAccount is not null)
+        if (existingAccount is not null && existingAccount.Provider == provider)
         {
             return existingAccount;
         }
 
+        // Same address under another provider: the schema allows one account per address, so the grant is discarded.
+        if (existingAccount is not null)
+        {
+            await SignOutBestEffortAsync(tokenProvider, signedInAddress).ConfigureAwait(false);
+            throw new AuthenticationFailedException(
+                provider,
+                AuthFailureReason.AccessDenied,
+                AddressInUseMessage,
+                AddressInUseCode);
+        }
+
+        // A grant without a stored account would never be removed, so it is discarded when storing fails.
         var account = new Account(Guid.NewGuid(), signedInAddress, signedInAddress, provider);
-        await accountStore.UpsertAsync(account, ct).ConfigureAwait(false);
+        try
+        {
+            await accountStore.UpsertAsync(account, ct).ConfigureAwait(false);
+        }
+        catch
+        {
+            await SignOutBestEffortAsync(tokenProvider, signedInAddress).ConfigureAwait(false);
+            throw;
+        }
+
         return account;
     }
 
@@ -90,8 +121,9 @@ public sealed class AccountService
 
     /// <summary>
     /// Signs in interactively again for an existing account. The signed-in username must equal the account address
-    /// (case-insensitive); otherwise the new grant is signed out again and the call fails with
-    /// <see cref="AuthFailureReason.AccessDenied"/>. The account itself is never changed.
+    /// (case-insensitive); otherwise the call fails with <see cref="AuthFailureReason.AccessDenied"/> and the new grant
+    /// is signed out again – unless that address is itself a stored account of the same provider (its grant stays).
+    /// The account itself is never changed.
     /// </summary>
     /// <param name="accountId">Account id.</param>
     /// <param name="ct">Cancellation token.</param>
@@ -113,10 +145,10 @@ public sealed class AccountService
             return token;
         }
 
-        // Discard the grant of the wrong account, unless that account is itself managed by MailWarden: its fresh
-        // grant is legitimate and signing it out would force a needless re-login there.
+        // Discard the grant of the wrong account, unless that account is itself managed by MailWarden with the same
+        // provider: its fresh grant is legitimate and signing it out would force a needless re-login there.
         Account? otherStoredAccount = await FindByAddressAsync(signedInAddress, ct).ConfigureAwait(false);
-        if (otherStoredAccount is null)
+        if (otherStoredAccount is null || otherStoredAccount.Provider != account.Provider)
         {
             await tokenProvider.SignOutAsync(signedInAddress, ct).ConfigureAwait(false);
         }
@@ -126,7 +158,9 @@ public sealed class AccountService
 
     /// <summary>
     /// Signs the account out at its token provider, then deletes it (with its folders and messages) from the store.
-    /// An unknown id is a no-op. Accounts whose provider has no registered token provider are only deleted.
+    /// An unknown id is a no-op. Removal is never blocked by the sign-out: accounts whose provider has no registered
+    /// token provider are only deleted, and an <see cref="AuthenticationFailedException"/> of the sign-out (e.g.
+    /// missing configuration, inaccessible credential store) is not rethrown.
     /// </summary>
     /// <param name="accountId">Account id.</param>
     /// <param name="ct">Cancellation token.</param>
@@ -141,10 +175,31 @@ public sealed class AccountService
 
         if (tokenProviders.TryGetValue(account.Provider, out ITokenProvider? tokenProvider))
         {
-            await tokenProvider.SignOutAsync(account.EmailAddress, ct).ConfigureAwait(false);
+            try
+            {
+                await tokenProvider.SignOutAsync(account.EmailAddress, ct).ConfigureAwait(false);
+            }
+            catch (AuthenticationFailedException)
+            {
+                // Ignored on purpose: the user wants the account gone; a grant left behind is unusable without it.
+            }
         }
 
         await accountStore.DeleteAsync(account.Id, ct).ConfigureAwait(false);
+    }
+
+    // Cleanup of a fresh grant that must not stay (another provider's address, failed store). Runs to completion even
+    // if the caller cancelled; a sign-out failure must not replace the error that triggered the cleanup.
+    private static async Task SignOutBestEffortAsync(ITokenProvider tokenProvider, string username)
+    {
+        try
+        {
+            await tokenProvider.SignOutAsync(username, CancellationToken.None).ConfigureAwait(false);
+        }
+        catch (AuthenticationFailedException)
+        {
+            // Ignored on purpose, see method comment.
+        }
     }
 
     private ITokenProvider RequireTokenProvider(MailProvider provider)

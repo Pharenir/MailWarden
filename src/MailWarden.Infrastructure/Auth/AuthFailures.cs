@@ -12,6 +12,9 @@ internal static class AuthFailures
     /// <summary>Provider error code of an interactive sign-in that timed out.</summary>
     public const string SignInTimeoutCode = "sign_in_timeout";
 
+    /// <summary>Provider error code of a credential store that cannot be read, written or deleted (IO failure).</summary>
+    public const string CredentialStoreUnavailableCode = "credential_store_unavailable";
+
     /// <summary>Creates the exception with the standard message for the reason.</summary>
     /// <param name="provider">Provider whose sign-in failed.</param>
     /// <param name="reason">Failure reason.</param>
@@ -46,6 +49,31 @@ internal static class AuthFailures
             AuthFailureReason.Unknown,
             $"{ProviderName(provider)} sign-in timed out because the browser did not return to MailWarden in time.",
             SignInTimeoutCode,
+            inner);
+    }
+
+    /// <summary>True for file system failures of the credential store (locked, missing rights, disk errors).</summary>
+    /// <param name="exception">Exception raised by an <see cref="ICredentialStore"/> call.</param>
+    /// <returns>Whether the exception is mapped by <see cref="CredentialStoreUnavailable"/>.</returns>
+    public static bool IsCredentialStoreFailure(Exception exception)
+    {
+        return exception is IOException or UnauthorizedAccessException;
+    }
+
+    /// <summary>
+    /// Creates the exception for a credential store that cannot be accessed (<see cref="AuthFailureReason.Unknown"/>,
+    /// code <see cref="CredentialStoreUnavailableCode"/>, own fixed sentence, inner exception kept).
+    /// </summary>
+    /// <param name="provider">Provider whose stored sign-in could not be accessed.</param>
+    /// <param name="inner">The file system exception.</param>
+    /// <returns>The exception to throw.</returns>
+    public static AuthenticationFailedException CredentialStoreUnavailable(MailProvider provider, Exception inner)
+    {
+        return new AuthenticationFailedException(
+            provider,
+            AuthFailureReason.Unknown,
+            $"{ProviderName(provider)} sign-in failed because the stored sign-in data could not be accessed.",
+            CredentialStoreUnavailableCode,
             inner);
     }
 

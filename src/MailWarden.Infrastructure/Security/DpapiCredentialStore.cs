@@ -12,7 +12,10 @@ namespace MailWarden.Infrastructure.Security;
 /// </summary>
 /// <remarks>
 /// Keys are effectively case-insensitive here because NTFS is: two keys that differ only in case address the same
-/// file. Callers use lower-case keys (see <see cref="ICredentialStore"/>).
+/// file. Callers use lower-case keys (see <see cref="ICredentialStore"/>). Read, write and delete of one instance
+/// are serialised, so concurrent calls (e.g. a token read while a refresh writes) never collide; use exactly one
+/// instance per directory, because Windows denies replacing a file that another instance or process is reading.
+/// File system failures surface as <see cref="IOException"/> or <see cref="UnauthorizedAccessException"/>.
 /// </remarks>
 public sealed class DpapiCredentialStore : ICredentialStore
 {
@@ -25,6 +28,10 @@ public sealed class DpapiCredentialStore : ICredentialStore
         SearchValues.Create("ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789._-");
 
     private readonly string directory;
+
+    // Serialises read, write and delete of this instance: File.Move(overwrite) is denied by Windows while another
+    // handle on the target is open (even with delete sharing), so a read must never overlap a write.
+    private readonly SemaphoreSlim fileAccessLock = new(1, 1);
 
     /// <summary>Creates the store. Does not touch the file system.</summary>
     /// <param name="directory">Fully qualified directory that holds the encrypted files.</param>
@@ -47,13 +54,18 @@ public sealed class DpapiCredentialStore : ICredentialStore
     {
         string path = PathFor(key, nameof(key));
         byte[] encryptedBytes;
+        await fileAccessLock.WaitAsync(ct).ConfigureAwait(false);
         try
         {
-            encryptedBytes = await File.ReadAllBytesAsync(path, ct).ConfigureAwait(false);
+            encryptedBytes = await ReadSharedAsync(path, ct).ConfigureAwait(false);
         }
         catch (Exception exception) when (exception is FileNotFoundException or DirectoryNotFoundException)
         {
             return null;
+        }
+        finally
+        {
+            fileAccessLock.Release();
         }
 
         // DPAPI rejects data of another user/machine and any tampered or random content.
@@ -87,10 +99,11 @@ public sealed class DpapiCredentialStore : ICredentialStore
         }
 
         // Unique temporary name in the same directory, so the final move is an atomic replace on the same volume.
-        Directory.CreateDirectory(directory);
         string temporaryPath = Path.Combine(directory, $"{key}.{Guid.NewGuid():N}{TemporaryFileExtension}");
+        await fileAccessLock.WaitAsync(ct).ConfigureAwait(false);
         try
         {
+            Directory.CreateDirectory(directory);
             var options = new FileStreamOptions
             {
                 Mode = FileMode.CreateNew,
@@ -109,23 +122,28 @@ public sealed class DpapiCredentialStore : ICredentialStore
         finally
         {
             // Only left over when writing or moving failed.
-            File.Delete(temporaryPath);
+            DeleteTemporaryFile(temporaryPath);
+            fileAccessLock.Release();
         }
     }
 
     /// <inheritdoc />
-    public Task DeleteAsync(string key, CancellationToken ct = default)
+    public async Task DeleteAsync(string key, CancellationToken ct = default)
     {
         string path = PathFor(key, nameof(key));
-        ct.ThrowIfCancellationRequested();
-
-        // File.Delete is a no-op for a missing file; a missing directory means there is nothing to delete either.
-        if (Directory.Exists(directory))
+        await fileAccessLock.WaitAsync(ct).ConfigureAwait(false);
+        try
         {
-            File.Delete(path);
+            // File.Delete is a no-op for a missing file; a missing directory means there is nothing to delete either.
+            if (Directory.Exists(directory))
+            {
+                File.Delete(path);
+            }
         }
-
-        return Task.CompletedTask;
+        finally
+        {
+            fileAccessLock.Release();
+        }
     }
 
     /// <inheritdoc />
@@ -163,6 +181,41 @@ public sealed class DpapiCredentialStore : ICredentialStore
 
         keys.Sort(StringComparer.Ordinal);
         return Task.FromResult<IReadOnlyList<string>>(keys);
+    }
+
+    // Delete sharing (as in FileEmlStore): other processes may delete the file while it is being read. Replacing it
+    // is still denied by Windows while a handle is open, which is why this instance serialises its own file access.
+    private static async Task<byte[]> ReadSharedAsync(string path, CancellationToken ct)
+    {
+        var options = new FileStreamOptions
+        {
+            Mode = FileMode.Open,
+            Access = FileAccess.Read,
+            Share = FileShare.Read | FileShare.Delete,
+            Options = FileOptions.Asynchronous,
+        };
+        await using var stream = new FileStream(path, options);
+        byte[] content = new byte[checked((int)stream.Length)];
+        await stream.ReadExactlyAsync(content, ct).ConfigureAwait(false);
+        return content;
+    }
+
+    // Best effort by design: the original exception (or success) matters more than a leftover temp file, which never
+    // shadows a secret because of its unique name and is ignored by ListKeysAsync.
+    private static void DeleteTemporaryFile(string temporaryPath)
+    {
+        try
+        {
+            File.Delete(temporaryPath);
+        }
+        catch (IOException)
+        {
+            // Ignored on purpose, see method comment.
+        }
+        catch (UnauthorizedAccessException)
+        {
+            // Ignored on purpose, see method comment.
+        }
     }
 
     private string PathFor(string key, string parameterName)
