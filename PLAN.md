@@ -193,6 +193,18 @@ AP-03c voraus.
 
 Vollständiger Schnittstellenvertrag: `work\AP-03c\requirement.md`.
 
+### AP-03d Hintergrunddienst
+| # | Sollverhalten | Umgesetzt | Getestet |
+|---|---|---|---|
+| 1 | Je Konto: erst offene Befehle ausführen, dann abgleichen; danach alle 15 min erneut (einstellbar) | | |
+| 2 | Neue Mail im Posteingang löst über IDLE innerhalb von Sekunden einen Abgleich aus; IDLE wird alle 9 min erneuert; ohne IDLE bleibt der Zeitplan | | |
+| 3 | Fehler: Netz/Server → Wartezeit 1, 2, 4 … 30 min; Anmeldung nötig → Konto wartet auf „erneut versuchen“; ein Konto bringt die anderen nie zum Stehen | | |
+| 4 | Status je Konto (läuft, bereit, Fehler, Anmeldung nötig, gestoppt) mit letztem Erfolg, nächstem Lauf, Fortschritt – ohne Fehlertexte, Namen oder Inhalte | | |
+| 5 | Ein Datenordner wird nur von einem Prozess benutzt (Sperrdatei); zweiter Start meldet „in Benutzung“ | | |
+| 6 | Echte Konten: 10 min Dienstlauf ohne Fehler, Testmail löst sofort einen Abgleich aus, sauberes Beenden | | |
+
+Vollständiger Schnittstellenvertrag: `work\AP-03d\requirement.md`.
+
 ### AP-07b Kalibrierung + Einstellungsdatei
 | # | Sollverhalten | Umgesetzt | Getestet |
 |---|---|---|---|
