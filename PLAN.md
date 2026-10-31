@@ -196,12 +196,12 @@ Vollständiger Schnittstellenvertrag: `work\AP-03c\requirement.md`.
 ### AP-03d Hintergrunddienst
 | # | Sollverhalten | Umgesetzt | Getestet |
 |---|---|---|---|
-| 1 | Je Konto: erst offene Befehle ausführen, dann abgleichen; danach alle 15 min erneut (einstellbar) | | |
-| 2 | Neue Mail im Posteingang löst über IDLE innerhalb von Sekunden einen Abgleich aus; IDLE wird alle 9 min erneuert; ohne IDLE bleibt der Zeitplan | | |
-| 3 | Fehler: Netz/Server → Wartezeit 1, 2, 4 … 30 min; Anmeldung nötig → Konto wartet auf „erneut versuchen“; ein Konto bringt die anderen nie zum Stehen | | |
-| 4 | Status je Konto (läuft, bereit, Fehler, Anmeldung nötig, gestoppt) mit letztem Erfolg, nächstem Lauf, Fortschritt – ohne Fehlertexte, Namen oder Inhalte | | |
-| 5 | Ein Datenordner wird nur von einem Prozess benutzt (Sperrdatei); zweiter Start meldet „in Benutzung“ | | |
-| 6 | Echte Konten: 10 min Dienstlauf ohne Fehler, Testmail löst sofort einen Abgleich aus, sauberes Beenden | | |
+| 1 | Je Konto: erst offene Befehle ausführen, dann abgleichen; danach alle 15 min erneut (einstellbar) | ✅ `Background\MailboxService.cs`, `Background\MailboxServiceOptions.cs`, `Background\IServiceDelay.cs`, `Background\TimeProviderServiceDelay.cs` | |
+| 2 | Neue Mail im Posteingang löst über IDLE innerhalb von Sekunden einen Abgleich aus; IDLE wird alle 9 min erneuert; ohne IDLE bleibt der Zeitplan | ✅ `Core\Sync\IMailIdleWatcher*.cs`, `Sync\MailKitIdleWatcher*.cs`, Watcher-Schleife in `Background\MailboxService.cs` (MailKit-Nachweis: `work\AP-03d\impl-notes.md`) | |
+| 3 | Fehler: Netz/Server → Wartezeit 1, 2, 4 … 30 min; Anmeldung nötig → Konto wartet auf „erneut versuchen“; ein Konto bringt die anderen nie zum Stehen | ✅ `Background\MailboxService.cs` | |
+| 4 | Status je Konto (läuft, bereit, Fehler, Anmeldung nötig, gestoppt) mit letztem Erfolg, nächstem Lauf, Fortschritt – ohne Fehlertexte, Namen oder Inhalte | ✅ `Background\AccountSyncStatus.cs`, `Background\AccountSyncState.cs`, `Background\MailboxService.cs` | |
+| 5 | Ein Datenordner wird nur von einem Prozess benutzt (Sperrdatei); zweiter Start meldet „in Benutzung“ | ✅ `Storage\DataFolderLock.cs`, `Background\MailboxService.cs` (`StartAsync`) | |
+| 6 | Echte Konten: 10 min Dienstlauf ohne Fehler, Testmail löst sofort einen Abgleich aus, sauberes Beenden | ⚠️ Werkzeug `_scratch\service-probe` (git-ignoriert, im Worktree), nicht gelaufen (Planner); Komposition mit eigener SQLite-Verbindung je Konto und Ablauf, siehe `work\AP-03d\impl-notes.md` O1 | |
 
 Vollständiger Schnittstellenvertrag: `work\AP-03d\requirement.md`.
 
