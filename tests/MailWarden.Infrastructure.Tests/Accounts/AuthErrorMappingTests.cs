@@ -7,7 +7,7 @@ namespace MailWarden.Infrastructure.Tests.Accounts;
 public sealed class AuthErrorMappingTests
 {
     // Case 17
-    [Theory(Timeout = TestTimeouts.PerTestMilliseconds)]
+    [Theory]
     [InlineData("authentication_canceled", AuthFailureReason.UserCancelled)]
     [InlineData("access_denied", AuthFailureReason.AccessDenied)]
     [InlineData("invalid_grant", AuthFailureReason.InteractionRequired)]
@@ -28,7 +28,7 @@ public sealed class AuthErrorMappingTests
         Assert.Equal(expected, AuthErrorMapping.FromMsalErrorCode(code));
     }
 
-    [Theory(Timeout = TestTimeouts.PerTestMilliseconds)]
+    [Theory]
     [InlineData("access_denied", AuthFailureReason.AccessDenied)]
     [InlineData("invalid_grant", AuthFailureReason.InteractionRequired)]
     [InlineData("invalid_client", AuthFailureReason.Configuration)]

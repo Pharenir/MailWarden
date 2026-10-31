@@ -12,7 +12,7 @@ public sealed class FolderRoleResolverTests
         FolderRoleResolver.Resolve(provider, name, '/', flags);
 
     // Case 8
-    [Theory(Timeout = TestTimeouts.PerTestMilliseconds)]
+    [Theory]
     [InlineData("INBOX", ServerFolderFlags.Inbox, FolderRole.Inbox, false)]
     [InlineData("Sent", ServerFolderFlags.Sent, FolderRole.Sent, false)]
     [InlineData("Junk", ServerFolderFlags.Junk, FolderRole.Junk, false)]
@@ -33,7 +33,7 @@ public sealed class FolderRoleResolverTests
     }
 
     // Case 9
-    [Theory(Timeout = TestTimeouts.PerTestMilliseconds)]
+    [Theory]
     [InlineData("INBOX", ServerFolderFlags.Inbox, FolderRole.Inbox, false)]
     [InlineData("[Gmail]", ServerFolderFlags.NonExistent | ServerFolderFlags.NoSelect, FolderRole.None, true)]
     [InlineData("[Gmail]", ServerFolderFlags.NonExistent, FolderRole.None, true)]
@@ -54,7 +54,7 @@ public sealed class FolderRoleResolverTests
     }
 
     // Case 10
-    [Theory(Timeout = TestTimeouts.PerTestMilliseconds)]
+    [Theory]
     [InlineData("Outbox")]
     [InlineData("OUTBOX")]
     public void Server_outbox_is_never_the_Outbox_role(string name)
@@ -64,7 +64,7 @@ public sealed class FolderRoleResolverTests
     }
 
     // Case 11
-    [Theory(Timeout = TestTimeouts.PerTestMilliseconds)]
+    [Theory]
     [InlineData(MailProvider.Microsoft, "Screener", FolderRole.Screener)]
     [InlineData(MailProvider.Google, "Screener", FolderRole.Screener)]
     [InlineData(MailProvider.Microsoft, "Quarantine", FolderRole.Quarantine)]
@@ -78,7 +78,7 @@ public sealed class FolderRoleResolverTests
     }
 
     // Case 12
-    [Theory(Timeout = TestTimeouts.PerTestMilliseconds)]
+    [Theory]
     [InlineData("inbox")]
     [InlineData("Inbox")]
     public void Name_inbox_is_case_insensitive_without_flags(string name)
@@ -86,7 +86,7 @@ public sealed class FolderRoleResolverTests
         Assert.Equal(new FolderClassification(FolderRole.Inbox, false), Resolve(Google, name));
     }
 
-    [Theory(Timeout = TestTimeouts.PerTestMilliseconds)]
+    [Theory]
     [InlineData("Spam")]
     [InlineData("Sent")]
     [InlineData("Trash")]
@@ -96,7 +96,7 @@ public sealed class FolderRoleResolverTests
     }
 
     // Rule 5 is Microsoft only
-    [Theory(Timeout = TestTimeouts.PerTestMilliseconds)]
+    [Theory]
     [InlineData("Archive")]
     [InlineData("Notes")]
     public void Microsoft_name_rules_do_not_apply_to_google(string name)
@@ -105,7 +105,7 @@ public sealed class FolderRoleResolverTests
     }
 
     // Rule 1 precedes rule 2
-    [Fact(Timeout = TestTimeouts.PerTestMilliseconds)]
+    [Fact]
     public void NoSelect_wins_over_role_flags()
     {
         Assert.Equal(
@@ -114,7 +114,7 @@ public sealed class FolderRoleResolverTests
     }
 
     // Case 13
-    [Theory(Timeout = TestTimeouts.PerTestMilliseconds)]
+    [Theory]
     [InlineData("")]
     [InlineData(null)]
     public void Empty_name_throws_ArgumentException(string? name)

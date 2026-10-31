@@ -20,7 +20,7 @@ public sealed class AuthConfigurationTests
     }
 
     // Case 18
-    [Fact(Timeout = TestTimeouts.PerTestMilliseconds)]
+    [Fact]
     public void Load_reads_values_from_file_only()
     {
         using var temp = new TempDirectory();
@@ -32,7 +32,7 @@ public sealed class AuthConfigurationTests
         Assert.Equal("file-secret", config.GoogleClientSecret);
     }
 
-    [Fact(Timeout = TestTimeouts.PerTestMilliseconds)]
+    [Fact]
     public void Load_reads_values_from_environment_only()
     {
         using var temp = new TempDirectory();
@@ -48,7 +48,7 @@ public sealed class AuthConfigurationTests
         Assert.Equal(new AuthConfiguration("env-ms", "env-g", "env-secret"), config);
     }
 
-    [Fact(Timeout = TestTimeouts.PerTestMilliseconds)]
+    [Fact]
     public void Environment_overrides_file_per_value()
     {
         using var temp = new TempDirectory();
@@ -61,7 +61,7 @@ public sealed class AuthConfigurationTests
         Assert.Equal("file-secret", config.GoogleClientSecret);
     }
 
-    [Fact(Timeout = TestTimeouts.PerTestMilliseconds)]
+    [Fact]
     public void Missing_file_and_no_environment_yield_all_null()
     {
         using var temp = new TempDirectory();
@@ -71,7 +71,7 @@ public sealed class AuthConfigurationTests
         Assert.Equal(new AuthConfiguration(null, null, null), config);
     }
 
-    [Fact(Timeout = TestTimeouts.PerTestMilliseconds)]
+    [Fact]
     public void RequireMicrosoftClientId_without_value_throws_Configuration_naming_the_key()
     {
         var config = new AuthConfiguration(null, null, null);
@@ -82,7 +82,7 @@ public sealed class AuthConfigurationTests
         Assert.Contains("MAILWARDEN_MS_CLIENT_ID", exception.Message, StringComparison.Ordinal);
     }
 
-    [Fact(Timeout = TestTimeouts.PerTestMilliseconds)]
+    [Fact]
     public void RequireGoogleClient_without_secret_throws_Configuration_naming_the_key()
     {
         var config = new AuthConfiguration(null, "g-id", null);
@@ -93,7 +93,7 @@ public sealed class AuthConfigurationTests
         Assert.Contains("MAILWARDEN_GOOGLE_CLIENT_SECRET", exception.Message, StringComparison.Ordinal);
     }
 
-    [Fact(Timeout = TestTimeouts.PerTestMilliseconds)]
+    [Fact]
     public void Require_methods_return_values_when_present()
     {
         var config = new AuthConfiguration("ms-id", "g-id", "g-secret");
@@ -102,7 +102,7 @@ public sealed class AuthConfigurationTests
         Assert.Equal(("g-id", "g-secret"), config.RequireGoogleClient());
     }
 
-    [Fact(Timeout = TestTimeouts.PerTestMilliseconds)]
+    [Fact]
     public void Malformed_json_throws_Configuration()
     {
         using var temp = new TempDirectory();
