@@ -1,8 +1,9 @@
 # TODO – MailWarden
 
 ## Offen
-- [ ] AP-00: Microsoft-App-Registrierung – ist ein Azure-Konto/Kreditkarte nötig? (Kostenfrage)
-- [ ] AP-00: Google-Cloud-Projekt anlegen, OAuth-Client „Desktop“, App auf Production stellen
+- [ ] CPM für `chore/app-icon` (Icon, README AI-usage, AP-00-Ergebnis in PLAN, Requirement AP-01) – Freigabe Dennis
+- [ ] AP-13: `.ico` aus `assets\mailwarden-512.png` erzeugen (Exe-Icon, Installer)
+- [ ] Google-403 im Status „Testing“ endete ohne `RESULT:`-Zeile – Fehlerpfad der Google-Anmeldung in AP-02 explizit testen
 - [ ] AP-01: Einzeltest-Timeout-Mechanismus und Parallelität festlegen, in `CLAUDE.md` eintragen
 - [ ] AP-01: WinUI 3 unpackaged + self-contained verifizieren (Fallback WPF)
 
@@ -25,6 +26,9 @@ Testzähler: 0/4 seit letztem S3 (zuletzt: –, –)
   mit Registrierungsanleitung geschrieben.
 - Google-Veröffentlichung scheiterte zunächst an fehlender Homepage-/Datenschutz-URL → Repo wird öffentlich auf
   GitHub, `PRIVACY.md` angelegt. Git initialisiert, `.gitignore` angelegt.
-- Nächster Schritt: GitHub-Repo anlegen und pushen (Freigabe Dennis) → URLs in Google Branding eintragen → Publish →
-  Spike je Konto (`docs\auth-setup.md`) → „Erfahrungen“ nachtragen → Go/No-Go → AP-01.
-- Blockiert durch: Freigabe Repo/Push, Browser-Anmeldungen durch Dennis.
+- Repo `Pharenir/MailWarden` öffentlich angelegt und gepusht (2 Commits auf `main`); `PRIVACY.md`, `TERMS.md` online.
+- **AP-00 abgeschlossen: Go.** Alle drei Konten: Cache ohne Browser, IMAP + SMTP ok, Kosten 0 €. Erkenntnisse in
+  `docs\auth-setup.md`. Icon nach `assets\`, README-AI-usage angepasst (Icon aus Claude Design).
+- AP-01 gestartet: Anforderung `work\AP-01\requirement.md`, Pipeline Builder/Tester auf Worktrees unter `.worktrees\`.
+- Nächster Schritt: verify.1 (Branches zusammenführen, Tester lässt S2 laufen), review.1 parallel.
+- Blockiert durch: CPM-Freigabe für `chore/app-icon`; Dennis startet die WinUI-App manuell (Sollverhalten AP-01 #8).

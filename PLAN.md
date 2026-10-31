@@ -118,10 +118,11 @@ Spalten *Umgesetzt* / *Getestet* geführt. Vorab festgelegt:
 ### AP-00 Spike
 | # | Sollverhalten | Umgesetzt | Getestet |
 |---|---|---|---|
-| 1 | Login hotmail.de über MSAL (Browserfenster), danach IMAP-Login per XOAUTH2, Ordnerliste wird ausgegeben | | manuell Dennis |
-| 2 | Token wird gecacht; zweiter Start ohne Browserfenster | | manuell Dennis |
-| 3 | Gmail-Login über Google-OAuth (Browserfenster, App-Status Production), danach IMAP per XOAUTH2, Ordnerliste inkl. `[Gmail]/Spam`; Token-Refresh ohne Browser | | manuell Dennis |
-| 4 | Falsches Passwort / abgelehnter Consent → klare Fehlermeldung, kein Absturz, kein Klartext-Secret im Log | | manuell Dennis |
+| 1 | Login hotmail.de über MSAL (Browserfenster), danach IMAP-Login per XOAUTH2, Ordnerliste wird ausgegeben | ✔ | ✔ Dennis 2026-10-31, beide Konten, eine Client-ID |
+| 2 | Token wird gecacht; zweiter Start ohne Browserfenster | ✔ | ✔ Dennis 2026-10-31 (MS + Google) |
+| 3 | Gmail-Login über Google-OAuth (Browserfenster, App-Status Production), danach IMAP per XOAUTH2, Ordnerliste inkl. `[Gmail]/Spam`; Token-Refresh ohne Browser | ✔ | ✔ Dennis 2026-10-31 |
+| 4 | Falsches Passwort / abgelehnter Consent → klare Fehlermeldung, kein Absturz, kein Klartext-Secret im Log | ✔ | teilweise: fehlende Config geprüft; Google-403 im Status „Testing“ endete ohne `RESULT:`-Zeile (nicht reproduziert) |
+| 5 | **Ergebnis AP-00: Go.** Kosten 0 €, SMTP beide Anbieter ok. Erkenntnisse in `docs\auth-setup.md` → Outlook.com ohne SPECIAL-USE: Ordnerrollen aus LIST-Attributen ableiten | ✔ | – |
 
 ### AP-01 Skelett + Storage
 | # | Sollverhalten | Umgesetzt | Getestet |
@@ -129,8 +130,13 @@ Spalten *Umgesetzt* / *Getestet* geführt. Vorab festgelegt:
 | 1 | Neue, leere DB wird mit aktuellem Schema angelegt; Schema-Version gespeichert | | |
 | 2 | Message speichern/lesen: Header, Flags, Konto, Ordner, UID, EML-Pfad; FTS findet Betreff und Textkörper | | |
 | 3 | Gleiche (Konto, Ordner, UID) zweimal speichern → Update, kein Duplikat | | |
-| 4 | EML-Store: Datei liegt unter `<daten>\accounts\<id>\mail\<yyyy>\<mm>\<uid>.eml`; fehlende Datei → Fehler, kein leerer Inhalt | | |
-| 5 | Ältere Schema-Version → Migration läuft; unbekannte höhere Version → Abbruch mit Meldung (fail fast) | | |
+| 4 | EML-Store: Datei liegt unter `<daten>\mail\accounts\<accountId>\folders\<folderId>\<uid>.eml` (UIDs sind nur je Ordner eindeutig – Abweichung vom ersten Entwurf `yyyy\mm\uid`, Planer 2026-10-31); fehlende Datei → `EmlNotFoundException`, nie leerer Inhalt; Schreiben atomar | | |
+| 5 | Ältere Schema-Version → Migration läuft; unbekannte höhere Version → `SchemaVersionException` vor jedem Schreibzugriff (fail fast) | | |
+| 6 | `ListAsync(MessageQuery)` liefert Mails nach Ordner-Rolle über alle Konten oder gefiltert auf ein Konto, neueste zuerst, mit Limit/Offset – Grundlage der Gruppenansichten | | |
+| 7 | Fremdschlüssel: Mail für unbekannten Ordner → `StorageException`; Konto löschen entfernt Ordner und Mails (Cascade) | | |
+| 8 | WinUI-3-Leer-App baut mit `dotnet build` ohne Visual Studio und startet unpackaged (Fenster „MailWarden“, folgt dem Windows-Farbschema) | | manuell Dennis |
+
+Vollständiger Schnittstellenvertrag: `work\AP-01\requirement.md`.
 
 ### AP-07 Klassifizierer (Kern des Projekts, deshalb vorab)
 | # | Sollverhalten | Umgesetzt | Getestet |
