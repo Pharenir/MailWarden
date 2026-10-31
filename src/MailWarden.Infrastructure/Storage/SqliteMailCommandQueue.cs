@@ -17,7 +17,7 @@ namespace MailWarden.Infrastructure.Storage;
 public sealed class SqliteMailCommandQueue(SqliteDatabase database, TimeProvider timeProvider)
     : IMailCommandQueue, IMailCommandStore
 {
-    /// <summary>Maximum number of distinct UIDs per command.</summary>
+    /// <summary>Maximum number of distinct UIDs per command given by the caller (not for EmptyFolder).</summary>
     public const int MaxUidsPerCommand = 1_000;
 
     private const MessageFlags SettableFlags =
@@ -129,7 +129,8 @@ public sealed class SqliteMailCommandQueue(SqliteDatabase database, TimeProvider
             return null;
         }
 
-        List<uint> normalizedUids = NormalizeUids(localMessages.Keys.ToList());
+        // Q2 (planner): one command with all local UIDs, without the per-command limit (MailKit sends UID ranges).
+        List<uint> normalizedUids = NormalizeUids(localMessages.Keys.ToList(), enforceLimit: false);
         return await InsertAsync(source, MailCommandKind.DeletePermanently, normalizedUids, null, MessageFlags.None, MessageFlags.None, ct)
             .ConfigureAwait(false);
     }
@@ -223,8 +224,9 @@ public sealed class SqliteMailCommandQueue(SqliteDatabase database, TimeProvider
         }
     }
 
-    // UIDs: non-empty, no 0, duplicates removed, ascending, at most MaxUidsPerCommand distinct values.
-    private static List<uint> NormalizeUids(IReadOnlyCollection<uint> uids)
+    // UIDs: non-empty, no 0, duplicates removed, ascending; at most MaxUidsPerCommand distinct values unless the
+    // limit is lifted (EmptyFolder only).
+    private static List<uint> NormalizeUids(IReadOnlyCollection<uint> uids, bool enforceLimit = true)
     {
         ArgumentNullException.ThrowIfNull(uids);
         if (uids.Count == 0)
@@ -238,7 +240,7 @@ public sealed class SqliteMailCommandQueue(SqliteDatabase database, TimeProvider
             throw new ArgumentOutOfRangeException(nameof(uids), "UID 0 is not a valid IMAP UID.");
         }
 
-        if (normalizedUids.Count > MaxUidsPerCommand)
+        if (enforceLimit && normalizedUids.Count > MaxUidsPerCommand)
         {
             throw new ArgumentOutOfRangeException(
                 nameof(uids),

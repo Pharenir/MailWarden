@@ -84,6 +84,7 @@ public interface IMailCommandQueue
     /// <summary>
     /// "Ordner leeren": only for role Trash or Junk. Takes the UIDs stored locally for the folder now and enqueues
     /// <see cref="MailCommandKind.DeletePermanently"/> for exactly these; messages that arrive later are never touched.
+    /// The 1,000-UID limit of the other Enqueue methods does not apply: one command holds all local UIDs.
     /// </summary>
     /// <param name="folderId">Folder to empty.</param>
     /// <param name="ct">Cancellation token.</param>
@@ -91,7 +92,6 @@ public interface IMailCommandQueue
     /// <exception cref="ArgumentException">
     /// The folder is unknown, its role is neither Trash nor Junk, or it was never synced (UIDVALIDITY 0).
     /// </exception>
-    /// <exception cref="ArgumentOutOfRangeException">The folder holds more than 1,000 local messages.</exception>
     Task<MailCommand?> EnqueueEmptyFolderAsync(long folderId, CancellationToken ct = default);
 
     /// <summary>Lists the pending and failed commands of the account, oldest first.</summary>

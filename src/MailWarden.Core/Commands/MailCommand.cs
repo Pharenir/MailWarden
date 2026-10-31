@@ -12,7 +12,7 @@ namespace MailWarden.Core.Commands;
 /// <param name="FolderUidValidity">
 /// UIDVALIDITY of the source folder at enqueue time; the executor never acts when the server reports another value.
 /// </param>
-/// <param name="Uids">UIDs in the source folder, ascending and without duplicates (1..1,000 entries).</param>
+/// <param name="Uids">UIDs in the source folder, ascending and without duplicates; 1..1,000 entries, except for "Ordner leeren" (all local UIDs of the folder).</param>
 /// <param name="TargetFolderId">Target folder; only for <see cref="MailCommandKind.Move"/> and <see cref="MailCommandKind.MoveToTrash"/>.</param>
 /// <param name="FlagsToAdd">Flags to add; only for <see cref="MailCommandKind.SetFlags"/>, otherwise None.</param>
 /// <param name="FlagsToRemove">Flags to remove; only for <see cref="MailCommandKind.SetFlags"/>, otherwise None.</param>

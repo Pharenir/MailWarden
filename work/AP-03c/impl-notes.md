@@ -35,7 +35,7 @@ Validation → exception type (nothing stored in every case):
 | `uids` null | `ArgumentNullException` |
 | `uids` empty | `ArgumentException` |
 | UID 0 contained | `ArgumentOutOfRangeException` |
-| more than 1,000 distinct UIDs (counted after removing duplicates) | `ArgumentOutOfRangeException` |
+| more than 1,000 distinct UIDs (counted after removing duplicates); not for EmptyFolder (Q2 fix) | `ArgumentOutOfRangeException` |
 | SetFlags: a flag outside Seen/Flagged/Answered/Draft (incl. Deleted) in add or remove | `ArgumentOutOfRangeException` |
 | SetFlags: both None / add ∩ remove ≠ ∅ | `ArgumentException` |
 | unknown source folder / folder UIDVALIDITY 0 | `ArgumentException` |
@@ -133,7 +133,9 @@ is the same as 4.18.1. Ich bin mir unsicher: this is inferred from the release n
    n not expunged' in the report", but `CommandRunReport(int Completed, int Retrying, int Failed)` has no error field
    and a completed command is deleted (no `LastError`). I kept the signature exactly; the text is not surfaced anywhere.
    Planner: add a field (e.g. `IReadOnlyList<string> Notes`) in a fix round, or drop the sentence.
-2. **EmptyFolder with more than 1,000 local messages** throws `ArgumentOutOfRangeException` (common UID limit). A
+2. **Resolved (planner Q2, fix after implement.1):** `EnqueueEmptyFolderAsync` is exempt from the 1,000-UID limit and
+   creates one command with all local UIDs (`NormalizeUids(..., enforceLimit: false)`). Original question:
+   **EmptyFolder with more than 1,000 local messages** threw `ArgumentOutOfRangeException` (common UID limit). A
    large Trash cannot be emptied in one call. Options: several commands (return type would change) or a higher limit
    for this case.
 3. **Trash UIDVALIDITY between MOVE and SELECT(trash):** the COPYUID map carries the Trash UIDVALIDITY, the interface
@@ -148,3 +150,6 @@ is the same as 4.18.1. Ich bin mir unsicher: this is inferred from the release n
 - Executor checks local folders before `SelectFolderAsync`; missing source/target/Trash → no transport call at all for
   that command (but the session is already open when other commands are due).
 - Case 11: with an empty map, `SelectFolderAsync(trash)` is **not** called.
+- SELECT per command: the executor calls `SelectFolderAsync(source)` once for **every** command, also when the
+  previous command used the same folder (no reuse; the UIDVALIDITY guard runs per command). DeletePermanently
+  outside Trash/Junk adds a second `SelectFolderAsync(trash)` when the map is not empty.
