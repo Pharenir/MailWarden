@@ -2,6 +2,7 @@ using System.Reflection;
 using MailWarden.Core.Accounts;
 using MailWarden.Core.Commands;
 using MailWarden.Core.Sync;
+using MailWarden.Infrastructure.Commands;
 using MailWarden.Infrastructure.Sync;
 
 namespace MailWarden.Infrastructure.Tests.Commands;
