@@ -67,8 +67,8 @@ Original-Headern (Outlook.com); 1.870 ohne Header (vermutlich IMAP-/Gmail-Ordner
   zu secure M2 AP-03a und AP-02a-ACL-Punkt, 2026-10-31) → bewusst akzeptiert, keine Änderung
 
 ## Testzähler
-Testzähler: 0/4 seit letztem S3 (zuletzt 2026-10-31: S3 auf `main` @ `e0481ef` nach Merge von AP-07b und AP-03a,
-752/752 – Core.Tests 360, Infrastructure.Tests 392; Bericht `work\S3-main-2026-10-31-b.md`)
+Testzähler: 0/4 seit letztem S3 (zuletzt 2026-10-31: S3 auf `main` @ `2e1420a` nach Merge von AP-03a fix.3,
+761/761 – Core.Tests 360, Infrastructure.Tests 401; Bericht `work\S3-main-2026-10-31-c.md`)
 
 ## Stand 2026-10-31 (Session 2, Ende)
 **CPM erledigt:** `chore/app-icon`, AP-01, AP-07a, AP-02a per `--no-ff` nach `main` gemergt, Build grün
@@ -86,11 +86,15 @@ zusammengeführt. „Fertig“ im Sinne von Dennis erst nach seinen manuellen Pr
   `.env.example` um Google-Variablen ergänzt. Offen: Dennis Fälle 28–30 mit AuthProbe.
 
 ## Übergabe – so geht es weiter
-1. CPM Sitzung 3 erledigt (2026-10-31): `chore/session-handover`, AP-07b, AP-03a per `--no-ff` nach `main`; README-Konflikt
-   (Statussatz) zusammengeführt; Build grün, S3 752/752, `main` @ `e0481ef` gepusht. SyncProbe nach
-   `_scratch\sync-probe` gerettet und gebaut. Dieser Handover + `work\manual-tests.md` liegen auf
-   `chore/manual-test-list` (lokal) → beim nächsten CPM mit nach `main`.
-2. Erledigt: gemergte Worktrees/Branches entfernt. Läuft: AP-03a fix.3 (siehe „Worktrees“).
+1. CPM Sitzung 3 erledigt (2026-10-31): `chore/session-handover`, AP-07b, AP-03a nach `main` (`e0481ef`), danach
+   `chore/manual-test-list` + `fix/ap-03a-missed-uids` (`2e1420a`); jeweils Build grün, S3 grün, gepusht.
+   Dieser Handover liegt auf `chore/session-handover-4` (lokal) → beim nächsten CPM mit nach `main`.
+2. Nach dem Merge von fix.3: `probe-data` auf Schema v3 migriert, fehlende Papierkorb-Mails (84/107) nachgeladen,
+   `_scratch\sync-check`: alle Ordner aller drei Konten deckungsgleich mit dem Server. Alle Worktrees und gemergten
+   Branches entfernt (nur `main` + Handover-Branch).
+   Werkzeuge in `_scratch\`: `auth-probe`, `sync-probe`, `sync-check` (Server-STATUS gegen lokalen Bestand, optional
+   Diagnose eines Ordners), `ClassifierProbe`, `PstProbe`. Client-Werte für Probes: `_scratchuth-spike\spike.env`
+   ins Terminal laden (siehe `work\manual-tests.md`).
 3. Nächste APs: AP-03b (Befehlswarteschlange, IDLE, Reconnect; Punkte „Vertagt aus AP-03a“), danach AP-07c
    (Klassifizierer an Mails/Ordner); AP-04 (UI inkl. Konten-UI). Vor Start: Anforderung je AP (Planer).
 4. Aufgeräumt 2026-10-31 (Freigabe Dennis): alle sechs AP-Worktrees und sieben Branches (inkl. `chore/app-icon`)
@@ -99,12 +103,7 @@ zusammengeführt. „Fertig“ im Sinne von Dennis erst nach seinen manuellen Pr
    `MailWarden.sln` ohne BOM halten (`dotnet sln` fügt es wieder ein).
 
 ## Worktrees (alle unter `.worktrees\`, git-ignoriert)
-AP-03a/AP-07b-Worktrees und -Branches sowie `chore/session-handover` entfernt (Freigabe Dennis 2026-10-31).
-AP-03a fix.3 (verlorene UIDs, Freigabe Dennis), abgezweigt von `main` @ `e0481ef`, Anforderung `7b1135c`:
-| Worktree | Branch |
-|---|---|
-| `fix-ap-03a` | `fix/ap-03a-missed-uids` |
-| `test-ap-03a-fix` | `test/ap-03a-missed-uids` |
+Keine offen (alle nach Merge entfernt, Freigabe Dennis 2026-10-31).
 Fall 30 (AuthProbe abbrechen) bleibt vorerst offen (Dennis 2026-10-31).
 
 ## Session 3 (2026-10-31)
@@ -123,8 +122,7 @@ Fall 30 (AuthProbe abbrechen) bleibt vorerst offen (Dennis 2026-10-31).
   Gemergt und gepusht.
 - **AP-03a fix.3 Gate erreicht** (`fix/ap-03a-missed-uids` @ `a221b2e`): verify.1 S3 761/761 (Core 360, Infrastructure
   401), review-fix3 APPROVE (SHOULDs = Doku, vom Planer erledigt), echte Konten auf Datenkopie: 0 abweichende Ordner.
-  Wartet auf CPM. Nach Merge: `_scratch\sync-check` im Hauptordner auf `SkippedUpToUid` umstellen (Fassung im
-  Fix-Worktree), dann SyncProbe auf `probe-data` (migriert auf v3, lädt die fehlenden Papierkorb-Mails).
+  Gemergt (`2e1420a`), S3 auf `main` 761/761, gepusht; echte `probe-data` nachgeprüft: 0 abweichende Ordner.
 
 ### Vertagt aus AP-03a (review.1/secure.1, Details `work\AP-03a\requirement.md` „Decisions fix.2“)
 - [ ] AP-03b: gemeinsamer IMAP-Verbindungs-/Ordnerlisten-Code für `MailKitTransport` und `ConnectionProbe` (review SHOULD 2)
