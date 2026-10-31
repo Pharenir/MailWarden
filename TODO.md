@@ -1,43 +1,65 @@
 # TODO – MailWarden
 
 ## Offen
-- [ ] CPM für `chore/app-icon` (Icon, README AI-usage, AP-00-Ergebnis in PLAN, Requirement AP-01) – Freigabe Dennis
+- [ ] CPM für `chore/app-icon` (Icon, README AI-usage, AP-00-Ergebnis in PLAN, Requirements AP-01/AP-07a/AP-02a) – Freigabe Dennis
+- [ ] Dennis: AP-01 Fall 30 – WinUI-App starten (Pfad unten unter „Übergabe“)
 - [ ] AP-13: `.ico` aus `assets\mailwarden-512.png` erzeugen (Exe-Icon, Installer)
-- [ ] Google-403 im Status „Testing“ endete ohne `RESULT:`-Zeile – Fehlerpfad der Google-Anmeldung in AP-02 explizit testen
-- [ ] AP-01: Einzeltest-Timeout-Mechanismus und Parallelität festlegen, in `CLAUDE.md` eintragen
-- [ ] AP-01: WinUI 3 unpackaged + self-contained verifizieren (Fallback WPF)
+- [ ] AP-13: WindowsAppSDK-Metapaket zieht ~38 MB KI-Komponenten (onnxruntime/DirectML) → nur benötigte Teilpakete? (Paketentscheidung Dennis)
+- [ ] AP-04: ungültiges `MAILWARDEN_DATA_DIR` beendet die App beim Start stumm → Logger + Meldungsfenster
+- [ ] AP-03/AP-04: EML überschreiben scheitert bei offenem Leser → Lesebereich lädt EML in den Speicher, Befehlswarteschlange wiederholt
+- [ ] AP-07a: mittlere Stufe `random-domain` (+15, Score 0.5–0.8) ungetestet → Grenzbeispiel aus Builder-Notizen nachtesten
+- [ ] AP-02a verify: `ListKeysAsync("")` = alle Schlüssel; Ordnernamen-Vergleich `Outbox`/`OUTBOX` case-insensitive (Planer-Entscheidung, in Requirement nachtragen)
+- [ ] AP-07a verify: Lesarten des Testers bestätigt (Kontakt + Auth unbekannt → immer LikelyLegit; Freemail-Reply-To bei Freemail-Absender +10) – in Requirement nachtragen
 
 ## Entschieden (2026-10-31)
 - Name/Ablage `K:\Projekte\Windows-Tools\MailWarden`, Lizenz PolyForm Noncommercial 1.0.0
-- **Mit Git** (Umentscheidung 2026-10-31, vorher „ohne Git“): öffentliches GitHub-Repo `Pharenir/MailWarden`, weil Google
-  Homepage- und Datenschutz-URL verlangt (`README.md`, `PRIVACY.md`). Snapshot-Regel entfällt.
+- **Mit Git**: öffentliches GitHub-Repo `Pharenir/MailWarden` (Google verlangt Homepage-, Datenschutz- und
+  Nutzungsbedingungs-URL → `README.md`, `PRIVACY.md`, `TERMS.md`).
 - UI WinUI 3 · Gmail per OAuth · Daten unter `<install>\data\` · Installer (Inno Setup) als AP-13
-- Pipeline-light ab AP-01: Builder fable / Tester sonnet / Reviewer opus; Abschluss delegiert bei PASS+APPROVE; max. 4 Runden
+- Drei-Rollen-Pipeline ab AP-01: Builder opus (Modellregel: nie höher als Koordinator, `~/.claude/refs/agents.md`),
+  Tester sonnet, Reviewer opus; Abschluss delegiert bei PASS+APPROVE; Merge nach `main`/Push nur mit CPM; max. 4 Runden
 - Gruppenansichten: Posteingang, Gesendet, Postausgang (lokale Versandwarteschlange), Screener, Junk, Quarantäne – jeweils über alle Konten und je Konto
 - Screener: `LikelyLegit` landet im Screener; Posteingang nur bekannte Absender; „kein Junk“ → Absender ins Adressbuch
-- PLAN.md freigegeben 2026-10-31
+- AP-07a und AP-02a parallel zu AP-01 vorgezogen (Dennis 2026-10-31)
 
 ## Testzähler
-Testzähler: 0/4 seit letztem S3 (zuletzt: –, –)
+Testzähler: 0/4 seit letztem S3 (zuletzt: AP-01 verify.1, 2026-10-31 – 72/72 grün)
 
-## Stand 2026-10-31
-- Zuletzt gemacht: PLAN.md freigegeben. AP-00: Spike-Programm `_scratch\auth-spike\AuthSpike` gebaut (MSAL + Google
-  OAuth + MailKit, Tokens DPAPI-verschlüsselt), Fehlerpfade (Usage, fehlende Config) geprüft; `docs\auth-setup.md`
-  mit Registrierungsanleitung geschrieben.
-- Google-Veröffentlichung scheiterte zunächst an fehlender Homepage-/Datenschutz-URL → Repo wird öffentlich auf
-  GitHub, `PRIVACY.md` angelegt. Git initialisiert, `.gitignore` angelegt.
-- Repo `Pharenir/MailWarden` öffentlich angelegt und gepusht (2 Commits auf `main`); `PRIVACY.md`, `TERMS.md` online.
-- **AP-00 abgeschlossen: Go.** Alle drei Konten: Cache ohne Browser, IMAP + SMTP ok, Kosten 0 €. Erkenntnisse in
-  `docs\auth-setup.md`. Icon nach `assets\`, README-AI-usage angepasst (Icon aus Claude Design).
-- AP-01 gestartet: Anforderung `work\AP-01\requirement.md`, Pipeline Builder/Tester auf Worktrees unter `.worktrees\`.
-  Koordinator auf Opus umgestellt → Builder (vorher fable, noch ohne Änderungen) gestoppt und auf Opus neu gestartet
-  (Modellregel `~/.claude/refs/agents.md`). Tester sonnet.
-- author.0 (Tester) fertig: 61 Testfälle für Fall 1–29 auf `test/ap-01-skeleton-storage` (`277919c`), ungelaufen.
-  Planer-Entscheidungen zu den Unklarheiten (beim verify in `requirement.md` nachtragen):
-  - Fall 19: Suchwörter werden mit implizitem AND verknüpft (FTS5-Standard bei Leerzeichen-Trennung).
-  - `FileEmlStore` muss jeden relativen Pfad über `DataPaths.ResolveMailPath` auflösen → `..`/absolute Pfade auch
-    dort `ArgumentException`; Test nachziehen (Security-relevant).
-  - `Limit <= 0`, `Offset < 0`, `SearchAsync(null)`, `DataPaths(null)` → `ArgumentException`/`ArgumentNullException`
-    (fail fast); Tests nachziehen.
-- Nächster Schritt: Builder abwarten → verify.1 (Branches zusammenführen, Tester lässt S2 laufen), review.1 parallel.
-- Blockiert durch: CPM-Freigabe für `chore/app-icon`; Dennis startet die WinUI-App manuell (Sollverhalten AP-01 #8).
+## Stand 2026-10-31 (Sessionende)
+- **AP-00 abgeschlossen: Go.** Alle drei Konten (2× hotmail.de, 1× googlemail.com): OAuth, Cache, IMAP, SMTP ok,
+  Kosten 0 €. Erkenntnisse in `docs\auth-setup.md` (lokal).
+- **AP-01** (Skelett, Storage, WinUI-Leer-App): verify.1 72/72 grün; review.1 BLOCK → Planer-Entscheidungen D1–D12 in
+  `work\AP-01\requirement.md`. fix.2: Tester-Tests fertig (Branch `test/ap-01-skeleton-storage`, `0e07d24`),
+  Builder fix.2 bei Sessionende zum Abschluss aufgefordert (Ergebnis in `work\AP-01\impl-notes.md`, Abschnitt `## fix.2`).
+- **AP-07a** (Klassifizierer-Kern): Tests fertig (`test/ap-07a-classifier-core`, `69252a9`), Builder bei Sessionende
+  zum Abschluss aufgefordert (`work\AP-07a\impl-notes.md` auf `feat/ap-07a-classifier-core`).
+- **AP-02a** (Konten/Auth): Tests fertig (`test/ap-02a-accounts-auth`, `0e6260d`), Builder bei Sessionende zum
+  Abschluss aufgefordert (`work\AP-02a\impl-notes.md` auf `feat/ap-02a-accounts-auth`).
+
+## Übergabe – so geht es weiter
+1. Je Builder-Branch `impl-notes.md` lesen: STEP-RESULT `done` oder `partial`? Bei `partial` bzw. uncommitteten
+   Änderungen im Worktree (`git -C .worktrees\<wt> status`) zuerst den Builder-Schritt fortsetzen.
+2. **AP-01 verify.2:** in `.worktrees\feat-ap-01` den Branch `test/ap-01-skeleton-storage` mergen
+   (`git merge --no-ff`), bauen, Tester S2/S3 über den Wächter; parallel review.2 (Reviewer opus, Fokus D1–D11).
+   PASS + APPROVE → PLAN.md Spalten *Umgesetzt/Getestet* AP-01 füllen, CPM bei Dennis anfragen.
+3. **AP-07a / AP-02a verify.1:** jeweils Test-Branch in den Feature-Branch mergen, Testprojekt per
+   `dotnet sln add` aufnehmen (AP-07a: `tests\MailWarden.Core.Tests`), Tester S2, Reviewer; AP-02a zusätzlich
+   **security-reviewer**. Danach Dennis: AP-02a Fälle 28–30 mit `_scratch\auth-probe\` (Anleitung in impl-notes).
+4. Reihenfolge der Merges nach `main`: AP-01 zuerst; AP-07a/AP-02a zweigen von AP-01-Stand vor fix.2 ab → vor ihrem
+   Merge `feat/ap-01-skeleton-storage` hineinmergen und erneut testen.
+
+## Worktrees (alle unter `.worktrees\`, git-ignoriert)
+| Worktree | Branch |
+|---|---|
+| `feat-ap-01` | `feat/ap-01-skeleton-storage` |
+| `test-ap-01` | `test/ap-01-skeleton-storage` |
+| `feat-ap-07a` | `feat/ap-07a-classifier-core` |
+| `test-ap-07a` | `test/ap-07a-classifier-core` |
+| `feat-ap-02a` | `feat/ap-02a-accounts-auth` |
+| `test-ap-02a` | `test/ap-02a-accounts-auth` |
+
+WinUI-App für Fall 30: `.worktrees\feat-ap-01\src\MailWarden.App\bin\x64\Debug\net9.0-windows10.0.19041.0\win-x64\MailWarden.App.exe`
+(nach fix.2 neu bauen: `dotnet build MailWarden.sln` im Worktree).
+
+## Kosten Sitzung 2026-10-31 (Agenten)
+Builder: AP-01 ×2 (+1 abgebrochen), AP-07a ×1, AP-02a ×1 · Tester: AP-01 ×3, AP-07a ×1, AP-02a ×1 · Reviewer: AP-01 ×1
