@@ -17,8 +17,8 @@ public static class AuthenticationResultsParser
     /// (compauth, arc, bimi, ...) are ignored; unknown verdict words map to <see cref="AuthVerdict.Unknown"/>.
     /// A leading token without '=' before the first ';' is the AuthServId (except the RFC keyword "none").
     /// A property value is one contiguous run after "key=" up to whitespace, ';' or '(' outside quotes (quoted parts
-    /// included, domain = part after the last '@'); a '=' or "dmarc="/"dkim="/"spf=" inside a value never starts a
-    /// new pair or result.
+    /// included); a '=' or "dmarc="/"dkim="/"spf=" inside a value never starts a new pair or result. The domain of a
+    /// value is the part after the last '@' outside quotes; a value whose '@' signs are all quoted has no domain.
     /// Only the first SPF and the first DMARC result are kept; all DKIM results are kept in header order.
     /// Never throws for malformed content – returns what could be parsed (worst case <see cref="AuthenticationResults.Empty"/>).
     /// </summary>
@@ -102,7 +102,7 @@ public static class AuthenticationResultsParser
             if (currentMethod is null || IsEvaluatedMethodName(key))
             {
                 collector.Add(currentMethod);
-                currentMethod = new PendingMethod(GetMethodName(key), ParseVerdict(value));
+                currentMethod = new PendingMethod(GetMethodName(key), ParseVerdict(value.Text));
             }
             else
             {
@@ -116,9 +116,13 @@ public static class AuthenticationResultsParser
     // RFC 8601 pvalue: the value after "key =" is one contiguous run up to whitespace, ';' or a comment (outside
     // quotes). Adjacent word, quoted and '=' parts are concatenated without separator, so a quoted local part stays
     // part of the value ("\"x@victim.test\"@attacker.test") and VERP/SRS local parts with '=' are not split.
+    // Domain part (C17): the text after the last '@' outside quotes, up to the next quoted part (a domain name never
+    // contains a quoted string); "x@attacker.test\"@victim.test\"" → "attacker.test". A value whose '@' signs are all
+    // inside quotes has no domain ("\"x@victim.test\"" → null); a value without any '@' is the domain itself
+    // ("example.test", Outlook.com smtp.mailfrom, header.d, header.from).
     // start points at the first token after '=' (start < end); returns the index after the value. Linear: every
-    // token is visited once.
-    private static int ReadValue(List<HeaderToken> tokens, int start, int end, out string value)
+    // token is visited once and its text scanned once.
+    private static int ReadValue(List<HeaderToken> tokens, int start, int end, out PropertyValue value)
     {
         var position = start + 1;
         while (position < end && tokens[position].IsJoinedToPrevious)
@@ -126,19 +130,48 @@ public static class AuthenticationResultsParser
             position++;
         }
 
-        if (position == start + 1)
-        {
-            value = TokenText(tokens[start]);
-            return position;
-        }
-
         var builder = new StringBuilder();
+        var domainStart = -1;
+        var domainEnd = -1;
+        var hasQuotedAt = false;
         for (var index = start; index < position; index++)
         {
-            builder.Append(TokenText(tokens[index]));
+            var token = tokens[index];
+            var text = TokenText(token);
+            if (token.IsQuoted)
+            {
+                if (domainStart >= 0 && domainEnd < 0)
+                {
+                    domainEnd = builder.Length;
+                }
+
+                hasQuotedAt |= text.Contains('@', StringComparison.Ordinal);
+            }
+            else
+            {
+                var atIndex = text.LastIndexOf('@');
+                if (atIndex >= 0)
+                {
+                    domainStart = builder.Length + atIndex + 1;
+                    domainEnd = -1;
+                }
+            }
+
+            builder.Append(text);
         }
 
-        value = builder.ToString();
+        var valueText = builder.ToString();
+        string? domainPart;
+        if (domainStart >= 0)
+        {
+            domainPart = valueText[domainStart..(domainEnd >= 0 ? domainEnd : valueText.Length)];
+        }
+        else
+        {
+            domainPart = hasQuotedAt ? null : valueText;
+        }
+
+        value = new PropertyValue(valueText, domainPart);
         return position;
     }
 
@@ -177,19 +210,23 @@ public static class AuthenticationResultsParser
         };
     }
 
-    // Value of a domain-bearing property → lower-case domain or null (address → part after the last '@').
-    private static string? ToDomain(string? propertyValue)
+    // Domain-bearing property → lower-case domain or null (property absent, or no domain part per C17).
+    private static string? ToDomain(PropertyValue? propertyValue)
     {
-        if (propertyValue is null)
+        var domainPart = propertyValue?.DomainPart;
+        if (domainPart is null)
         {
             return null;
         }
 
-        var trimmed = propertyValue.Trim().Trim('<', '>');
-        var atIndex = trimmed.LastIndexOf('@');
-        var domain = DomainNames.Normalize(atIndex >= 0 ? trimmed[(atIndex + 1)..] : trimmed).TrimStart('.');
+        var domain = DomainNames.Normalize(domainPart.Trim().Trim('<', '>')).TrimStart('.');
         return domain.Length == 0 ? null : domain;
     }
+
+    /// <summary>One property value as read from the header.</summary>
+    /// <param name="Text">The joined value (quotes removed).</param>
+    /// <param name="DomainPart">Raw domain part per C17, or null when the value has no domain.</param>
+    private readonly record struct PropertyValue(string Text, string? DomainPart);
 
     /// <summary>One method result while its properties are being read.</summary>
     private sealed class PendingMethod(string name, AuthVerdict verdict)
@@ -198,16 +235,17 @@ public static class AuthenticationResultsParser
 
         public AuthVerdict Verdict { get; } = verdict;
 
-        public string? SmtpMailFrom { get; private set; }
+        public PropertyValue? SmtpMailFrom { get; private set; }
 
-        public string? HeaderD { get; private set; }
+        public PropertyValue? HeaderD { get; private set; }
 
-        public string? HeaderI { get; private set; }
+        public PropertyValue? HeaderI { get; private set; }
 
-        public string? HeaderFrom { get; private set; }
+        public PropertyValue? HeaderFrom { get; private set; }
 
-        // First occurrence of a property wins; unknown properties (action, reason, header.b, ...) are ignored.
-        public void SetProperty(string key, string value)
+        // First occurrence of a property wins (also when it has no domain); unknown properties (action, reason,
+        // header.b, ...) are ignored.
+        public void SetProperty(string key, PropertyValue value)
         {
             switch (key.Trim().ToLowerInvariant())
             {

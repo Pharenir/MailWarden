@@ -21,7 +21,8 @@ internal enum HeaderTokenKind
 /// <param name="IsJoinedToPrevious">True when no whitespace, control character or comment separates this token from
 /// the previous one (e.g. the quoted string and the '@domain' in <c>"x"@a.test</c>). The parser joins such tokens into
 /// one property value.</param>
-internal readonly record struct HeaderToken(HeaderTokenKind Kind, string Text, bool IsJoinedToPrevious);
+/// <param name="IsQuoted">True for a Word that came from a quoted string ('@' inside it never separates a domain).</param>
+internal readonly record struct HeaderToken(HeaderTokenKind Kind, string Text, bool IsJoinedToPrevious, bool IsQuoted = false);
 
 /// <summary>
 /// Hand-written single-pass tokenizer (no regex, linear time) for untrusted header values. Comments "(...)" are
@@ -56,7 +57,7 @@ internal static class AuthenticationResultsTokenizer
             {
                 FlushWord(tokens, currentWord, currentWordIsJoined);
                 position = ReadQuotedString(headerValue, position, out var quotedText);
-                tokens.Add(new HeaderToken(HeaderTokenKind.Word, quotedText, !separatorPending));
+                tokens.Add(new HeaderToken(HeaderTokenKind.Word, quotedText, !separatorPending, IsQuoted: true));
                 separatorPending = false;
             }
             else if (character == ';' || character == '=')
