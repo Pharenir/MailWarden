@@ -153,3 +153,86 @@ is the same as 4.18.1. Ich bin mir unsicher: this is inferred from the release n
 - SELECT per command: the executor calls `SelectFolderAsync(source)` once for **every** command, also when the
   previous command used the same folder (no reuse; the UIDVALIDITY guard runs per command). DeletePermanently
   outside Trash/Junk adds a second `SelectFolderAsync(trash)` when the map is not empty.
+
+## fix.2 (after verify.1 PASS, review.1 APPROVE, secure.1 0/0/1/7)
+
+Build `-warnaserror`: `src` projects and the probe 0 warnings / 0 errors. Test project: CS0738
+`FakeCommandTransport.MoveAsync` must return `Task<CopyUidMap>`. The compiler stops after declaration errors, so the
+call sites of the four Enqueue methods (new `expectedUidValidity` parameter) will show up as the next errors once the
+fake is adapted. No tests run or edited.
+
+### New signatures
+```csharp
+// MailWarden.Core.Sync
+public sealed record CopyUidMap(uint DestinationUidValidity, IReadOnlyDictionary<uint, uint> Uids)
+{
+    public static CopyUidMap Empty { get; }   // (0, empty)
+}
+// IMailCommandTransport
+Task<CopyUidMap> MoveAsync(IReadOnlyList<uint> uids, string targetFullName, CancellationToken ct = default);
+
+// IMailCommandQueue (EnqueueEmptyFolderAsync unchanged)
+Task<MailCommand> EnqueueSetFlagsAsync(long folderId, uint expectedUidValidity, IReadOnlyCollection<uint> uids,
+    MessageFlags flagsToAdd, MessageFlags flagsToRemove, CancellationToken ct = default);
+Task<MailCommand> EnqueueMoveAsync(long folderId, uint expectedUidValidity, IReadOnlyCollection<uint> uids,
+    long targetFolderId, CancellationToken ct = default);
+Task<MailCommand> EnqueueMoveToTrashAsync(long folderId, uint expectedUidValidity, IReadOnlyCollection<uint> uids,
+    CancellationToken ct = default);
+Task<MailCommand> EnqueueDeletePermanentlyAsync(long folderId, uint expectedUidValidity, IReadOnlyCollection<uint> uids,
+    CancellationToken ct = default);
+
+// MailWarden.Core.Model
+public static class FolderLookup { public static MailFolder? FindTrash(IEnumerable<MailFolder> accountFolders); }
+// SqliteMailCommandQueue
+public const string UnreadableRowError = "unreadable command row";
+```
+
+### Items
+- **F1** `SqliteMailCommandQueue.cs:304` `RequireSourceAsync`: after the existing checks (folder exists, UIDVALIDITY ≠ 0)
+  `expectedUidValidity ≠ stored` → `ArgumentException` (param name `expectedUidValidity`), then every UID must be a key
+  of `GetUidFlagsAsync(source)` → `ArgumentException` (param `uids`, message has the count only). Order: argument
+  checks (UIDs, flags) → folder → never synced → expected UIDVALIDITY → local UIDs → target/Trash checks.
+  `EnqueueEmptyFolderAsync` unchanged.
+- **F2** transport `MailKitCommandTransport.cs:123` `MoveAsync` + `:291` `ToCopyUidMap`: `CopyUidMap.Empty` when the
+  COPYUID sets are empty or of unequal length, a source or destination UID repeats or is 0, a source UID was not
+  requested, the destination UIDs carry different UIDVALIDITY values, or that value is 0. Executor
+  `CommandExecutor.cs:269` + `:295` `TrashUidsToExpunge`: checks the map again (fakes can return anything): empty,
+  UIDVALIDITY 0, a key outside the command UIDs, a repeated or 0 value → nothing expunged, Trash not selected. Otherwise
+  `SelectFolderAsync(trash)`; result ≠ `DestinationUidValidity` → nothing expunged. Both paths complete the command
+  (E3, local rows of the source are removed; messages stay in Trash on the server).
+- **F3** `MailKitCommandTransport.cs:190` + `:276` `UnmarkDeletedBestEffortAsync`: any exception from the UIDPLUS
+  re-check or `UID EXPUNGE` after a successful STORE → `UID STORE set -FLAGS.SILENT (\Deleted)` with its own 10 s
+  timeout (independent of the caller's token), every failure ignored, then the original exception is rethrown (and
+  mapped by `RunAsync` as before). Covers review NIT 3 for the transport.
+- **F4** `SqliteMailCommandQueue.cs:439` `ReadCommandsAsync` reads each row in its own try (`StorageException`,
+  `InvalidCastException`, `FormatException`, `OverflowException`); an unreadable row becomes a stub (`:482`): id,
+  queried account, raw kind (cast, may be undefined), raw folder id, UIDVALIDITY 0, no UIDs, no target, flags None,
+  Status Failed, raw attempts (≥ 0), created-at if readable else `DateTimeOffset.MinValue`, LastError
+  `UnreadableRowError`. `MarkUnreadableAsFailedAsync :421` persists status Failed + the fixed text. `ListAsync`
+  returns the stub; `ListDueAsync` skips it. Review NIT 2: the corrupt-`uids` message names the column only.
+- **F5** `Storage\EmlFiles.cs:18` `DeleteSkippingFailuresAsync(IEmlStore, IEnumerable<string?>, ct)` used by
+  `SyncEngine.cs:269` (folder removal, behaviour unchanged) and `CommandExecutor.cs:348`
+  (`command.Uids.Select(emlPaths.GetValueOrDefault)`). `Core\Model\FolderLookup.cs:13` `FindTrash` used by the queue
+  (`:99`) and the executor (`:387`).
+- NITs: NIT 1 documented in the executor remarks (`IsConnected` is not read, D7 unchanged); NIT 2 and NIT 3 see F4/F3;
+  NIT 4 in the probe (run guard uses the single Junk/Trash folder).
+
+### Probe (`_scratch\command-probe\Program.cs`, git-ignored, worktree)
+- **N3:** prints a two-line warning at every start (copy of probe-data only, no app/service/other probe).
+- **P2:** reads `<dataRoot>\command-probe-verified.json` (never writes it; case-insensitive JSON, extra keys ignored).
+  The account's entry must exist once with UIDVALIDITY ≠ 0. Every Junk action needs the single Junk folder with the
+  entry's `junkFolderId` and `uidValidity`, and each UID in `uids` (and stored locally). `empty-junk` refuses unless
+  every local Junk UID is in the list; after enqueue the snapshot is checked again (discarded and refused if not). The
+  run guard requires the same for every pending Junk command (folder id, command UIDVALIDITY, UIDs). Missing file or
+  entry → all Junk actions refused. An account with `uids: []` can only `empty-junk` an empty Junk (nothing queued).
+- **P1:** `trash <uid>` refuses without Message-ID or for a never-synced Trash; it records SHA-256(Message-ID) hex,
+  size, date, Trash UIDVALIDITY, highest local Trash UID and the move command id. After `run` + sync a record is
+  resolved only when the move command left the queue **and** the Junk UID is gone locally, and exactly one Trash
+  message matches (UID > recorded highest, same hash, size, date, Trash UIDVALIDITY). `delete <uid> trash` re-checks
+  all of it against the current local Trash row, enqueues with the recorded Trash UIDVALIDITY and stores the delete
+  command id; the run guard accepts a Trash delete only for records bound to that command id. After the delete left the
+  queue and the UID is gone locally, `run` removes the record. `discard` drops records of a discarded move and unbinds
+  a discarded delete. A trash-record file in the old format (no hash) → every action refused until it is deleted.
+- Residual (accepted by the decision): "highest local Trash UID" lags the server when Trash was not synced right
+  before `trash`; an unsynced, older duplicate with the same Message-ID hash, size and date above that UID would make
+  the match ambiguous or wrong. The planner syncs right before `trash` (the probe's `run` does that).
