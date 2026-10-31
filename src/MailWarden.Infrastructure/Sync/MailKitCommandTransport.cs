@@ -25,12 +25,14 @@ namespace MailWarden.Infrastructure.Sync;
 /// <item><see cref="IMailFolder.MoveToAsync(IList{UniqueId}, IMailFolder, CancellationToken)"/> falls back to COPY +
 /// STORE \Deleted + expunge without MOVE, and to a MOVE by sequence numbers without UIDPLUS; both MOVE and UIDPLUS are
 /// required before anything is sent.</item>
-/// <item><c>\Deleted</c> is set only inside <see cref="ExpungeAsync"/>, for exactly the UIDs that are expunged.</item>
+/// <item><c>\Deleted</c> is set only inside <see cref="ExpungeAsync"/>, for exactly the UIDs that are expunged, and is
+/// removed again (best effort) when the expunge fails.</item>
 /// </list>
 /// </remarks>
 internal sealed class MailKitCommandTransport : IMailCommandTransport
 {
     private const int DisconnectTimeoutMilliseconds = 5_000;
+    private const int CleanupTimeoutMilliseconds = 10_000;
 
     // Flags a command may add or remove; \Deleted is reserved for ExpungeAsync.
     private static readonly (MessageFlags Flag, ImapMessageFlags ImapFlag)[] SettableFlagMapping =
@@ -114,10 +116,11 @@ internal sealed class MailKitCommandTransport : IMailCommandTransport
     /// <remarks>
     /// Requires MOVE (RFC 6851) and UIDPLUS (RFC 4315); without them <see cref="MailTransportFailure.Protocol"/> is
     /// raised before anything is sent (no COPY + EXPUNGE fallback). Sends <c>UID MOVE set target</c>. The map is built
-    /// from the COPYUID response code (MailKit pairs source and destination UIDs by position); entries for UIDs that
-    /// were not requested are dropped.
+    /// from the COPYUID response codes (MailKit pairs source and destination UIDs by position). Any inconsistency
+    /// (unequal counts, a repeated or zero UID on either side, a source UID that was not requested, destination UIDs
+    /// with different UIDVALIDITY values or UIDVALIDITY 0) yields <see cref="CopyUidMap.Empty"/>.
     /// </remarks>
-    public Task<IReadOnlyDictionary<uint, uint>> MoveAsync(
+    public Task<CopyUidMap> MoveAsync(
         IReadOnlyList<uint> uids,
         string targetFullName,
         CancellationToken ct = default)
@@ -129,10 +132,10 @@ internal sealed class MailKitCommandTransport : IMailCommandTransport
         RequireCapability(ImapCapabilities.UidPlus, "UIDPLUS");
         if (uids.Count == 0)
         {
-            return Task.FromResult<IReadOnlyDictionary<uint, uint>>(new Dictionary<uint, uint>());
+            return Task.FromResult(CopyUidMap.Empty);
         }
 
-        return MailKitTransport.RunAsync<IReadOnlyDictionary<uint, uint>>(
+        return MailKitTransport.RunAsync(
             endpoint,
             "move",
             async () =>
@@ -141,20 +144,7 @@ internal sealed class MailKitCommandTransport : IMailCommandTransport
                 UniqueIdMap map = await folder
                     .MoveToAsync(ToUniqueIds(folder, uids), target, ct)
                     .ConfigureAwait(false);
-
-                var requestedUids = new HashSet<uint>(uids);
-                var newUidsBySource = new Dictionary<uint, uint>();
-                int pairCount = Math.Min(map.Source.Count, map.Destination.Count);
-                for (int index = 0; index < pairCount; index++)
-                {
-                    uint sourceUid = map.Source[index].Id;
-                    if (requestedUids.Contains(sourceUid))
-                    {
-                        newUidsBySource.TryAdd(sourceUid, map.Destination[index].Id);
-                    }
-                }
-
-                return newUidsBySource;
+                return ToCopyUidMap(map, uids);
             },
             ct);
     }
@@ -163,7 +153,9 @@ internal sealed class MailKitCommandTransport : IMailCommandTransport
     /// <remarks>
     /// Requires UIDPLUS (MailKit would otherwise send a plain EXPUNGE) and a folder whose PERMANENTFLAGS allow
     /// <c>\Deleted</c>; otherwise <see cref="MailTransportFailure.Protocol"/> before anything is sent. Sends
-    /// <c>UID STORE set +FLAGS.SILENT (\Deleted)</c>, then <c>UID EXPUNGE set</c> with the same set.
+    /// <c>UID STORE set +FLAGS.SILENT (\Deleted)</c>, then <c>UID EXPUNGE set</c> with the same set. When the expunge
+    /// fails, <c>UID STORE set -FLAGS.SILENT (\Deleted)</c> is sent best effort (own short timeout, failure ignored) so
+    /// that no other client's plain EXPUNGE removes the messages later; the original failure propagates.
     /// </remarks>
     public Task ExpungeAsync(IReadOnlyList<uint> uids, CancellationToken ct = default)
     {
@@ -189,9 +181,18 @@ internal sealed class MailKitCommandTransport : IMailCommandTransport
                 var markDeleted = new StoreFlagsRequest(StoreAction.Add, ImapMessageFlags.Deleted) { Silent = true };
                 await folder.StoreAsync(uniqueIds, markDeleted, ct).ConfigureAwait(false);
 
-                // Re-checked right before the call: without UIDPLUS MailKit would expunge every \Deleted message.
-                RequireCapability(ImapCapabilities.UidPlus, "UIDPLUS");
-                await folder.ExpungeAsync(uniqueIds, ct).ConfigureAwait(false);
+                try
+                {
+                    // Re-checked right before the call: without UIDPLUS MailKit would expunge every \Deleted message.
+                    RequireCapability(ImapCapabilities.UidPlus, "UIDPLUS");
+                    await folder.ExpungeAsync(uniqueIds, ct).ConfigureAwait(false);
+                }
+                catch
+                {
+                    await UnmarkDeletedBestEffortAsync(folder, uniqueIds).ConfigureAwait(false);
+                    throw;
+                }
+
                 return true;
             },
             ct);
@@ -268,6 +269,56 @@ internal sealed class MailKitCommandTransport : IMailCommandTransport
                 return true;
             },
             ct);
+    }
+
+    // F3: after a failed UID EXPUNGE the messages must not keep \Deleted (another client's plain EXPUNGE would remove
+    // them). Own timeout, independent of the caller's token; every failure is ignored (the original one propagates).
+    private static async Task UnmarkDeletedBestEffortAsync(IImapFolder folder, IList<UniqueId> uniqueIds)
+    {
+        try
+        {
+            using var cleanupTimeout = new CancellationTokenSource(CleanupTimeoutMilliseconds);
+            var unmarkDeleted = new StoreFlagsRequest(StoreAction.Remove, ImapMessageFlags.Deleted) { Silent = true };
+            await folder.StoreAsync(uniqueIds, unmarkDeleted, cleanupTimeout.Token).ConfigureAwait(false);
+        }
+        catch (Exception exception) when (exception is not OutOfMemoryException)
+        {
+            // Ignored on purpose, see method comment.
+        }
+    }
+
+    // F2: COPYUID → CopyUidMap; any inconsistency yields Empty, so the caller never expunges a guessed UID.
+    private static CopyUidMap ToCopyUidMap(UniqueIdMap map, IReadOnlyList<uint> requestedUids)
+    {
+        if (map.Source.Count == 0 || map.Source.Count != map.Destination.Count)
+        {
+            return CopyUidMap.Empty;
+        }
+
+        uint destinationUidValidity = map.Destination[0].Validity;
+        if (destinationUidValidity == 0)
+        {
+            return CopyUidMap.Empty;
+        }
+
+        var requested = new HashSet<uint>(requestedUids);
+        var destinationUids = new HashSet<uint>();
+        var newUidsBySource = new Dictionary<uint, uint>();
+        for (int index = 0; index < map.Source.Count; index++)
+        {
+            uint sourceUid = map.Source[index].Id;
+            UniqueId destination = map.Destination[index];
+            if (!requested.Contains(sourceUid)
+                || destination.Id == 0
+                || destination.Validity != destinationUidValidity
+                || !destinationUids.Add(destination.Id)
+                || !newUidsBySource.TryAdd(sourceUid, destination.Id))
+            {
+                return CopyUidMap.Empty;
+            }
+        }
+
+        return new CopyUidMap(destinationUidValidity, newUidsBySource);
     }
 
     private static ImapMessageFlags ToImapFlags(MessageFlags flags)

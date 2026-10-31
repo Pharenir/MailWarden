@@ -20,6 +20,9 @@ public sealed class SqliteMailCommandQueue(SqliteDatabase database, TimeProvider
     /// <summary>Maximum number of distinct UIDs per command given by the caller (not for EmptyFolder).</summary>
     public const int MaxUidsPerCommand = 1_000;
 
+    /// <summary>Fixed <see cref="MailCommand.LastError"/> of a stored row that cannot be read (never its content).</summary>
+    public const string UnreadableRowError = "unreadable command row";
+
     private const MessageFlags SettableFlags =
         MessageFlags.Seen | MessageFlags.Flagged | MessageFlags.Answered | MessageFlags.Draft;
 
@@ -37,6 +40,7 @@ public sealed class SqliteMailCommandQueue(SqliteDatabase database, TimeProvider
     /// <inheritdoc />
     public async Task<MailCommand> EnqueueSetFlagsAsync(
         long folderId,
+        uint expectedUidValidity,
         IReadOnlyCollection<uint> uids,
         MessageFlags flagsToAdd,
         MessageFlags flagsToRemove,
@@ -44,7 +48,8 @@ public sealed class SqliteMailCommandQueue(SqliteDatabase database, TimeProvider
     {
         List<uint> normalizedUids = NormalizeUids(uids);
         ValidateFlagChange(flagsToAdd, flagsToRemove);
-        MailFolder source = await RequireSyncedFolderAsync(folderId, ct).ConfigureAwait(false);
+        MailFolder source = await RequireSourceAsync(folderId, expectedUidValidity, normalizedUids, ct)
+            .ConfigureAwait(false);
         return await InsertAsync(source, MailCommandKind.SetFlags, normalizedUids, null, flagsToAdd, flagsToRemove, ct)
             .ConfigureAwait(false);
     }
@@ -52,12 +57,14 @@ public sealed class SqliteMailCommandQueue(SqliteDatabase database, TimeProvider
     /// <inheritdoc />
     public async Task<MailCommand> EnqueueMoveAsync(
         long folderId,
+        uint expectedUidValidity,
         IReadOnlyCollection<uint> uids,
         long targetFolderId,
         CancellationToken ct = default)
     {
         List<uint> normalizedUids = NormalizeUids(uids);
-        MailFolder source = await RequireSyncedFolderAsync(folderId, ct).ConfigureAwait(false);
+        MailFolder source = await RequireSourceAsync(folderId, expectedUidValidity, normalizedUids, ct)
+            .ConfigureAwait(false);
 
         // The target must be another folder of the same account.
         MailFolder target = await folderStore.GetAsync(targetFolderId, ct).ConfigureAwait(false)
@@ -79,14 +86,17 @@ public sealed class SqliteMailCommandQueue(SqliteDatabase database, TimeProvider
     /// <inheritdoc />
     public async Task<MailCommand> EnqueueMoveToTrashAsync(
         long folderId,
+        uint expectedUidValidity,
         IReadOnlyCollection<uint> uids,
         CancellationToken ct = default)
     {
         List<uint> normalizedUids = NormalizeUids(uids);
-        MailFolder source = await RequireSyncedFolderAsync(folderId, ct).ConfigureAwait(false);
+        MailFolder source = await RequireSourceAsync(folderId, expectedUidValidity, normalizedUids, ct)
+            .ConfigureAwait(false);
 
-        // Trash is resolved now; the command keeps its id even if roles change later.
-        MailFolder trash = await FindTrashFolderAsync(source.AccountId, ct).ConfigureAwait(false)
+        // Trash is resolved now (shared rule with the executor); the command keeps its id even if roles change later.
+        IReadOnlyList<MailFolder> accountFolders = await folderStore.ListAsync(source.AccountId, ct).ConfigureAwait(false);
+        MailFolder trash = FolderLookup.FindTrash(accountFolders)
             ?? throw new InvalidOperationException("The account has no folder with role Trash.");
         if (trash.Id == source.Id)
         {
@@ -102,11 +112,13 @@ public sealed class SqliteMailCommandQueue(SqliteDatabase database, TimeProvider
     /// <inheritdoc />
     public async Task<MailCommand> EnqueueDeletePermanentlyAsync(
         long folderId,
+        uint expectedUidValidity,
         IReadOnlyCollection<uint> uids,
         CancellationToken ct = default)
     {
         List<uint> normalizedUids = NormalizeUids(uids);
-        MailFolder source = await RequireSyncedFolderAsync(folderId, ct).ConfigureAwait(false);
+        MailFolder source = await RequireSourceAsync(folderId, expectedUidValidity, normalizedUids, ct)
+            .ConfigureAwait(false);
         return await InsertAsync(source, MailCommandKind.DeletePermanently, normalizedUids, null, MessageFlags.None, MessageFlags.None, ct)
             .ConfigureAwait(false);
     }
@@ -143,7 +155,9 @@ public sealed class SqliteMailCommandQueue(SqliteDatabase database, TimeProvider
             await using var command = database.Connection.CreateCommand();
             command.CommandText = SelectColumns + " WHERE account_id = $account_id ORDER BY id;";
             command.Parameters.AddWithValue("$account_id", SqliteValues.FromGuid(accountId));
-            return await ReadCommandsAsync(command, ct).ConfigureAwait(false);
+            ReadResult result = await ReadCommandsAsync(command, accountId, ct).ConfigureAwait(false);
+            await MarkUnreadableAsFailedAsync(result.UnreadableIds, ct).ConfigureAwait(false);
+            return result.Commands;
         }
         catch (SqliteException exception)
         {
@@ -169,10 +183,14 @@ public sealed class SqliteMailCommandQueue(SqliteDatabase database, TimeProvider
             command.CommandText = SelectColumns + " WHERE account_id = $account_id AND status = $pending ORDER BY id;";
             command.Parameters.AddWithValue("$account_id", SqliteValues.FromGuid(accountId));
             command.Parameters.AddWithValue("$pending", (int)MailCommandStatus.Pending);
-            IReadOnlyList<MailCommand> pending = await ReadCommandsAsync(command, ct).ConfigureAwait(false);
+            ReadResult result = await ReadCommandsAsync(command, accountId, ct).ConfigureAwait(false);
+            await MarkUnreadableAsFailedAsync(result.UnreadableIds, ct).ConfigureAwait(false);
 
-            // Due check in .NET: exact instant comparison across offsets (SQLite julianday keeps milliseconds only).
-            return pending
+            // Unreadable rows are skipped (they are Failed now). Due check in .NET: exact instant comparison across
+            // offsets (SQLite julianday keeps milliseconds only).
+            var unreadableIds = new HashSet<long>(result.UnreadableIds);
+            return result.Commands
+                .Where(candidate => !unreadableIds.Contains(candidate.Id))
                 .Where(candidate => candidate.NextAttemptAt is not DateTimeOffset nextAttemptAt || nextAttemptAt <= now)
                 .ToList();
         }
@@ -281,6 +299,38 @@ public sealed class SqliteMailCommandQueue(SqliteDatabase database, TimeProvider
         }
     }
 
+    // F1 (secure M1): the caller's UIDs belong to the UIDVALIDITY generation it read them with, and every UID must be
+    // stored locally in the source folder; a stale view after a UIDVALIDITY reset can never address another message.
+    private async Task<MailFolder> RequireSourceAsync(
+        long folderId,
+        uint expectedUidValidity,
+        IReadOnlyList<uint> uids,
+        CancellationToken ct)
+    {
+        MailFolder source = await RequireSyncedFolderAsync(folderId, ct).ConfigureAwait(false);
+        if (expectedUidValidity != source.UidValidity)
+        {
+            throw new ArgumentException(
+                "The folder's UIDVALIDITY differs from the value the UIDs were read with; reload the folder.",
+                nameof(expectedUidValidity));
+        }
+
+        IReadOnlyDictionary<uint, MessageFlags> localMessages = await messageStore
+            .GetUidFlagsAsync(source.Id, ct)
+            .ConfigureAwait(false);
+        int missingCount = uids.Count(uid => !localMessages.ContainsKey(uid));
+        if (missingCount > 0)
+        {
+            throw new ArgumentException(
+                string.Create(
+                    CultureInfo.InvariantCulture,
+                    $"{missingCount} UID(s) are not stored locally in the source folder."),
+                nameof(uids));
+        }
+
+        return source;
+    }
+
     // The source must exist and must have been synced (UIDVALIDITY known), so the executor can verify it.
     private async Task<MailFolder> RequireSyncedFolderAsync(long folderId, CancellationToken ct)
     {
@@ -294,13 +344,6 @@ public sealed class SqliteMailCommandQueue(SqliteDatabase database, TimeProvider
         }
 
         return folder;
-    }
-
-    // Same rule as the executor: the first folder of the account with role Trash (folder list order).
-    private async Task<MailFolder?> FindTrashFolderAsync(Guid accountId, CancellationToken ct)
-    {
-        IReadOnlyList<MailFolder> accountFolders = await folderStore.ListAsync(accountId, ct).ConfigureAwait(false);
-        return accountFolders.FirstOrDefault(folder => folder.Role == FolderRole.Trash);
     }
 
     private async Task<MailCommand> InsertAsync(
@@ -374,36 +417,113 @@ public sealed class SqliteMailCommandQueue(SqliteDatabase database, TimeProvider
         }
     }
 
+    // F4: unreadable rows become Failed with the fixed text, so they are never executed and can be discarded.
+    private async Task MarkUnreadableAsFailedAsync(IReadOnlyList<long> unreadableIds, CancellationToken ct)
+    {
+        foreach (long commandId in unreadableIds)
+        {
+            await using var command = database.Connection.CreateCommand();
+            command.CommandText = "UPDATE mail_commands SET status = $failed, last_error = $last_error WHERE id = $id;";
+            command.Parameters.AddWithValue("$id", commandId);
+            command.Parameters.AddWithValue("$failed", (int)MailCommandStatus.Failed);
+            command.Parameters.AddWithValue("$last_error", UnreadableRowError);
+            await command.ExecuteNonQueryAsync(ct).ConfigureAwait(false);
+        }
+    }
+
     private static string FormatUids(IEnumerable<uint> uids) =>
         string.Join(',', uids.Select(uid => uid.ToString(CultureInfo.InvariantCulture)));
 
-    private static async Task<IReadOnlyList<MailCommand>> ReadCommandsAsync(SqliteCommand command, CancellationToken ct)
+    // Reads every row on its own: a row that cannot be read becomes a neutral Failed stub (see ListAsync docs) and its
+    // id is reported, so one corrupt row never breaks the whole queue of the account.
+    private static async Task<ReadResult> ReadCommandsAsync(SqliteCommand command, Guid accountId, CancellationToken ct)
     {
         var commands = new List<MailCommand>();
+        var unreadableIds = new List<long>();
         await using var reader = await command.ExecuteReaderAsync(ct).ConfigureAwait(false);
         while (await reader.ReadAsync(ct).ConfigureAwait(false))
         {
-            commands.Add(new MailCommand(
-                Id: reader.GetInt64(0),
-                AccountId: SqliteValues.ReadGuid(reader, 1),
-                Kind: SqliteValues.ReadEnum<MailCommandKind>(reader, 2),
-                FolderId: reader.GetInt64(3),
-                FolderUidValidity: SqliteValues.ReadUInt32(reader, 4),
-                Uids: ReadUids(reader, 5),
-                TargetFolderId: reader.IsDBNull(6) ? null : reader.GetInt64(6),
-                FlagsToAdd: ReadFlags(reader, 7),
-                FlagsToRemove: ReadFlags(reader, 8),
-                Status: SqliteValues.ReadEnum<MailCommandStatus>(reader, 9),
-                Attempts: reader.GetInt32(10),
-                CreatedAt: SqliteValues.ReadDate(reader, 11),
-                NextAttemptAt: reader.IsDBNull(12) ? null : SqliteValues.ReadDate(reader, 12),
-                LastError: SqliteValues.ReadNullableString(reader, 13)));
+            try
+            {
+                commands.Add(ReadCommand(reader));
+            }
+            catch (Exception exception) when (exception is StorageException or InvalidCastException
+                or FormatException or OverflowException)
+            {
+                long commandId = reader.GetInt64(0);
+                unreadableIds.Add(commandId);
+                commands.Add(UnreadableStub(reader, commandId, accountId));
+            }
         }
 
-        return commands;
+        return new ReadResult(commands, unreadableIds);
     }
 
-    // Comma-separated, ascending, no 0; anything else cannot have been written by this class.
+    private static MailCommand ReadCommand(SqliteDataReader reader)
+    {
+        return new MailCommand(
+            Id: reader.GetInt64(0),
+            AccountId: SqliteValues.ReadGuid(reader, 1),
+            Kind: SqliteValues.ReadEnum<MailCommandKind>(reader, 2),
+            FolderId: reader.GetInt64(3),
+            FolderUidValidity: SqliteValues.ReadUInt32(reader, 4),
+            Uids: ReadUids(reader, 5),
+            TargetFolderId: reader.IsDBNull(6) ? null : reader.GetInt64(6),
+            FlagsToAdd: ReadFlags(reader, 7),
+            FlagsToRemove: ReadFlags(reader, 8),
+            Status: SqliteValues.ReadEnum<MailCommandStatus>(reader, 9),
+            Attempts: reader.GetInt32(10),
+            CreatedAt: SqliteValues.ReadDate(reader, 11),
+            NextAttemptAt: reader.IsDBNull(12) ? null : SqliteValues.ReadDate(reader, 12),
+            LastError: SqliteValues.ReadNullableString(reader, 13));
+    }
+
+    // Neutral values for an unreadable row: kind and source folder as stored (raw), nothing that could be executed.
+    private static MailCommand UnreadableStub(SqliteDataReader reader, long commandId, Guid accountId)
+    {
+        long rawKind = ReadRawInt64(reader, 2) ?? 0;
+        long rawAttempts = ReadRawInt64(reader, 10) ?? 0;
+        DateTimeOffset createdAt;
+        try
+        {
+            createdAt = SqliteValues.ReadDate(reader, 11);
+        }
+        catch (Exception exception) when (exception is StorageException or InvalidCastException)
+        {
+            createdAt = DateTimeOffset.MinValue;
+        }
+
+        return new MailCommand(
+            Id: commandId,
+            AccountId: accountId,
+            Kind: (MailCommandKind)(int)Math.Clamp(rawKind, int.MinValue, int.MaxValue),
+            FolderId: ReadRawInt64(reader, 3) ?? 0,
+            FolderUidValidity: 0,
+            Uids: [],
+            TargetFolderId: null,
+            FlagsToAdd: MessageFlags.None,
+            FlagsToRemove: MessageFlags.None,
+            Status: MailCommandStatus.Failed,
+            Attempts: (int)Math.Clamp(rawAttempts, 0, int.MaxValue),
+            CreatedAt: createdAt,
+            NextAttemptAt: null,
+            LastError: UnreadableRowError);
+    }
+
+    private static long? ReadRawInt64(SqliteDataReader reader, int ordinal)
+    {
+        try
+        {
+            return reader.IsDBNull(ordinal) ? null : reader.GetInt64(ordinal);
+        }
+        catch (Exception exception) when (exception is InvalidCastException or FormatException or OverflowException)
+        {
+            return null;
+        }
+    }
+
+    // Comma-separated, ascending, no 0; anything else cannot have been written by this class. The message names the
+    // column only (an EmptyFolder row can hold thousands of UIDs).
     private static List<uint> ReadUids(SqliteDataReader reader, int ordinal)
     {
         string text = reader.GetString(ordinal);
@@ -414,7 +534,7 @@ public sealed class SqliteMailCommandQueue(SqliteDatabase database, TimeProvider
                 || uid == 0
                 || (uids.Count > 0 && uid <= uids[^1]))
             {
-                throw new StorageException($"Column '{reader.GetName(ordinal)}' contains an unexpected value '{text}'.");
+                throw new StorageException($"Column '{reader.GetName(ordinal)}' contains an unexpected value.");
             }
 
             uids.Add(uid);
@@ -437,4 +557,6 @@ public sealed class SqliteMailCommandQueue(SqliteDatabase database, TimeProvider
 
         return (MessageFlags)value;
     }
+
+    private sealed record ReadResult(IReadOnlyList<MailCommand> Commands, IReadOnlyList<long> UnreadableIds);
 }

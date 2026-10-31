@@ -9,7 +9,10 @@ public interface IMailCommandStore
     /// <param name="accountId">Account id.</param>
     /// <param name="now">Current time.</param>
     /// <param name="ct">Cancellation token.</param>
-    /// <returns>Due commands in queue order; failed commands are never listed.</returns>
+    /// <returns>
+    /// Due commands in queue order; failed commands are never listed. A stored row that cannot be read is skipped and
+    /// marked Failed with <see cref="MailCommand.LastError"/> "unreadable command row".
+    /// </returns>
     Task<IReadOnlyList<MailCommand>> ListDueAsync(Guid accountId, DateTimeOffset now, CancellationToken ct = default);
 
     /// <summary>Removes a completed command. Unknown id = no-op.</summary>

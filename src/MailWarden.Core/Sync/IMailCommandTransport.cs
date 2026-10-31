@@ -42,15 +42,21 @@ public interface IMailCommandTransport : IAsyncDisposable
     /// <param name="uids">UIDs in the selected folder.</param>
     /// <param name="targetFullName">Full name of the target folder.</param>
     /// <param name="ct">Cancellation token.</param>
-    /// <returns>Source UID → new UID in the target (COPYUID); empty when the server sent none.</returns>
-    Task<IReadOnlyDictionary<uint, uint>> MoveAsync(
+    /// <returns>
+    /// Source UID → new UID in the target plus the target's UIDVALIDITY (COPYUID); <see cref="CopyUidMap.Empty"/> when
+    /// the server sent none or the COPYUID data is inconsistent (unequal counts, a repeated or zero destination UID, a
+    /// source UID that was not requested, or mixed destination UIDVALIDITY values).
+    /// </returns>
+    Task<CopyUidMap> MoveAsync(
         IReadOnlyList<uint> uids,
         string targetFullName,
         CancellationToken ct = default);
 
     /// <summary>
     /// Deletes exactly these messages of the selected folder permanently: STORE +FLAGS \Deleted for these UIDs, then
-    /// UID EXPUNGE of these UIDs. Other messages marked \Deleted stay untouched.
+    /// UID EXPUNGE of these UIDs. Other messages marked \Deleted stay untouched. When the expunge fails after the
+    /// \Deleted flag was stored, the flag is removed again for the same UIDs (best effort, its failure is ignored) and the
+    /// original failure propagates.
     /// </summary>
     /// <param name="uids">UIDs in the selected folder.</param>
     /// <param name="ct">Cancellation token.</param>

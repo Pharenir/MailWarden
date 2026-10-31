@@ -3,6 +3,7 @@ using MailWarden.Core.Commands;
 using MailWarden.Core.Model;
 using MailWarden.Core.Storage;
 using MailWarden.Core.Sync;
+using MailWarden.Infrastructure.Storage;
 
 namespace MailWarden.Infrastructure.Commands;
 
@@ -18,7 +19,9 @@ namespace MailWarden.Infrastructure.Commands;
 /// fixed text and nothing is sent for it. Server action per kind:
 /// SetFlags → add/remove flags; Move and MoveToTrash → UID MOVE to the target; DeletePermanently in a Trash or Junk
 /// folder → expunge exactly these UIDs; DeletePermanently elsewhere → UID MOVE to the account's Trash, select Trash
-/// and expunge exactly the new UIDs from the COPYUID map (a UID without a mapping stays in Trash; nothing is lost).
+/// and expunge exactly the new UIDs from the COPYUID map. Nothing is expunged in Trash (the messages stay there; nothing
+/// is lost) when the map is empty or inconsistent (a source UID outside the command, a repeated or zero new UID,
+/// UIDVALIDITY 0) or when its UIDVALIDITY differs from the one the SELECT of Trash returns.
 /// </para>
 /// <para>
 /// Local effect after server success: SetFlags updates the stored flags of the locally stored UIDs; the other kinds
@@ -31,6 +34,10 @@ namespace MailWarden.Infrastructure.Commands;
 /// records an attempt and the run continues; after <see cref="CommandOptions.MaxAttempts"/> attempts the command is
 /// Failed, otherwise its next attempt is 2^(attempts − 1) minutes later, at most 60 minutes. The recorded error is the
 /// exception type name or a fixed text, never an exception message.
+/// </para>
+/// <para>
+/// <see cref="IMailCommandTransport.IsConnected"/> is not read: after a lost connection the next command fails with a
+/// network failure, records one non-permanent attempt and ends the run.
 /// </para>
 /// </remarks>
 public sealed class CommandExecutor
@@ -256,34 +263,53 @@ public sealed class CommandExecutor
         return ServerOutcome.Succeeded(source);
     }
 
-    // E3: outside Trash/Junk a permanent delete goes through Trash; only UIDs with a COPYUID mapping are expunged
-    // there, so a missing map leaves the messages in Trash instead of risking another message.
+    // E3 + F2: outside Trash/Junk a permanent delete goes through Trash. Only new UIDs of a consistent COPYUID map are
+    // expunged there, and only when Trash still has the map's UIDVALIDITY; otherwise the messages stay in Trash instead
+    // of risking another message.
     private static async Task MoveToTrashAndExpungeAsync(
         IMailCommandTransport transport,
         MailCommand command,
         MailFolder trash,
         CancellationToken ct)
     {
-        IReadOnlyDictionary<uint, uint> trashUidsBySource = await transport
+        CopyUidMap copyUidMap = await transport
             .MoveAsync(command.Uids, trash.FullName, ct)
             .ConfigureAwait(false);
-
-        List<uint> trashUids =
-        [
-            .. command.Uids
-                .Where(trashUidsBySource.ContainsKey)
-                .Select(sourceUid => trashUidsBySource[sourceUid])
-                .Where(trashUid => trashUid != 0)
-                .Distinct()
-                .Order(),
-        ];
-        if (trashUids.Count == 0)
+        List<uint>? trashUids = TrashUidsToExpunge(copyUidMap, command.Uids);
+        if (trashUids is null)
         {
             return;
         }
 
-        await transport.SelectFolderAsync(trash.FullName, ct).ConfigureAwait(false);
+        uint trashUidValidity = await transport.SelectFolderAsync(trash.FullName, ct).ConfigureAwait(false);
+        if (trashUidValidity != copyUidMap.DestinationUidValidity)
+        {
+            return;
+        }
+
         await transport.ExpungeAsync(trashUids, ct).ConfigureAwait(false);
+    }
+
+    // F2: the new Trash UIDs (ascending), or null when nothing may be expunged: empty map, UIDVALIDITY 0, a source UID
+    // outside the command, or a repeated or zero new UID.
+    private static List<uint>? TrashUidsToExpunge(CopyUidMap copyUidMap, IReadOnlyList<uint> commandUids)
+    {
+        if (copyUidMap.Uids.Count == 0 || copyUidMap.DestinationUidValidity == 0)
+        {
+            return null;
+        }
+
+        var commandUidSet = new HashSet<uint>(commandUids);
+        var trashUids = new HashSet<uint>();
+        foreach ((uint sourceUid, uint trashUid) in copyUidMap.Uids)
+        {
+            if (!commandUidSet.Contains(sourceUid) || trashUid == 0 || !trashUids.Add(trashUid))
+            {
+                return null;
+            }
+        }
+
+        return [.. trashUids.Order()];
     }
 
     // E4: runs only after the server confirmed the change. Storage failures are swallowed on purpose: the server has
@@ -319,36 +345,14 @@ public sealed class CommandExecutor
             IReadOnlyDictionary<uint, string?> emlPaths = await messages
                 .GetUidEmlPathsAsync(source.Id, ct)
                 .ConfigureAwait(false);
-            await DeleteEmlFilesSkippingFailuresAsync(command.Uids, emlPaths, ct).ConfigureAwait(false);
+            await EmlFiles
+                .DeleteSkippingFailuresAsync(emlStore, command.Uids.Select(emlPaths.GetValueOrDefault), ct)
+                .ConfigureAwait(false);
             await messages.DeleteByUidsAsync(source.Id, command.Uids, ct).ConfigureAwait(false);
         }
         catch (Exception exception) when (exception is not OperationCanceledException)
         {
             // Swallowed on purpose, see method comment.
-        }
-    }
-
-    // R11 order (files before rows); a file that cannot be deleted is skipped (orphan left for a later cleanup).
-    private async Task DeleteEmlFilesSkippingFailuresAsync(
-        IReadOnlyList<uint> uids,
-        IReadOnlyDictionary<uint, string?> emlPaths,
-        CancellationToken ct)
-    {
-        foreach (uint uid in uids)
-        {
-            if (!emlPaths.TryGetValue(uid, out string? emlPath) || emlPath is null)
-            {
-                continue;
-            }
-
-            try
-            {
-                await emlStore.DeleteAsync(emlPath, ct).ConfigureAwait(false);
-            }
-            catch (Exception exception) when (exception is not OperationCanceledException)
-            {
-                // Skipped on purpose, see method comment.
-            }
         }
     }
 
@@ -376,11 +380,11 @@ public sealed class CommandExecutor
         return TimeSpan.FromMinutes(minutes);
     }
 
-    // Same rule as the queue: the first folder of the account with role Trash (folder list order).
+    // Same rule as the queue (FolderLookup.FindTrash).
     private async Task<MailFolder?> FindTrashFolderAsync(Guid accountId, CancellationToken ct)
     {
         IReadOnlyList<MailFolder> accountFolders = await folders.ListAsync(accountId, ct).ConfigureAwait(false);
-        return accountFolders.FirstOrDefault(folder => folder.Role == FolderRole.Trash);
+        return FolderLookup.FindTrash(accountFolders);
     }
 
     // E5: these end the run without touching the current command.
