@@ -276,6 +276,8 @@ Source: review.1 (`review.md`). verify.1 was PASS (272/272).
 | C14 | **Values of the sender in reason texts are truncated** to at most 100 characters (`…` appended); applies to all built-in signals. (review N4) | fix | case 30 unchanged; new case 30a: display name with a 1 000-char token → reason ≤ 200 chars |
 | C15 | Review N1–N3: fix at builder's discretion (`FromAddress` null → ArgumentException with param `input`, like the other null members). | fix | none |
 | C16 | Out of scope → AP-07b (`TODO.md`): authserv-id check against the provider profile (Q3); full Public Suffix List instead of the built-in multi-label list. | – | – |
+| C17 | Refines C10: the domain is the part after the last `@` **outside quotes**; a value without such an `@` has no domain (null). `x@attacker.test"@victim.test"` → `attacker.test`; `"x@victim.test"@attacker.test` → `attacker.test` (unchanged). (builder fix.2 question 1) | fix | add both examples to 3a |
+| C18 | `ISpamSignal` XML doc states the C13 rule (SignalId must equal `Id`, Reason non-empty, else `Classify` throws InvalidOperationException). | doc | none |
 ## Done criteria
 - Builder: only new files under `src\MailWarden.Core\Classification\`; build `-warnaserror` green; probe program
   under `_scratch\` (git-ignored) runs cases 10–14 and prints the scores; `work\AP-07a\impl-notes.md` with the
