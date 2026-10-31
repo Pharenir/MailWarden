@@ -168,12 +168,12 @@ Vollständiger Schnittstellenvertrag: `work\AP-03a\requirement.md`.
 ### AP-03b Abgleich robust und schnell
 | # | Sollverhalten | Umgesetzt | Getestet |
 |---|---|---|---|
-| 1 | Fehlende Mails werden in Blöcken (Standard 50) mit wenigen IMAP-Kommandos geladen statt zwei Round-Trips je Mail; schlägt ein Block fehl, wird er einzeln nachgeladen | | |
-| 2 | Fortschritt je Ordner (Nummer/Anzahl, Rolle, verarbeitet/fehlend) wird während des Laufs gemeldet, ohne Ordnernamen, Betreffs oder Adressen | | |
-| 3 | Verbindungsabbruch in einem Ordner: Ordner bekommt Fehler, Abgleich verbindet neu (höchstens 3× je Lauf) und macht mit dem nächsten Ordner weiter; Anmeldefehler und Abbruch beenden den Lauf wie bisher | | |
-| 4 | Gmail `[Gmail]/Important` wird nicht abgeglichen (versteckt) | | |
-| 5 | Verbindungsaufbau und Ordnerliste: ein gemeinsamer Code für Abgleich und Verbindungstest; Verbindungstest unverändert | | |
-| 6 | Echte Konten: Neuabgleich mindestens 3× schneller als 4 Mails/s, Fortschritt sichtbar, alle Ordner deckungsgleich | | |
+| 1 | Fehlende Mails werden in Blöcken (Standard 50) mit wenigen IMAP-Kommandos geladen statt zwei Round-Trips je Mail; schlägt ein Block fehl, wird er einzeln nachgeladen | ✅ `Core\Sync\IMailTransport.cs` (`FetchMessagesAsync`), `Infrastructure\Sync\MailKitTransport.cs`, `SyncEngine.cs`, `SyncOptions.cs` (`FetchBatchSize`) | ✅ `SyncBatchTests` (Fälle 1–6) – verify.2 S3 803/803 (Core 360, Infrastructure 443) |
+| 2 | Fortschritt je Ordner (Nummer/Anzahl, Rolle, verarbeitet/fehlend) wird während des Laufs gemeldet, ohne Ordnernamen, Betreffs oder Adressen | ✅ `Infrastructure\Sync\SyncProgress.cs`, `SyncEngine.cs` (Überladung `SyncAccountAsync` mit `IProgress<SyncProgress>`) | ✅ `SyncProgressTests` (Fälle 7–8) – verify.2 S3 803/803 |
+| 3 | Verbindungsabbruch in einem Ordner: Ordner bekommt Fehler, Abgleich verbindet neu (höchstens 3× je Lauf) und macht mit dem nächsten Ordner weiter; Anmeldefehler und Abbruch beenden den Lauf wie bisher | ✅ `Infrastructure\Sync\SyncEngine.cs`, `SyncOptions.cs` (`MaxReconnectsPerPass`); die Verbindung wird vor jedem Ordner nach dem ersten geprüft (fix.2) | ✅ `SyncReconnectTests` (Fälle 9–13, 19–21), `SyncResilienceTests` (Fall 22) – verify.2 S3 803/803 |
+| 4 | Gmail `[Gmail]/Important` wird nicht abgeglichen (versteckt) | ✅ `Core\Accounts\FolderRoleResolver.cs` (Regel 5) | ✅ `FolderRoleResolverTests` (Fall 14) – verify.2 S3 803/803 |
+| 5 | Verbindungsaufbau und Ordnerliste: ein gemeinsamer Code für Abgleich und Verbindungstest; Verbindungstest unverändert | ✅ `Infrastructure\Providers\ImapSession.cs`, `MailKitTransportFactory.cs`, `MailKitTransport.cs`, `ConnectionProbe.cs` | ⚠️ Kein Unit-Test; Planer 2026-10-31 mit dem AuthProbe-Befehl `probe` gegen die echten Server: IMAP/SMTP ok, Ordnerzahlen 34/15/15 wie vorher, Important versteckt |
+| 6 | Echte Konten: Neuabgleich mindestens 3× schneller als 4 Mails/s, Fortschritt sichtbar, alle Ordner deckungsgleich | ✅ SyncProbe mit Fortschrittsausgabe, `_scratch\sync-check` | ✅ Fall 18, Planer 2026-10-31: 845 Mails in 60 s ≈ 14 Mails/s (vorher ≈ 4/s), Fortschritt sichtbar, 0 abweichende Ordner, Ungelesen unverändert |
 
 Vollständiger Schnittstellenvertrag: `work\AP-03b\requirement.md`. AP-03c (Befehlswarteschlange lokal → Server, IDLE,
 Zeitplan) folgt danach; AP-07c setzt AP-03c voraus.

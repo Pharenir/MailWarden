@@ -13,7 +13,9 @@ message headers and with a settings file loader; not yet connected to any mail),
 Outlook.com and Gmail, encrypted token storage, provider profiles with a connection check), the one-way sync from the
 server to the local store (folders, messages, flags, deletions; read-only towards the server) and an empty WinUI 3 main
 window. The sync is a library only: it has no user interface, no schedule and no IDLE yet, and it never changes anything
-on the server. Account setup in the app comes with AP-04; there is no inbox view yet, and the classifier does not sort
+on the server. It fetches missing messages in batches (50 by default), reports progress per folder (number, role,
+processed/missing; no names), reconnects within a pass if the connection was lost (at most 3 times) and does not sync
+the Gmail folder "Important". Account setup in the app comes with AP-04; there is no inbox view yet, and the classifier does not sort
 or move any mail yet.
 
 ## Requirements
