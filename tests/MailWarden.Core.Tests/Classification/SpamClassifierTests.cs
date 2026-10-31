@@ -438,6 +438,33 @@ public sealed class SpamClassifierTests
             () => new SpamClassifier(ClassifierSettings.Default, new FakeSenderDirectory(), signals));
     }
 
+    // Case 28 (C5): ids are compared case-insensitively
+    [Fact]
+    public void Duplicate_signal_ids_differing_only_in_case_are_rejected()
+    {
+        ISpamSignal[] signals = [new FixedPointsSignal("a", 1), new FixedPointsSignal("A", 2)];
+
+        Assert.ThrowsAny<ArgumentException>(
+            () => new SpamClassifier(ClassifierSettings.Default, new FakeSenderDirectory(), signals));
+    }
+
+    // Case 10a (C9): middle tier of random-domain, 0.5 <= score < 0.8 gives +15
+    [Fact]
+    public void Middle_tier_random_label_gives_fifteen_points()
+    {
+        const string label = "wrtplkjo";
+        double score = RandomDomainScorer.Score(label);
+        Assert.InRange(score, 0.5, 0.7999999);
+
+        ClassificationResult result = TestInputs.CreateClassifier().Classify(
+            TestInputs.Create(from: $"sender_a@{label}.test", body: $"Message from {label}."));
+
+        SignalResult? finding = TestInputs.Find(result, "random-domain");
+        Assert.NotNull(finding);
+        Assert.Equal(15, finding.Points);
+        Assert.Contains(label, finding.Reason);
+    }
+
     // Case 29
     [Fact]
     public void Classify_null_throws_argument_null_exception()

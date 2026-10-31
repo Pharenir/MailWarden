@@ -141,6 +141,7 @@ public sealed class AuthenticationResultsParserTests
     [InlineData("pass", AuthVerdict.Pass)]
     [InlineData("fail", AuthVerdict.Fail)]
     [InlineData("softfail", AuthVerdict.SoftFail)]
+    [InlineData("hardfail", AuthVerdict.Fail)]
     [InlineData("neutral", AuthVerdict.Neutral)]
     [InlineData("none", AuthVerdict.None)]
     [InlineData("temperror", AuthVerdict.TempError)]
