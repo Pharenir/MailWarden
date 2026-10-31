@@ -21,9 +21,9 @@ Vorbereitung (einmal je Terminal):
 ```powershell
 $probeData = 'K:\Projekte\_private\MailWarden\probe-data'
 New-Item -ItemType Directory -Force $probeData | Out-Null
-# Client-Werte: EINMALIG Datei "$probeData\auth-config.json" mit den Schlüsseln
-#   microsoftClientId, googleClientId, googleClientSecret  (Werte aus deinen App-Registrierungen)
-# ODER pro Terminal $env:MAILWARDEN_MS_CLIENT_ID / MAILWARDEN_GOOGLE_CLIENT_ID / MAILWARDEN_GOOGLE_CLIENT_SECRET
+# Client-Werte aus der vorhandenen spike.env (AP-00) in dieses Terminal laden – gibt nichts aus
+Get-Content _scratch\auth-spike\spike.env | Where-Object { $_ -match '^\s*(MAILWARDEN_[A-Z_]+)\s*=\s*(.+?)\s*$' } |
+    ForEach-Object { Set-Item "env:$($Matches[1])" $Matches[2] }
 dotnet build _scratch\auth-probe
 function AuthProbe { dotnet run --no-build --project _scratch\auth-probe -- $probeData @args }
 ```
@@ -69,6 +69,7 @@ Die Anmeldungen **nicht** entfernen – Teil 3 braucht sie.
 Nur lesend: auf dem Server ändert sich nichts. Standard ist jetzt „alles laden“ (kein Zeitfenster); der erste Lauf
 kann bei großen Postfächern dauern, Strg+C bricht sauber ab, der nächste Lauf macht weiter.
 
+Im selben Terminal wie Teil 2 (oder dort die Vorbereitung wiederholen – die SyncProbe braucht die Client-Werte auch).
 Vorher im Webmail je Konto notieren: Anzahl Mails im Posteingang, Anzahl **ungelesener** Mails.
 ```powershell
 dotnet run --project _scratch\sync-probe -- $probeData <Adresse>        # je Konto
