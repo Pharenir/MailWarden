@@ -67,8 +67,8 @@ Original-Headern (Outlook.com); 1.870 ohne Header (vermutlich IMAP-/Gmail-Ordner
   zu secure M2 AP-03a und AP-02a-ACL-Punkt, 2026-10-31) → bewusst akzeptiert, keine Änderung
 
 ## Testzähler
-Testzähler: 0/4 seit letztem S3 (zuletzt 2026-10-31: S3 auf `main` @ `3d646e8` nach Merge von AP-03b,
-803/803 – Core.Tests 360, Infrastructure.Tests 443; Bericht `work\S3-main-2026-10-31-d.md`)
+Testzähler: 0/4 seit letztem S3 (zuletzt 2026-10-31: S3 auf `main` @ `09b33b7` nach Merge von AP-03c,
+922/922 – Core.Tests 360, Infrastructure.Tests 562; Bericht `work\S3-main-2026-10-31-e.md`)
 
 ## Stand 2026-10-31 (Session 2, Ende)
 **CPM erledigt:** `chore/app-icon`, AP-01, AP-07a, AP-02a per `--no-ff` nach `main` gemergt, Build grün
@@ -142,6 +142,12 @@ Fall 30 (AuthProbe abbrechen) bleibt vorerst offen (Dennis 2026-10-31).
   leer), CommandProbe nach `_scratch\command-probe` retten.
   Am echten Server ungeprüft: Umschalt+Entf außerhalb Papierkorb/Junk (MOVE + COPYUID-Expunge), Rücknahme von
   `\Deleted` nach gescheitertem Expunge (F3).
+
+- AP-03c gemergt (`09b33b7`), S3 auf `main` 922/922, gepusht; Umschalt+Entf außerhalb Junk vorher am echten Server
+  geprüft (Testmail von Dennis im Posteingang von Konto 1: Posteingang −1, Papierkorb unverändert, Mail weg);
+  `probe-data` auf Schema v4 abgeglichen, deckungsgleich; Probes `command-probe`, `shiftdel-probe` in `_scratch\`.
+- **AP-03d gestartet** (`work\AP-03d\requirement.md`): Hintergrunddienst (Zeitplan 15 min, IDLE Posteingang,
+  Sperrdatei je Datenordner, Status je Konto).
 
 ### Vertagt aus AP-03c
 - [ ] AP-03d: benannter Mutex je Datenordner um `ExecutePendingAsync` (secure N3; App/Dienst/Probe parallel)
