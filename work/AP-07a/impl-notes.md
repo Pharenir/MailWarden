@@ -201,10 +201,30 @@ null `FromAddress` (message text changed, still ArgumentException/`input`); cust
 differs from `Id` or whose reason is empty now throw `InvalidOperationException`.
 
 ### Open questions (fix.2)
-1. `src\MailWarden.Core\Classification\AuthenticationResultsParser.cs:189` – C10 "domain after the last `@`" is
-   applied to the joined value, so a quote after the `@` (`smtp.mailfrom=x@attacker.test"@victim.test"`, not valid
-   SMTP) yields `victim.test`. An alternative would be "last `@` outside quotes" (→ `attacker.test`). Followed C10
-   literally; with C11 a provider DMARC fail still wins. Keep?
-2. `src\MailWarden.Core\Classification\ISpamSignal.cs:10` – the interface doc does not mention the C13 validation
-   (only `Classify` documents the `InvalidOperationException`). Left unchanged on purpose (`I*.cs` is an S3
-   trigger); add a doc line?
+1. ~~`AuthenticationResultsParser.cs` – last `@` inside quotes~~ → decided as C17, implemented below.
+2. ~~`ISpamSignal.cs` doc~~ → decided as C18, implemented below.
+
+### fix.2 addendum – C17/C18 (commit `021522f`)
+| # | Change (file:line) | Verified by |
+|---|---|---|
+| C17 | Tokenizer flags quoted words `IsQuoted` (`AuthenticationResultsTokenizer.cs:25`, `:60`). `ReadValue` (`AuthenticationResultsParser.cs:125-171`) records the position after the last `@` in an **unquoted** token; the domain part runs from there to the next quoted part or the value end; no unquoted `@` → whole value if no `@` at all (Outlook `smtp.mailfrom=example.test`, `header.d`, `header.from`), `null` if all `@` are quoted (`:171`). Values are stored as `PropertyValue(Text, DomainPart)` (`:229`); `ToDomain` (`:214`) normalises `DomainPart`. "First occurrence wins" also when the first one has no domain. Still linear (each token text scanned once). | Probe: `x@attacker.test"@victim.test"` → `attacker.test`; `"x@victim.test"@attacker.test` → `attacker.test`; `"x@victim.test"` → null; `"a""b@c.test"` → null; `x@"victim.test"` → null; `x@a.test"junk"` → `a.test`; `"q@r.test"x@a.test` → `a.test`; `a@b@c.test` → `c.test`; `example.test`, `"example.test"`, `<x@a.test>`, `@a.test` as before; `header.i="@victim.test"` → DKIM domain null; spoof via quoted domain suffix with contact → Unknown, not TrustedContact. Hostile 1 MB inputs ≤ 174 ms. |
+| C18 | `ISpamSignal.cs:5-9` summary states: SignalId must equal `Id` (ordinal), Reason non-empty/non-whitespace, else `Classify` throws `InvalidOperationException` naming the signal id. Doc only. | Build `-warnaserror` (cref resolution). |
+
+Build `-warnaserror` → 0 warnings, 0 errors. Probe → **141 checks OK, 0 FAIL**. Self-check
+`FullyQualifiedName~AuthenticationResultsParser` → 43/43 passed (watchdog, not a test stage).
+
+Behaviour change the probe exposed (my own informative #3 expectation, adjusted to C17): a **completely quoted
+address value** such as `smtp.mailfrom="Bounce@Example.TEST"` now has **no** SPF domain (before: `example.test`).
+Note to the tester: any case with a fully quoted address value in `smtp.mailfrom`/`header.i` now expects domain
+null; an SPF/DKIM pass with such a value is no longer aligned.
+
+### Open questions (fix.2 addendum)
+1. `src\MailWarden.Core\Classification\AuthenticationResultsParser.cs:171` – C17 read literally makes a fully
+   quoted address (`smtp.mailfrom="bounce@example.test"`) domain-less. RFC 8601 `pvalue = value / [[local-part] "@"]
+   domain-name` with `value = token / quoted-string` would read a whole-value quoted string as the plain value
+   (→ `example.test`). If a provider quotes whole values, aligned SPF passes are lost (Authenticated → Unknown for
+   real mail; not a security risk, it errs towards less trust). Implemented literally; decide now or verify with
+   real headers in AP-07b?
+2. Interpretation of C17 "a value without such an `@` has no domain": applied only to values that contain `@`
+   exclusively inside quotes; values without any `@` (Outlook `smtp.mailfrom=example.test`, `header.d`,
+   `header.from`) keep the whole value as domain – otherwise case 2 would break. Confirm.
