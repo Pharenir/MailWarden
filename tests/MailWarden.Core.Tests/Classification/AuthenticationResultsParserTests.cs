@@ -85,12 +85,23 @@ public sealed class AuthenticationResultsParserTests
     [Theory]
     [InlineData("smtp.mailfrom=\"x@victim.test\"@attacker.test", "attacker.test")]
     [InlineData("smtp.mailfrom=bounces+123-user=example.test@mailer.test", "mailer.test")]
+    [InlineData("smtp.mailfrom=x@attacker.test\"@victim.test\"", "attacker.test")] // C17
+    [InlineData("smtp.mailfrom=\"Bounce@Example.TEST\"", "example.test")] // C19
     public void Parse_spf_domain_is_taken_after_the_last_at_sign(string mailFrom, string expectedDomain)
     {
         AuthenticationResults parsed = AuthenticationResultsParser.Parse($"mx.test; spf=pass {mailFrom}");
 
         Assert.Equal(AuthVerdict.Pass, parsed.Spf?.Verdict);
         Assert.Equal(expectedDomain, parsed.Spf?.Domain);
+    }
+
+    // Case 3a (C19): a quoted header.i value is unquoted before the domain is taken
+    [Fact]
+    public void Parse_dkim_domain_from_quoted_header_i()
+    {
+        AuthenticationResults parsed = AuthenticationResultsParser.Parse("mx.test; dkim=pass header.i=\"@victim.test\"");
+
+        Assert.Equal("victim.test", Assert.Single(parsed.Dkim).Domain);
     }
 
     // Case 3a (C10): method names inside a value never start a new result
