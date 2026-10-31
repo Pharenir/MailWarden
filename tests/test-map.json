@@ -1,0 +1,20 @@
+{
+  "description": "Maps changed paths to test selections. Values are feature tags (xUnit trait Category=<tag without @>) or FULL (run S3).",
+  "tagFormat": "Category=feature:<name>",
+  "map": {
+    "src/MailWarden.Infrastructure/Storage/Schema*": ["FULL"],
+    "src/MailWarden.Infrastructure/Storage/**/*Migration*": ["FULL"],
+    "src/MailWarden.Core/**/I*.cs": ["FULL"],
+    "src/MailWarden.Core/Model/**": ["@feature:storage"],
+    "src/MailWarden.Core/Storage/**": ["@feature:storage"],
+    "src/MailWarden.Core/Classification/**": ["@feature:classifier"],
+    "src/MailWarden.Infrastructure/Storage/**": ["@feature:storage"],
+    "tests/**/TestSupport/**": ["FULL"],
+    "tests/fixtures/**": ["FULL"],
+    "Directory.Build.props": ["FULL"],
+    "*.csproj": ["FULL"],
+    "*.runsettings": ["FULL"],
+    "MailWarden.sln": ["FULL"],
+    "src/MailWarden.App/**": []
+  }
+}
