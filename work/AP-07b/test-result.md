@@ -20,3 +20,7 @@ Aufruf des Wächters aus Git Bash scheitert am `|` im Filter (cmd-Interpretation
 
 ## Nicht getestet
 Offene Unklarheiten aus `test-plan.md` (leere Liste, null-Schwelle, doppelte Keys, BOM, null-Pfad). Kein S3-Lauf (nicht gefordert).
+
+## verify.2 (nach fix.2: DisplayText.Truncate)
+
+**PASS** (S2, gleicher Filter). Core.Tests 360/360, Infrastructure.Tests 35/35 (gesamt 395, 0 Fehlschlaege). Laufzeit ca. 4,2 s. Keine Testanpassung noetig.
