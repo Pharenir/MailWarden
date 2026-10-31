@@ -279,6 +279,7 @@ public sealed class SyncFolderTests
     public void Zero_and_default_initial_sync_days_are_valid()
     {
         Assert.Equal(0, new SyncOptions(0).InitialSyncDays);
-        Assert.Equal(90, new SyncOptions().InitialSyncDays);
+        // Contract change 2026-10-31: default 0 = load everything on the first sync
+        Assert.Equal(0, new SyncOptions().InitialSyncDays);
     }
 }
