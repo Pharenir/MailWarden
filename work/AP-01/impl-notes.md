@@ -122,3 +122,43 @@ with `Microsoft.WindowsAppRuntime*.dll`, `Microsoft.ui.xaml.dll`, `*.xbf`, `*.pr
 8. Builder role vs. coordinator: the builder role asks to fill the *Umgesetzt* column in `PLAN.md`, the coordinator
    said not to touch `PLAN.md`. Followed the coordinator. Status for the planner: AP-01 rows 1–7 implemented
    (`src\MailWarden.Infrastructure\Storage\*`), row 8 implemented (`src\MailWarden.App\*`, build only).
+
+## fix.2 (2026-10-31)
+
+STEP-RESULT: done – D2, D3, D4, D5, D7, D9, D10, D11 and NITs 1, 2, 4, 5, 7 implemented; D1, D6, D8 unchanged (keep);
+D12 is not a builder task (`TODO.md` not touched).
+
+Build: `dotnet build MailWarden.sln -warnaserror` → 0 warnings, 0 errors (now including the test project).
+Probe `_scratch\Fix2Probe` (git-ignored): 81 checks, all OK; old probe `_scratch\StorageProbe` (86 checks) still all OK.
+Self-check `dotnet test MailWarden.sln --no-build`: 72 tests, 72 passed (not a tester run).
+
+| Decision | Change | File:line | Verified how |
+|---|---|---|---|
+| D2 | Whitespace **and** `char.IsControl` separate tokens (own splitter instead of `string.Split(null)`); `SearchAsync(null)` → `ArgumentNullException`, text of only whitespace/control → `ArgumentException` | `MessageSearchIndex.cs:126` (`IsTokenSeparator`), `:131` (`ContainsToken`), `:173` (`SplitTokens`); `SqliteMessageStore.cs:190`; doc `IMessageStore.cs:49,58` | probe: `"alpha\0x"` finds the message (body contains `xray`; `x` is ANDed per D1), `"alpha\0"`, `"\u0001alpha\u001Freport"` find it; `"\0"`, `"\t\0 "`, `""` → `ArgumentException`; null → `ArgumentNullException`; `"\"al\0pha"` no exception |
+| D3 | v1 edited in place: `folders UNIQUE (id, account_id)`; messages: folder FK replaced by `FOREIGN KEY (folder_id, account_id) REFERENCES folders (id, account_id) ON DELETE CASCADE`, `UNIQUE (folder_id, uid)`; account FK kept. Upsert conflict target `(folder_id, uid)` and the update also sets `account_id`, so a wrong account on an **existing** row fails the FK too (otherwise the update would silently keep the old account) | `SchemaMigrations.cs:30,48,50`; `SqliteMessageStore.cs:55-56`; doc `IMessageStore.cs:22-24` (key now `(FolderId, Uid)`) | probe: insert AccountId B into A's folder → `StorageException` (FOREIGN KEY constraint failed), `ListAsync(AccountId: B)` empty; update of existing (A, uid 1) with B → `StorageException`, row unchanged; same uid in B's folder OK; `pragma_foreign_key_check` empty; folder/account delete cascades, no FTS rows left |
+| D4 | Indexes `(folder_id, julianday(date) DESC, id DESC)` and `(julianday(date) DESC, id DESC)`; ordering unchanged; comment that the expression must stay identical | `SchemaMigrations.cs:55-56`; `SqliteMessageStore.cs:20-24` | `EXPLAIN QUERY PLAN` with the store's SQL: folder list `SEARCH m USING INDEX ix_messages_folder_date (folder_id=?)`, unfiltered `SCAN m USING INDEX ix_messages_date`, role list `SCAN m USING INDEX ix_messages_date` + `SEARCH f USING INTEGER PRIMARY KEY`; no `TEMP B-TREE` in any plan; file DB reopened, index SQL present |
+| D5 | Reject segments ending in `.` or space; reject DOS device names case-insensitively with or without extension (base name = part before the first `.`, trailing spaces trimmed). **Stricter than D5:** also `COM¹–³`/`LPT¹–³` (Windows treats them as devices) | `DataPaths.cs:19` (set), `:97`, `:104`, `:127`; doc `DataPaths.cs` `ResolveMailPath` exception | probe: rejects `accounts/x.eml.`, `accounts/x.eml `, `accounts/...`, `...`, `x.`, `a /b.eml`, `CON`, `con.eml`, `accounts/NUL`, `accounts/nul.txt`, `PRN.eml`, `AUX`, `COM1`, `com9.eml`, `LPT1.tar.gz`, `lpt9`, `CON .eml`, `COM¹` + old cases; accepts `CONSOLE.eml`, `COM10.eml`, `COM0.eml`, `LPT.eml`, `a.b.c`, `nulx/1.eml`, `x.eml.tmp`, `.hidden` |
+| D6 | unchanged | – | probe: all four `FileEmlStore` methods throw `ArgumentException` for `../x.eml`, `C:\x.eml`, `x.eml.`, `NUL.eml` |
+| D7 | `UpsertAsync` with `Uid == 0` → `ArgumentOutOfRangeException` (param `message`) before any DB access | `SqliteMessageStore.cs:32`; doc `IMessageStore.cs:22` | probe |
+| D8 | unchanged | – | – |
+| D9 | XML docs: ordering case-insensitive for ASCII only (`NOCASE`), not culture-aware | `IAccountStore.cs:12-15`, `IFolderStore.cs:13-16` | build (doc only) |
+| D10 | Comment corrected; `IEmlStore.WriteAsync` documents `ArgumentException` and `StorageException` incl. overwrite with an open reader | `FileEmlStore.cs:84`; `IEmlStore.cs:24-28` | probe: overwrite while reader open → `StorageException` ("Access to the path is denied"), after closing it works |
+| D11 | New `MessageSearchIndex.DeleteForUidsAsync` (one prepared command per call, looped per UID); `DeleteByUidsAsync` calls it, then deletes rows with its own prepared command. `MessageSearchIndex` is now the only writer of `messages_fts` | `MessageSearchIndex.cs:71`; `SqliteMessageStore.cs:271`; class doc `MessageSearchIndex.cs:7-12`; schema comment `SchemaMigrations.cs:58` | probe: deleting UIDs 10, 11, 12, 999 removes exactly 3 FTS rows and the rows, no orphans |
+| NIT 1 | blank line before `try` in `ListAsync` | `SqliteMessageStore.cs` | build |
+| NIT 2 | `RelativePathFor` exception doc: "folderId is not positive or uid is 0" | `FileEmlStore.cs:18-20` | probe: `folderId -1` → `ArgumentOutOfRangeException` |
+| NIT 4 | comment: `julianday()` resolves milliseconds, ties fall back to id | `SqliteMessageStore.cs:22-23` | – |
+| NIT 5 | `DataDirectoryVariable` doc: unset/empty/whitespace-only = unset | `App.xaml.cs:12-15` | build |
+| NIT 7 | UTF-8 BOM removed from `MailWarden.sln` | `MailWarden.sln:1` | `file` → ASCII, CRLF kept |
+
+Commits: `3b852af` (D2, D3, D4, D7, D11, NIT 1/4), `58f4ff0` (D5, D10, NIT 2), `4c719f4` (D9, NIT 5, NIT 7).
+
+Tests that might be affected by the schema/argument changes: none failed in the self-check. Tests that relied on
+`UNIQUE (account_id, folder_id, uid)` (same UID in one folder under two accounts) or on `Uid = 0` being accepted would
+now fail; the tester adds cases 11a, 15a, 27/27a, 18/19 extensions per D2–D7.
+
+Open questions (fix.2):
+1. `requirement.md` contract text still names the old key `(AccountId, FolderId, Uid)` for `IMessageStore.UpsertAsync`
+   and the old indexes; the XML doc now says `(FolderId, Uid)` per D3. Planner updates the contract text.
+2. D5 is implemented slightly stricter (superscript `COM¹–³`/`LPT¹–³`, `CON .eml`). Accept or narrow to the list?
+3. `ListAsync` with `Role` only scans `ix_messages_date` and filters by joined folder role (no temp sort). Good for a
+   few mailboxes; a role-specific index would need `role` on `messages` – not needed now.
