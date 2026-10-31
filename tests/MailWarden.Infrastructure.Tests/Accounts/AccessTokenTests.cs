@@ -6,7 +6,7 @@ namespace MailWarden.Infrastructure.Tests.Accounts;
 public sealed class AccessTokenTests
 {
     // Case 19
-    [Fact(Timeout = TestTimeouts.PerTestMilliseconds)]
+    [Fact]
     public void ToString_does_not_contain_token_value()
     {
         var token = new AccessToken("super-secret-token-value-123", DateTimeOffset.UtcNow, "user_a@example.test");

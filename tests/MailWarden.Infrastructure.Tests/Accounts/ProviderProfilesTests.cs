@@ -6,7 +6,7 @@ namespace MailWarden.Infrastructure.Tests.Accounts;
 public sealed class ProviderProfilesTests
 {
     // Case 14
-    [Theory(Timeout = TestTimeouts.PerTestMilliseconds)]
+    [Theory]
     [InlineData("a@hotmail.de", MailProvider.Microsoft)]
     [InlineData("a@Outlook.com", MailProvider.Microsoft)]
     [InlineData("a@live.de", MailProvider.Microsoft)]
@@ -19,13 +19,13 @@ public sealed class ProviderProfilesTests
         Assert.Equal(expected, ProviderProfiles.DetectFromAddress(address));
     }
 
-    [Fact(Timeout = TestTimeouts.PerTestMilliseconds)]
+    [Fact]
     public void DetectFromAddress_returns_null_for_unknown_domain()
     {
         Assert.Null(ProviderProfiles.DetectFromAddress("a@example.test"));
     }
 
-    [Theory(Timeout = TestTimeouts.PerTestMilliseconds)]
+    [Theory]
     [InlineData("no-at")]
     [InlineData("")]
     public void DetectFromAddress_rejects_invalid_address(string address)
@@ -34,13 +34,13 @@ public sealed class ProviderProfilesTests
     }
 
     // Case 15
-    [Fact(Timeout = TestTimeouts.PerTestMilliseconds)]
+    [Fact]
     public void For_GenericImap_throws_NotSupportedException()
     {
         Assert.Throws<NotSupportedException>(() => ProviderProfiles.For(MailProvider.GenericImap));
     }
 
-    [Fact(Timeout = TestTimeouts.PerTestMilliseconds)]
+    [Fact]
     public void Microsoft_profile_has_contract_endpoints()
     {
         ProviderProfile profile = ProviderProfiles.For(MailProvider.Microsoft);
@@ -51,7 +51,7 @@ public sealed class ProviderProfilesTests
         Assert.Equal(profile, ProviderProfiles.Microsoft);
     }
 
-    [Fact(Timeout = TestTimeouts.PerTestMilliseconds)]
+    [Fact]
     public void Google_profile_has_contract_endpoints()
     {
         ProviderProfile profile = ProviderProfiles.For(MailProvider.Google);

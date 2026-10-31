@@ -8,7 +8,7 @@ namespace MailWarden.Infrastructure.Tests.Accounts;
 public sealed class MailKitFolderFlagsTests
 {
     // Case 16
-    [Fact(Timeout = TestTimeouts.PerTestMilliseconds)]
+    [Fact]
     public void Combined_attributes_map_to_combined_flags()
     {
         ServerFolderFlags result = MailKitFolderFlags.From(FolderAttributes.Inbox | FolderAttributes.Junk | FolderAttributes.NoSelect);
@@ -16,19 +16,19 @@ public sealed class MailKitFolderFlagsTests
         Assert.Equal(ServerFolderFlags.Inbox | ServerFolderFlags.Junk | ServerFolderFlags.NoSelect, result);
     }
 
-    [Fact(Timeout = TestTimeouts.PerTestMilliseconds)]
+    [Fact]
     public void HasChildren_alone_maps_to_None()
     {
         Assert.Equal(ServerFolderFlags.None, MailKitFolderFlags.From(FolderAttributes.HasChildren));
     }
 
-    [Fact(Timeout = TestTimeouts.PerTestMilliseconds)]
+    [Fact]
     public void No_attributes_map_to_None()
     {
         Assert.Equal(ServerFolderFlags.None, MailKitFolderFlags.From(FolderAttributes.None));
     }
 
-    [Theory(Timeout = TestTimeouts.PerTestMilliseconds)]
+    [Theory]
     [InlineData(FolderAttributes.Inbox, ServerFolderFlags.Inbox)]
     [InlineData(FolderAttributes.Sent, ServerFolderFlags.Sent)]
     [InlineData(FolderAttributes.Drafts, ServerFolderFlags.Drafts)]
