@@ -47,6 +47,40 @@ public sealed class DataPathsTests
         Assert.ThrowsAny<ArgumentException>(() => paths.ResolveMailPath("accounts/../../x"));
     }
 
+    // Case 27 (D5): trailing dot/space segments and DOS device names
+    [Theory]
+    [InlineData("x.eml.")]
+    [InlineData("x.eml ")]
+    [InlineData("...")]
+    [InlineData("accounts/...")]
+    [InlineData("CON")]
+    [InlineData("nul.txt")]
+    [InlineData("COM1")]
+    [InlineData("LPT9.eml")]
+    [InlineData("accounts/a/aux/1.eml")]
+    [InlineData("COM¹")] // D14: superscript one
+    [InlineData("CON .eml")] // D14: device name with trailing space before the extension
+    public void Resolve_rejects_trailing_dot_space_and_device_names(string relativePath)
+    {
+        var paths = new DataPaths(NewRoot());
+
+        Assert.ThrowsAny<ArgumentException>(() => paths.ResolveMailPath(relativePath));
+    }
+
+    // Case 15a (D7)
+    [Fact]
+    public void Constructor_rejects_null_root_with_ArgumentNullException()
+    {
+        Assert.Throws<ArgumentNullException>(() => { _ = new DataPaths(null!); });
+    }
+
+    // Case 15a (D7)
+    [Fact]
+    public void Constructor_rejects_relative_root_with_ArgumentException()
+    {
+        Assert.ThrowsAny<ArgumentException>(() => { _ = new DataPaths("relative_root_dir"); });
+    }
+
     // Case 27
     [Fact]
     public void Resolve_maps_relative_path_below_mail_root_with_os_separators()

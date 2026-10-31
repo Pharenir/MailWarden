@@ -109,6 +109,16 @@ public sealed class SqliteDatabaseTests
         await Task.CompletedTask;
     }
 
+    // Case 4a (D8): initialising the same instance twice fails fast
+    [Fact(Timeout = TestTimeouts.PerTestMilliseconds)]
+    public async Task Second_initialisation_on_same_instance_throws_InvalidOperationException()
+    {
+        await using SqliteDatabase database = SqliteDatabase.InMemory();
+        await database.InitializeAsync();
+
+        await Assert.ThrowsAsync<InvalidOperationException>(() => database.InitializeAsync());
+    }
+
     // Supporting: foreign keys are enforced (basis for cascade cases 22/23)
     [Fact(Timeout = TestTimeouts.PerTestMilliseconds)]
     public async Task Foreign_keys_pragma_is_on_after_initialisation()

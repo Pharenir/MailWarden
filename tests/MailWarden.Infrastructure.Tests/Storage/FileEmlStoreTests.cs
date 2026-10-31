@@ -109,6 +109,22 @@ public sealed class FileEmlStoreTests
         Assert.False(store.Exists(relativePath));
     }
 
+    // Case 27a (D6): every method validates the path through DataPaths.ResolveMailPath
+    [Theory(Timeout = TestTimeouts.PerTestMilliseconds)]
+    [InlineData("../x.eml")]
+    [InlineData("C:\\x.eml")]
+    public async Task All_methods_reject_paths_outside_the_mail_root(string invalidPath)
+    {
+        using var temp = new TempDirectory();
+        var store = new FileEmlStore(new DataPaths(temp.RootPath));
+
+        await Assert.ThrowsAnyAsync<ArgumentException>(
+            () => store.WriteAsync(invalidPath, new MemoryStream(SampleBytes(4, 0))));
+        await Assert.ThrowsAnyAsync<ArgumentException>(() => store.OpenReadAsync(invalidPath));
+        Assert.ThrowsAny<ArgumentException>(() => store.Exists(invalidPath));
+        await Assert.ThrowsAnyAsync<ArgumentException>(() => store.DeleteAsync(invalidPath));
+    }
+
     // Contract: delete removes an existing file
     [Fact(Timeout = TestTimeouts.PerTestMilliseconds)]
     public async Task Delete_removes_existing_file()
