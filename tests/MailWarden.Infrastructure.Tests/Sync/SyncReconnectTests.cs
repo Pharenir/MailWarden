@@ -9,8 +9,8 @@ namespace MailWarden.Infrastructure.Tests.Sync;
 public sealed class SyncReconnectTests
 {
     private const string Inbox = "INBOX";
-    private const string Sent = "Sent";
-    private const string Junk = "Junk";
+    private const string Middle = "Junk";
+    private const string Last = "Sent";
 
     private static byte[] Mail(string subject) => SyncTestEml.Plain(subject, "body");
 
@@ -18,8 +18,8 @@ public sealed class SyncReconnectTests
     {
         SyncHarness harness = await SyncHarness.CreateAsync();
         harness.Server.AddFolder(Inbox, ServerFolderFlags.Inbox).AddMessage(Mail("inbox_one"));
-        harness.Server.AddFolder(Sent, ServerFolderFlags.Sent).AddMessage(Mail("sent_one"));
-        harness.Server.AddFolder(Junk, ServerFolderFlags.Junk).AddMessage(Mail("junk_one"));
+        harness.Server.AddFolder(Last, ServerFolderFlags.Sent).AddMessage(Mail("sent_one"));
+        harness.Server.AddFolder(Middle, ServerFolderFlags.Junk).AddMessage(Mail("junk_one"));
         return harness;
     }
 
@@ -32,10 +32,10 @@ public sealed class SyncReconnectTests
     {
         await using SyncHarness harness = await StartWithThreeFoldersAsync();
         await harness.SyncAsync();
-        FolderSyncState stateBefore = (await harness.StateOfAsync(Sent))!;
-        harness.Server.Folder(Sent).AddMessage(Mail("sent_two"));
-        harness.Server.Folder(Junk).AddMessage(Mail("junk_two"));
-        harness.Server.OpenFailures[Sent] = NetworkLoss();
+        FolderSyncState stateBefore = (await harness.StateOfAsync(Middle))!;
+        harness.Server.Folder(Middle).AddMessage(Mail("sent_two"));
+        harness.Server.Folder(Last).AddMessage(Mail("junk_two"));
+        harness.Server.OpenFailures[Middle] = NetworkLoss();
         harness.Server.ClearLog();
         harness.Server.Transports.Clear();
         harness.Server.ConnectCalls = 0;
@@ -43,21 +43,21 @@ public sealed class SyncReconnectTests
 
         SyncReport report = await harness.SyncAsync();
 
-        FolderSyncResult sentResult = report.Folders.Single(folder => folder.FolderFullName == Sent);
+        FolderSyncResult sentResult = report.Folders.Single(folder => folder.FolderFullName == Middle);
         Assert.StartsWith("MailTransportException", sentResult.Error, StringComparison.Ordinal);
         Assert.Null(report.Folders.Single(folder => folder.FolderFullName == Inbox).Error);
-        Assert.Null(report.Folders.Single(folder => folder.FolderFullName == Junk).Error);
-        Assert.Equal(stateBefore, await harness.StateOfAsync(Sent));
-        Assert.Equal(new uint[] { 1 }, await harness.StoredUidsAsync(Sent));
-        Assert.Equal(new uint[] { 1, 2 }, await harness.StoredUidsAsync(Junk));
+        Assert.Null(report.Folders.Single(folder => folder.FolderFullName == Last).Error);
+        Assert.Equal(stateBefore, await harness.StateOfAsync(Middle));
+        Assert.Equal(new uint[] { 1 }, await harness.StoredUidsAsync(Middle));
+        Assert.Equal(new uint[] { 1, 2 }, await harness.StoredUidsAsync(Last));
         Assert.Equal(2, harness.Server.ConnectCalls);
         Assert.Equal(2, harness.Server.Transports.Count);
         FakeMailTransport oldTransport = harness.Server.Transports[0];
         FakeMailTransport newTransport = harness.Server.Transports[1];
         Assert.Equal(1, oldTransport.DisposeCalls);
         Assert.Equal(1, newTransport.DisposeCalls);
-        Assert.Equal(new[] { Inbox, Sent }, oldTransport.OpenedFolders.ToArray());
-        Assert.Equal(new[] { Junk }, newTransport.OpenedFolders.ToArray());
+        Assert.Equal(new[] { Inbox, Middle }, oldTransport.OpenedFolders.ToArray());
+        Assert.Equal(new[] { Last }, newTransport.OpenedFolders.ToArray());
     }
 
     // Case 9 (supporting): a Network failure while fetching a batch behaves the same
@@ -65,14 +65,14 @@ public sealed class SyncReconnectTests
     public async Task Network_failure_during_a_batch_fails_the_folder_and_reconnects()
     {
         await using SyncHarness harness = await StartWithThreeFoldersAsync();
-        harness.Server.FetchFailures[(Sent, 1u)] = NetworkLoss();
+        harness.Server.FetchFailures[(Middle, 1u)] = NetworkLoss();
 
         SyncReport report = await harness.SyncAsync();
 
-        string? sentError = report.Folders.Single(folder => folder.FolderFullName == Sent).Error;
+        string? sentError = report.Folders.Single(folder => folder.FolderFullName == Middle).Error;
         Assert.StartsWith("MailTransportException", sentError, StringComparison.Ordinal);
-        Assert.Null(report.Folders.Single(folder => folder.FolderFullName == Junk).Error);
-        Assert.Equal(new uint[] { 1 }, await harness.StoredUidsAsync(Junk));
+        Assert.Null(report.Folders.Single(folder => folder.FolderFullName == Last).Error);
+        Assert.Equal(new uint[] { 1 }, await harness.StoredUidsAsync(Last));
         Assert.Equal(2, harness.Server.ConnectCalls);
         Assert.All(harness.Server.Transports, transport => Assert.Equal(1, transport.DisposeCalls));
     }
@@ -83,12 +83,13 @@ public sealed class SyncReconnectTests
     {
         await using SyncHarness harness = await SyncHarness.CreateAsync();
         harness.Server.AddFolder(Inbox, ServerFolderFlags.Inbox).AddMessage(Mail("inbox_one"));
+        // Sync order is by full name: INBOX, Junk, Sent, Trash, Zeta.
         (string Name, ServerFolderFlags Flags)[] failing =
         [
-            (Sent, ServerFolderFlags.Sent),
-            (Junk, ServerFolderFlags.Junk),
-            ("Drafts", ServerFolderFlags.Drafts),
-            ("Archive", ServerFolderFlags.None),
+            (Middle, ServerFolderFlags.Junk),
+            (Last, ServerFolderFlags.Sent),
+            ("Trash", ServerFolderFlags.Trash),
+            ("Zeta", ServerFolderFlags.None),
         ];
         foreach ((string name, ServerFolderFlags flags) in failing)
         {
@@ -105,7 +106,7 @@ public sealed class SyncReconnectTests
         Assert.Equal(new uint[] { 1 }, await harness.StoredUidsAsync(Inbox));
         Assert.Equal(3, harness.Server.Transports.Count);
         Assert.All(harness.Server.Transports, transport => Assert.Equal(1, transport.DisposeCalls));
-        Assert.DoesNotContain("Archive", harness.Server.OpenedFolders);
+        Assert.DoesNotContain("Zeta", harness.Server.OpenedFolders);
     }
 
     // Case 10 (supporting): MaxReconnectsPerPass 0 means the first lost connection already aborts
@@ -113,7 +114,7 @@ public sealed class SyncReconnectTests
     public async Task Zero_allowed_reconnects_abort_on_the_first_lost_connection()
     {
         await using SyncHarness harness = await StartWithThreeFoldersAsync();
-        harness.Server.OpenFailures[Sent] = NetworkLoss();
+        harness.Server.OpenFailures[Middle] = NetworkLoss();
         harness.UseOptions(new SyncOptions { MaxReconnectsPerPass = 0 });
 
         MailTransportException exception =
@@ -123,7 +124,7 @@ public sealed class SyncReconnectTests
         Assert.Equal(new uint[] { 1 }, await harness.StoredUidsAsync(Inbox));
         Assert.Equal(1, harness.Server.ConnectCalls);
         Assert.Equal(1, Assert.Single(harness.Server.Transports).DisposeCalls);
-        Assert.DoesNotContain(Junk, harness.Server.OpenedFolders);
+        Assert.DoesNotContain(Last, harness.Server.OpenedFolders);
     }
 
     // Case 11
@@ -131,15 +132,15 @@ public sealed class SyncReconnectTests
     public async Task Protocol_failure_with_a_connected_transport_does_not_reconnect()
     {
         await using SyncHarness harness = await StartWithThreeFoldersAsync();
-        harness.Server.OpenFailures[Sent] = new MailTransportException(MailTransportFailure.Protocol, "Rejected.");
+        harness.Server.OpenFailures[Middle] = new MailTransportException(MailTransportFailure.Protocol, "Rejected.");
 
         SyncReport report = await harness.SyncAsync();
 
-        Assert.NotNull(report.Folders.Single(folder => folder.FolderFullName == Sent).Error);
-        Assert.Null(report.Folders.Single(folder => folder.FolderFullName == Junk).Error);
+        Assert.NotNull(report.Folders.Single(folder => folder.FolderFullName == Middle).Error);
+        Assert.Null(report.Folders.Single(folder => folder.FolderFullName == Last).Error);
         Assert.Equal(1, harness.Server.ConnectCalls);
         Assert.Equal(1, Assert.Single(harness.Server.Transports).DisposeCalls);
-        Assert.Equal(new uint[] { 1 }, await harness.StoredUidsAsync(Junk));
+        Assert.Equal(new uint[] { 1 }, await harness.StoredUidsAsync(Last));
     }
 
     // Case 11 (B4): the decision to reconnect follows IsConnected, not the failure type
@@ -149,14 +150,14 @@ public sealed class SyncReconnectTests
         await using SyncHarness harness = await StartWithThreeFoldersAsync();
         // MailKit disconnects on a protocol error: the failure is Protocol, but the session is gone.
         harness.Server.AnyFailureDropsConnection = true;
-        harness.Server.OpenFailures[Sent] = new MailTransportException(MailTransportFailure.Protocol, "Protocol error.");
+        harness.Server.OpenFailures[Middle] = new MailTransportException(MailTransportFailure.Protocol, "Protocol error.");
 
         SyncReport report = await harness.SyncAsync();
 
-        Assert.NotNull(report.Folders.Single(folder => folder.FolderFullName == Sent).Error);
-        Assert.Null(report.Folders.Single(folder => folder.FolderFullName == Junk).Error);
+        Assert.NotNull(report.Folders.Single(folder => folder.FolderFullName == Middle).Error);
+        Assert.Null(report.Folders.Single(folder => folder.FolderFullName == Last).Error);
         Assert.Equal(2, harness.Server.ConnectCalls);
-        Assert.Equal(new uint[] { 1 }, await harness.StoredUidsAsync(Junk));
+        Assert.Equal(new uint[] { 1 }, await harness.StoredUidsAsync(Last));
         Assert.All(harness.Server.Transports, transport => Assert.Equal(1, transport.DisposeCalls));
     }
 
@@ -165,14 +166,14 @@ public sealed class SyncReconnectTests
     public async Task Authentication_failure_inside_a_folder_aborts_the_pass()
     {
         await using SyncHarness harness = await StartWithThreeFoldersAsync();
-        harness.Server.FetchFailures[(Sent, 1u)] =
+        harness.Server.FetchFailures[(Middle, 1u)] =
             new MailTransportException(MailTransportFailure.Authentication, "Sign in again.");
 
         MailTransportException exception =
             await Assert.ThrowsAsync<MailTransportException>(() => harness.SyncAsync());
 
         Assert.Equal(MailTransportFailure.Authentication, exception.Failure);
-        Assert.DoesNotContain(Junk, harness.Server.OpenedFolders);
+        Assert.DoesNotContain(Last, harness.Server.OpenedFolders);
         Assert.Equal(1, harness.Server.ConnectCalls);
         Assert.Equal(1, Assert.Single(harness.Server.Transports).DisposeCalls);
     }
@@ -198,7 +199,7 @@ public sealed class SyncReconnectTests
     public async Task Factory_failure_on_reconnect_aborts_the_pass_with_that_exception()
     {
         await using SyncHarness harness = await StartWithThreeFoldersAsync();
-        harness.Server.OpenFailures[Sent] = NetworkLoss();
+        harness.Server.OpenFailures[Middle] = NetworkLoss();
         var reconnectFailure = new InvalidOperationException("reconnect_boom");
         harness.Server.ConnectFailuresByAttempt[2] = reconnectFailure;
 
@@ -209,6 +210,6 @@ public sealed class SyncReconnectTests
         Assert.Equal(2, harness.Server.ConnectCalls);
         Assert.Equal(1, Assert.Single(harness.Server.Transports).DisposeCalls);
         Assert.Equal(new uint[] { 1 }, await harness.StoredUidsAsync(Inbox));
-        Assert.DoesNotContain(Junk, harness.Server.OpenedFolders);
+        Assert.DoesNotContain(Last, harness.Server.OpenedFolders);
     }
 }
