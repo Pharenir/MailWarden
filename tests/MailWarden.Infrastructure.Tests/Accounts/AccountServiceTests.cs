@@ -215,6 +215,27 @@ public sealed class AccountServiceTests
         Assert.Equal(googleAccount, await storage.Accounts.GetAsync(googleAccount.Id));
     }
 
+    // Case 25c (A19): a failing sign-out of the wrong grant never replaces the AccessDenied result.
+    [Fact(Timeout = TestTimeouts.PerTestMilliseconds)]
+    public async Task Reauthenticate_with_other_account_and_failing_sign_out_still_throws_AccessDenied()
+    {
+        await using StorageFixture storage = await StorageFixture.CreateAsync();
+        Account account = await StoreAccountAsync(storage);
+        var fake = new FakeTokenProvider
+        {
+            SignOutException = new AuthenticationFailedException(MailProvider.Microsoft, AuthFailureReason.Configuration, "Not configured."),
+        };
+        fake.EnqueueSignIn("other@example.test");
+        var service = new AccountService(storage.Accounts, [fake]);
+
+        AuthenticationFailedException exception =
+            await Assert.ThrowsAsync<AuthenticationFailedException>(() => service.ReauthenticateAsync(account.Id));
+
+        Assert.Equal(AuthFailureReason.AccessDenied, exception.Reason);
+        Assert.Equal(["other@example.test"], fake.SignedOutUsernames);
+        Assert.Equal(account, await storage.Accounts.GetAsync(account.Id));
+    }
+
     [Fact(Timeout = TestTimeouts.PerTestMilliseconds)]
     public async Task Reauthenticate_with_same_account_case_insensitive_returns_token_without_sign_out()
     {
