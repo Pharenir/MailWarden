@@ -218,7 +218,22 @@ address value** such as `smtp.mailfrom="Bounce@Example.TEST"` now has **no** SPF
 Note to the tester: any case with a fully quoted address value in `smtp.mailfrom`/`header.i` now expects domain
 null; an SPF/DKIM pass with such a value is no longer aligned.
 
-### Open questions (fix.2 addendum)
+### fix.2 addendum 2 – C19 (commit `94f3eb2`)
+| # | Change (file:line) | Verified by |
+|---|---|---|
+| C19 | `AuthenticationResultsParser.cs:136` `isSingleQuotedString` (value = exactly one token and it is quoted); `:146` such a token is treated as unquoted, so the `@` rule runs on its content. Mixed values (several joined tokens) unchanged (C17). Value without `@` = domain (question 2 confirmed). | Probe: `"x@victim.test"` → `victim.test`; `"Bounce@Example.TEST"` → `example.test` (probe #3 back to `example.test`); `header.i="@victim.test"` → `victim.test`; `"no-at-sign"` → `no-at-sign`; fully quoted aligned SPF pass → Authenticated; mixed `"x@victim.test""@a.test"` and `"a""b@c.test"` → null; C17 examples unchanged (`attacker.test`). |
+
+Build `-warnaserror` → 0 warnings, 0 errors. Probe → **146 checks OK, 0 FAIL**. Self-check
+`FullyQualifiedName~AuthenticationResultsParser` → 43/43 passed (watchdog, not a test stage).
+Note to the tester: the "fully quoted address → domain null" note from addendum 1 is **void**; fully quoted values
+give the domain of their content again (as before C17).
+
+Remaining edge (no action, by reasoning only): inside a single quoted string, escaped quotes are plain characters
+after unquoting, so `"x@attacker.test\"@victim.test\""` gives `victim.test` (C17 is not re-applied to quotes inside
+the content). Contrived and not valid SMTP; with C11 a provider DMARC fail still wins.
+
+### Open questions (fix.2 addendum) – resolved
+Both answered by C19 (question 1) and the planner's confirmation (question 2); kept below for the record.
 1. `src\MailWarden.Core\Classification\AuthenticationResultsParser.cs:171` – C17 read literally makes a fully
    quoted address (`smtp.mailfrom="bounce@example.test"`) domain-less. RFC 8601 `pvalue = value / [[local-part] "@"]
    domain-name` with `value = token / quoted-string` would read a whole-value quoted string as the plain value
