@@ -68,3 +68,19 @@ Further: authentication points table (`Authentication_signal_points`, 13 rows in
 - C5: `Duplicate_signal_ids_differing_only_in_case_are_rejected`.
 - C2: `Parse_maps_verdict_words` row `hardfail` -> Fail.
 - C8 confirmed: contact + Unknown always LikelyLegit and freemail Reply-To with freemail From +10 are already tested as written.
+
+## fix.2 additions (C10-C14, 2026-10-31; written, not yet compiled or run)
+- Case 3a (C10): `AuthenticationResultsParserTests.Parse_spf_domain_is_taken_after_the_last_at_sign` (4 rows; +C17 `x@attacker.test"@victim.test"`, +C19 quoted `"Bounce@Example.TEST"`),
+  `Parse_method_name_inside_a_value_does_not_start_a_result`, `Parse_dkim_domain_from_quoted_header_i` (C19).
+- Case 21a (C11): `SpamClassifierTests.Dmarc_fail_beats_aligned_spf_pass`, `Contact_with_dmarc_fail_and_aligned_spf_pass_is_not_trusted`.
+- Case 22a (C12): `Dmarc_pass_for_a_foreign_domain_is_not_authenticated`.
+- Case 28a (C13): `Signal_result_with_empty_reason_is_rejected` ("" and whitespace), `Signal_result_with_a_different_signal_id_is_rejected`
+  (InvalidOperationException, message contains the signal id "stub").
+- Case 30a (C14): `SignalReasonTests.Reasons_stay_short_for_very_long_sender_values` (1 000-char token in display name and
+  Reply-To; all reasons <= 200 chars; display-name and reply-to findings must still exist).
+- Changed existing rows in `AuthStatus_is_derived_from_the_header`: `dmarc=pass header.from=other.test` Authenticated -> Unknown (C12);
+  `dmarc=fail ...; dkim=pass header.d=paypal.test` Authenticated -> Failed (C11). New rows: DMARC pass without header.from and
+  with subdomain header.from -> Authenticated; DMARC fail + aligned SPF pass -> Failed; foreign DMARC pass + aligned DKIM pass ->
+  Authenticated; foreign DMARC pass + SPF fail -> Failed.
+- Assumptions: the 30a display-name token `<1000 a>.other.test` must count as domain-like (label length not limited by the
+  contract); test name checks of exception message only for the signal id.

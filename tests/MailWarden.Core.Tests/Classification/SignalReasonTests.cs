@@ -49,6 +49,29 @@ public sealed class SignalReasonTests
         }
     }
 
+    // Case 30a (C14): sender-controlled values are truncated in reasons
+    [Fact]
+    public void Reasons_stay_short_for_very_long_sender_values()
+    {
+        string longToken = new('a', 1000);
+        ClassificationInput input = TestInputs.Create(
+            from: "x@qzxkvb73.top",
+            fromName: $"Support {longToken}.other.test",
+            replyTo: $"help@{longToken}.reply.test",
+            body: "qzxkvb73");
+
+        ClassificationResult result = Classify(input);
+
+        Assert.NotNull(TestInputs.Find(result, "display-name-mismatch"));
+        Assert.NotNull(TestInputs.Find(result, "reply-to-mismatch"));
+        foreach (SignalResult signal in result.Signals)
+        {
+            Assert.True(
+                signal.Reason.Length <= 200,
+                $"Reason of '{signal.SignalId}' has {signal.Reason.Length} characters");
+        }
+    }
+
     // Case 30
     [Fact]
     public void Authentication_reasons_name_the_domain_or_the_method()

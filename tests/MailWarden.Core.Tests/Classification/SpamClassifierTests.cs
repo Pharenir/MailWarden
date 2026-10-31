@@ -90,13 +90,18 @@ public sealed class SpamClassifierTests
     public static TheoryData<string, AuthStatus> AuthStatusScenarios() => new()
     {
         { "mx.test; dmarc=pass header.from=paypal.test", AuthStatus.Authenticated },
-        { "mx.test; dmarc=pass header.from=other.test", AuthStatus.Authenticated },
+        { "mx.test; dmarc=pass header.from=other.test", AuthStatus.Unknown }, // C12
+        { "mx.test; dmarc=pass header.from=mail.paypal.test", AuthStatus.Authenticated },
+        { "mx.test; dmarc=pass", AuthStatus.Authenticated },
         { "mx.test; dkim=pass header.d=paypal.test", AuthStatus.Authenticated },
         { "mx.test; dkim=pass header.d=mail.paypal.test", AuthStatus.Authenticated },
         { "mx.test; spf=pass smtp.mailfrom=bounce@paypal.test", AuthStatus.Authenticated },
         { "mx.test; spf=pass smtp.mailfrom=bounce@mail.paypal.test", AuthStatus.Authenticated },
         { "mx.test; spf=fail smtp.mailfrom=x@paypal.test; dkim=pass header.d=paypal.test", AuthStatus.Authenticated },
-        { "mx.test; dmarc=fail header.from=paypal.test; dkim=pass header.d=paypal.test", AuthStatus.Authenticated },
+        { "mx.test; dmarc=fail header.from=paypal.test; dkim=pass header.d=paypal.test", AuthStatus.Failed }, // C11
+        { "mx.test; dmarc=fail header.from=paypal.test; spf=pass smtp.mailfrom=paypal.test", AuthStatus.Failed },
+        { "mx.test; dmarc=pass header.from=other.test; dkim=pass header.d=paypal.test", AuthStatus.Authenticated },
+        { "mx.test; dmarc=pass header.from=other.test; spf=fail smtp.mailfrom=bounce@paypal.test", AuthStatus.Failed },
         { "mx.test; dkim=pass header.d=mailer.test", AuthStatus.Unknown },
         { "mx.test; spf=pass smtp.mailfrom=bounce@mailer.test", AuthStatus.Unknown },
         { "mx.test; spf=softfail smtp.mailfrom=bounce@paypal.test", AuthStatus.Unknown },
@@ -463,6 +468,85 @@ public sealed class SpamClassifierTests
         Assert.NotNull(finding);
         Assert.Equal(15, finding.Points);
         Assert.Contains(label, finding.Reason);
+    }
+
+    // Case 21a (C11): a DMARC fail is not rescued by an aligned SPF pass
+    [Fact]
+    public void Dmarc_fail_beats_aligned_spf_pass()
+    {
+        ClassificationInput input = TestInputs.Create(
+            from: "sender_a@example.test",
+            body: "Mail from example",
+            headers: ["mx.test; spf=pass smtp.mailfrom=example.test; dmarc=fail header.from=example.test"]);
+
+        ClassificationResult result = Classify(input);
+
+        Assert.Equal(AuthStatus.Failed, result.AuthStatus);
+        Assert.True(TestInputs.Find(result, "authentication")?.Points > 0);
+    }
+
+    // Case 21a (C11): a contact with that header is not trusted
+    [Fact]
+    public void Contact_with_dmarc_fail_and_aligned_spf_pass_is_not_trusted()
+    {
+        var directory = new FakeSenderDirectory().AddContact("sender_a@example.test");
+        ClassificationInput input = TestInputs.Create(
+            from: "sender_a@example.test",
+            body: "Mail from example",
+            headers: ["mx.test; spf=pass smtp.mailfrom=example.test; dmarc=fail header.from=example.test"]);
+
+        ClassificationResult result = Classify(input, directory);
+
+        Assert.Equal(AuthStatus.Failed, result.AuthStatus);
+        Assert.NotEqual(SpamTier.TrustedContact, result.Tier);
+        Assert.Null(result.Override);
+    }
+
+    // Case 22a (C12): DMARC pass for a foreign header.from does not authenticate
+    [Fact]
+    public void Dmarc_pass_for_a_foreign_domain_is_not_authenticated()
+    {
+        ClassificationInput input = TestInputs.Create(
+            from: "sender_a@example.test",
+            body: "Mail from example",
+            headers: ["mx.test; dmarc=pass header.from=other.test"]);
+
+        ClassificationResult result = Classify(input);
+
+        Assert.Equal(AuthStatus.Unknown, result.AuthStatus);
+        Assert.Null(TestInputs.Find(result, "authentication"));
+    }
+
+    // Case 28a (C13): custom signals must report their own id and a non-empty reason
+    private sealed class MisbehavingSignal(string id, string resultId, string reason) : ISpamSignal
+    {
+        public string Id { get; } = id;
+
+        public SignalResult? Evaluate(ClassificationInput input, ClassificationContext context) =>
+            new(resultId, 5, reason);
+    }
+
+    [Theory]
+    [InlineData("")]
+    [InlineData("   ")]
+    public void Signal_result_with_empty_reason_is_rejected(string reason)
+    {
+        SpamClassifier classifier = TestInputs.CreateStubClassifier(null, null, new MisbehavingSignal("stub", "stub", reason));
+
+        InvalidOperationException exception =
+            Assert.Throws<InvalidOperationException>(() => classifier.Classify(TestInputs.Create()));
+        Assert.Contains("stub", exception.Message);
+    }
+
+    [Fact]
+    public void Signal_result_with_a_different_signal_id_is_rejected()
+    {
+        SpamClassifier classifier = TestInputs.CreateStubClassifier(
+            null, null, new MisbehavingSignal("stub", "other-id", "Some reason"));
+
+        InvalidOperationException exception =
+            Assert.Throws<InvalidOperationException>(() => classifier.Classify(TestInputs.Create()));
+        Assert.Contains("stub", exception.Message);
     }
 
     // Case 29
