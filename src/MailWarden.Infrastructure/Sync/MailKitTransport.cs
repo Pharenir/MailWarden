@@ -1,5 +1,6 @@
 using System.Globalization;
 using System.Net.Sockets;
+using System.Runtime.ExceptionServices;
 using MailKit;
 using MailKit.Net.Imap;
 using MailKit.Search;
@@ -36,7 +37,7 @@ internal sealed class MailKitTransport : IMailTransport
 
     private readonly ImapClient client;
     private readonly ServerEndpoint endpoint;
-    private IMailFolder? openFolder;
+    private IImapFolder? openFolder;
     private bool isDisposed;
 
     /// <summary>Wraps a connected and authenticated client; the transport owns and disposes it.</summary>
@@ -49,6 +50,10 @@ internal sealed class MailKitTransport : IMailTransport
     }
 
     /// <inheritdoc />
+    /// <remarks>MailKit disconnects the client on network errors and on <see cref="ImapProtocolException"/>.</remarks>
+    public bool IsConnected => !isDisposed && client.IsConnected && client.IsAuthenticated;
+
+    /// <inheritdoc />
     public Task<IReadOnlyList<RemoteFolder>> ListFoldersAsync(CancellationToken ct = default)
     {
         ObjectDisposedException.ThrowIf(isDisposed, this);
@@ -57,29 +62,16 @@ internal sealed class MailKitTransport : IMailTransport
             "folder listing",
             async () =>
             {
-                // Flags come from the LIST response (Outlook.com sends them without advertising SPECIAL-USE, AP-00).
-                var remoteFolders = new List<RemoteFolder>();
-                foreach (FolderNamespace folderNamespace in client.PersonalNamespaces)
-                {
-                    IList<IMailFolder> serverFolders = await client
-                        .GetFoldersAsync(folderNamespace, StatusItems.None, subscribedOnly: false, ct)
-                        .ConfigureAwait(false);
-                    foreach (IMailFolder serverFolder in serverFolders)
-                    {
-                        // The namespace root itself has an empty name and is no folder.
-                        if (string.IsNullOrEmpty(serverFolder.FullName))
-                        {
-                            continue;
-                        }
-
-                        remoteFolders.Add(new RemoteFolder(
-                            serverFolder.FullName,
-                            serverFolder.DirectorySeparator,
-                            MailKitFolderFlags.From(serverFolder.Attributes)));
-                    }
-                }
-
-                return remoteFolders;
+                // Shared listing with ConnectionProbe (personal namespaces, namespace root skipped).
+                IReadOnlyList<IMailFolder> serverFolders = await ImapSession
+                    .ListPersonalFoldersAsync(client, ct)
+                    .ConfigureAwait(false);
+                return serverFolders
+                    .Select(serverFolder => new RemoteFolder(
+                        serverFolder.FullName,
+                        serverFolder.DirectorySeparator,
+                        MailKitFolderFlags.From(serverFolder.Attributes)))
+                    .ToList();
             },
             ct);
     }
@@ -96,7 +88,7 @@ internal sealed class MailKitTransport : IMailTransport
             {
                 // EXAMINE of the next folder implicitly closes the previous one (no expunge on a read-only folder).
                 openFolder = null;
-                IMailFolder folder = await client.GetFolderAsync(fullName, ct).ConfigureAwait(false);
+                var folder = (IImapFolder)await client.GetFolderAsync(fullName, ct).ConfigureAwait(false);
                 await folder.OpenAsync(FolderAccess.ReadOnly, ct).ConfigureAwait(false);
 
                 // UIDVALIDITY 0 is not a valid IMAP value; stored UIDs could never be validated against it.
@@ -198,11 +190,7 @@ internal sealed class MailKitTransport : IMailTransport
 
                 if (summary.InternalDate is not DateTimeOffset internalDate)
                 {
-                    throw new MailTransportException(
-                        MailTransportFailure.Protocol,
-                        string.Create(
-                            CultureInfo.InvariantCulture,
-                            $"IMAP server {endpoint.Host}:{endpoint.Port} sent a message without INTERNALDATE."));
+                    throw MissingInternalDate();
                 }
 
                 // BODY.PEEK[]: the complete raw message without setting \Seen (MailKit always peeks).
@@ -221,6 +209,140 @@ internal sealed class MailKitTransport : IMailTransport
                 return new RemoteMessage(uid, MapFlags(summary.Flags), internalDate, size, content);
             },
             ct);
+    }
+
+    /// <inheritdoc />
+    /// <remarks>
+    /// Two IMAP commands per call: <c>UID FETCH set (UID FLAGS INTERNALDATE RFC822.SIZE)</c> and
+    /// <c>UID FETCH set (BODY.PEEK[])</c> via <see cref="IImapFolder.GetStreamsAsync(IList{UniqueId}, ImapFetchStreamAsyncCallback, CancellationToken, ITransferProgress)"/>
+    /// (MailKit splits only an over-long UID set). MailKit buffers each body in memory, invokes the callback while it
+    /// reads the response and disposes the stream after the callback returned. Bodies are only requested for UIDs with
+    /// metadata. A metadata answer without INTERNALDATE, or bodies arriving out of UID order, raise
+    /// <see cref="MailTransportFailure.Protocol"/> (bodies out of order: after all in-order bodies were delivered);
+    /// the connection stays usable then. An exception of <paramref name="onMessage"/> makes MailKit drop the
+    /// connection.
+    /// </remarks>
+    public async Task FetchMessagesAsync(
+        IReadOnlyList<uint> uids,
+        Func<RemoteMessage, CancellationToken, Task> onMessage,
+        CancellationToken ct = default)
+    {
+        ArgumentNullException.ThrowIfNull(uids);
+        ArgumentNullException.ThrowIfNull(onMessage);
+        IImapFolder folder = RequireOpenFolder();
+        if (uids.Count == 0)
+        {
+            return;
+        }
+
+        // Kept apart from transport failures: an exception of the callback propagates unchanged.
+        ExceptionDispatchInfo? callbackFailure = null;
+        try
+        {
+            await RunAsync(
+                    endpoint,
+                    "message fetch",
+                    async () =>
+                    {
+                        // Metadata of all UIDs in one command; UIDs the server does not answer for are skipped.
+                        List<UniqueId> requestedIds = [.. uids.Select(uid => new UniqueId(folder.UidValidity, uid))];
+                        var request = new FetchRequest(
+                            MessageSummaryItems.UniqueId | MessageSummaryItems.Flags | MessageSummaryItems.InternalDate
+                            | MessageSummaryItems.Size);
+                        IList<IMessageSummary> summaries = await folder
+                            .FetchAsync(requestedIds, request, ct)
+                            .ConfigureAwait(false);
+
+                        var requestedUids = new HashSet<uint>(uids);
+                        var summariesByUid = new Dictionary<uint, IMessageSummary>();
+                        foreach (IMessageSummary summary in summaries)
+                        {
+                            uint uid = summary.UniqueId.Id;
+                            if (requestedUids.Contains(uid) && !summariesByUid.ContainsKey(uid))
+                            {
+                                if (summary.InternalDate is null)
+                                {
+                                    throw MissingInternalDate();
+                                }
+
+                                summariesByUid.Add(uid, summary);
+                            }
+                        }
+
+                        if (summariesByUid.Count == 0)
+                        {
+                            return true;
+                        }
+
+                        // Bodies of all answered UIDs in one command (BODY.PEEK[], never sets \Seen). Bodies are
+                        // delivered in ascending UID order; a body below the last delivered UID is left out and
+                        // reported afterwards, so the caller can fetch it singly.
+                        List<UniqueId> bodyIds =
+                        [
+                            .. summariesByUid.Keys.Order().Select(uid => new UniqueId(folder.UidValidity, uid)),
+                        ];
+                        var deliveredUids = new HashSet<uint>();
+                        uint lastDeliveredUid = 0;
+                        bool outOfOrder = false;
+                        await folder
+                            .GetStreamsAsync(
+                                bodyIds,
+                                async (_, _, uniqueId, stream, callbackCt) =>
+                                {
+                                    // Unrequested and repeated bodies are ignored.
+                                    uint uid = uniqueId.Id;
+                                    if (!summariesByUid.TryGetValue(uid, out IMessageSummary? summary)
+                                        || deliveredUids.Contains(uid))
+                                    {
+                                        return;
+                                    }
+
+                                    if (uid < lastDeliveredUid)
+                                    {
+                                        outOfOrder = true;
+                                        return;
+                                    }
+
+                                    deliveredUids.Add(uid);
+                                    lastDeliveredUid = uid;
+                                    long size = summary.Size is uint reportedSize ? reportedSize : stream.Length;
+                                    var message = new RemoteMessage(
+                                        uid,
+                                        MapFlags(summary.Flags),
+                                        summary.InternalDate!.Value,
+                                        size,
+                                        stream);
+                                    try
+                                    {
+                                        await onMessage(message, callbackCt).ConfigureAwait(false);
+                                    }
+                                    catch (Exception exception)
+                                    {
+                                        callbackFailure = ExceptionDispatchInfo.Capture(exception);
+                                        throw;
+                                    }
+                                },
+                                ct)
+                            .ConfigureAwait(false);
+
+                        if (outOfOrder)
+                        {
+                            throw new MailTransportException(
+                                MailTransportFailure.Protocol,
+                                string.Create(
+                                    CultureInfo.InvariantCulture,
+                                    $"IMAP server {endpoint.Host}:{endpoint.Port} sent message bodies out of UID order."));
+                        }
+
+                        return true;
+                    },
+                    ct)
+                .ConfigureAwait(false);
+        }
+        catch (Exception) when (callbackFailure is not null)
+        {
+            callbackFailure.Throw();
+        }
     }
 
     /// <summary>Logs out (best effort, short timeout) and releases the connection. Safe to call more than once.</summary>
@@ -324,7 +446,16 @@ internal sealed class MailKitTransport : IMailTransport
         return flags;
     }
 
-    private IMailFolder RequireOpenFolder()
+    private MailTransportException MissingInternalDate()
+    {
+        return new MailTransportException(
+            MailTransportFailure.Protocol,
+            string.Create(
+                CultureInfo.InvariantCulture,
+                $"IMAP server {endpoint.Host}:{endpoint.Port} sent a message without INTERNALDATE."));
+    }
+
+    private IImapFolder RequireOpenFolder()
     {
         ObjectDisposedException.ThrowIf(isDisposed, this);
         return openFolder ?? throw new InvalidOperationException("No folder is open; call OpenFolderAsync first.");

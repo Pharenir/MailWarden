@@ -1,5 +1,4 @@
 using MailKit.Net.Imap;
-using MailKit.Security;
 using MailWarden.Core.Accounts;
 using MailWarden.Core.Model;
 using MailWarden.Core.Sync;
@@ -35,31 +34,19 @@ public sealed class MailKitTransportFactory(AccountService accountService) : IMa
         ServerEndpoint endpoint = ProviderProfiles.For(account.Provider).Imap;
         AccessToken token = await accountService.GetAccessTokenAsync(account.Id, ct).ConfigureAwait(false);
 
-        var client = new ImapClient { Timeout = MailKitTransport.OperationTimeoutMilliseconds };
-        try
-        {
-            await MailKitTransport
-                .RunAsync(
+        // Shared connect + XOAUTH2 login with ConnectionProbe; the client is disposed there on failure.
+        ImapClient client = await MailKitTransport
+            .RunAsync(
+                endpoint,
+                "connect",
+                () => ImapSession.ConnectAsync(
                     endpoint,
-                    "connect",
-                    async () =>
-                    {
-                        await client
-                            .ConnectAsync(endpoint.Host, endpoint.Port, ConnectionProbe.ToSocketOptions(endpoint.Security), ct)
-                            .ConfigureAwait(false);
-                        await client
-                            .AuthenticateAsync(new SaslMechanismOAuth2(account.EmailAddress, token.Value), ct)
-                            .ConfigureAwait(false);
-                        return true;
-                    },
-                    ct)
-                .ConfigureAwait(false);
-            return new MailKitTransport(client, endpoint);
-        }
-        catch
-        {
-            client.Dispose();
-            throw;
-        }
+                    account.EmailAddress,
+                    token.Value,
+                    MailKitTransport.OperationTimeoutMilliseconds,
+                    ct),
+                ct)
+            .ConfigureAwait(false);
+        return new MailKitTransport(client, endpoint);
     }
 }

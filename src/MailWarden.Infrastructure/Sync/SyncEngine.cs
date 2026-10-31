@@ -26,11 +26,21 @@ namespace MailWarden.Infrastructure.Sync;
 /// whose UID is above the floor (e.g. moved into the folder later with an old date) is fetched from the second pass on.
 /// </para>
 /// <para>
-/// Network/authentication failures and cancellation abort the pass. Any other failure of one message is collected and
-/// the folder continues: the folder completes with Error "&lt;n&gt; message(s) failed (first: &lt;Type.Name&gt;)",
-/// its state is saved as usual and the failed UIDs are retried next pass because they are still missing locally.
-/// Any other failure of the folder itself is recorded as "&lt;ExceptionType&gt;: &lt;message&gt;", the folder keeps
-/// its previous sync state and the next folder continues. Not thread-safe; one pass at a time.
+/// Candidates are fetched in ascending batches of <see cref="SyncOptions.FetchBatchSize"/> with
+/// <see cref="IMailTransport.FetchMessagesAsync"/>. A batch that fails with a protocol failure falls back to single
+/// fetches of the UIDs it did not deliver yet.
+/// </para>
+/// <para>
+/// Authentication failures and cancellation abort the pass, as do failures while connecting or reading the folder list.
+/// A network failure ends the current folder; any other failure of one message is collected and the folder continues:
+/// the folder completes with Error "&lt;n&gt; message(s) failed (first: &lt;Type.Name&gt;)", its state is saved as
+/// usual and the failed UIDs are retried next pass because they are still missing locally. Any other failure of the
+/// folder itself (including network failures) is recorded as "&lt;ExceptionType&gt;: &lt;message&gt;", the folder keeps
+/// its previous sync state and the next folder continues. After a folder failure with a lost connection
+/// (<see cref="IMailTransport.IsConnected"/> false) the transport is replaced by a new one, at most
+/// <see cref="SyncOptions.MaxReconnectsPerPass"/> times per pass. Accepted consequence: a message that always makes
+/// MailKit drop the connection (e.g. an <c>ImapProtocolException</c> while reading it) costs the rest of its folder
+/// in every pass, not the whole account. Not thread-safe; one pass at a time.
 /// </para>
 /// </remarks>
 public sealed class SyncEngine
@@ -77,38 +87,109 @@ public sealed class SyncEngine
         this.timeProvider = timeProvider ?? throw new ArgumentNullException(nameof(timeProvider));
     }
 
-    /// <summary>Runs one complete pass over the account (folder list, then every visible folder: Inbox, Junk, rest).</summary>
+    /// <summary>Runs one complete pass over the account without progress reports.</summary>
     /// <param name="accountId">Account to sync.</param>
     /// <param name="ct">Cancellation token.</param>
     /// <returns>Counts per folder; folders that failed carry their error.</returns>
     /// <exception cref="ArgumentException">The account is unknown.</exception>
     /// <exception cref="AuthenticationFailedException">No token could be obtained (e.g. a sign-in is needed).</exception>
+    /// <exception cref="MailTransportException">See <see cref="SyncAccountAsync(Guid, IProgress{SyncProgress}?, CancellationToken)"/>.</exception>
+    /// <exception cref="StorageException">See <see cref="SyncAccountAsync(Guid, IProgress{SyncProgress}?, CancellationToken)"/>.</exception>
+    /// <exception cref="OperationCanceledException">The pass was cancelled.</exception>
+    public Task<SyncReport> SyncAccountAsync(Guid accountId, CancellationToken ct = default)
+    {
+        return SyncAccountAsync(accountId, progress: null, ct);
+    }
+
+    /// <summary>
+    /// Runs one complete pass over the account (folder list, then every visible folder: Inbox, Junk, rest) and reports
+    /// its progress.
+    /// </summary>
+    /// <param name="accountId">Account to sync.</param>
+    /// <param name="progress">
+    /// Receives <see cref="SyncProgress"/> synchronously via <see cref="IProgress{T}.Report"/>: when a folder starts,
+    /// when its candidates are known, after every batch and when the folder ends (also on error). Null = no reports.
+    /// </param>
+    /// <param name="ct">Cancellation token.</param>
+    /// <returns>Counts per folder; folders that failed carry their error.</returns>
+    /// <exception cref="ArgumentException">The account is unknown.</exception>
+    /// <exception cref="AuthenticationFailedException">No token could be obtained (e.g. a sign-in is needed).</exception>
     /// <exception cref="MailTransportException">
-    /// Network or authentication failure (protocol failures inside a folder are recorded instead), the folder list
-    /// could not be read, or it contains no inbox (Protocol; nothing is changed then).
+    /// Connecting or reconnecting failed; authentication failure; the folder list could not be read or contains no
+    /// inbox (Protocol; nothing is changed then); or the connection was lost more often than
+    /// <see cref="SyncOptions.MaxReconnectsPerPass"/> allows (Network). Network and protocol failures inside a folder
+    /// are recorded for that folder instead.
     /// </exception>
     /// <exception cref="StorageException">
     /// The folder list could not be stored or a removed folder could not be deleted. Failing EML deletes of removed
     /// folders are skipped; storage failures inside a folder (including EML deletes) are recorded for that folder.
     /// </exception>
     /// <exception cref="OperationCanceledException">The pass was cancelled.</exception>
-    public async Task<SyncReport> SyncAccountAsync(Guid accountId, CancellationToken ct = default)
+    public async Task<SyncReport> SyncAccountAsync(
+        Guid accountId,
+        IProgress<SyncProgress>? progress,
+        CancellationToken ct = default)
     {
         Account account = await accounts.GetAsync(accountId, ct).ConfigureAwait(false)
             ?? throw new ArgumentException($"Unknown account id {accountId}.", nameof(accountId));
 
-        // The transport is disposed on every path, including aborts.
-        await using IMailTransport transport = await transportFactory.ConnectAsync(account, ct).ConfigureAwait(false);
-
-        FolderListResult folderList = await SyncFolderListAsync(account, transport, ct).ConfigureAwait(false);
-
-        var folderResults = new List<FolderSyncResult>(folderList.SyncFolders.Count);
-        foreach (MailFolder folder in OrderForSync(folderList.SyncFolders))
+        // The current transport is disposed on every path, including aborts; a replaced one is disposed before its
+        // successor is connected.
+        IMailTransport? transport = await transportFactory.ConnectAsync(account, ct).ConfigureAwait(false);
+        try
         {
-            folderResults.Add(await SyncFolderAsync(account, transport, folder, ct).ConfigureAwait(false));
-        }
+            FolderListResult folderList = await SyncFolderListAsync(account, transport, ct).ConfigureAwait(false);
 
-        return new SyncReport(account.Id, folderList.Added, folderList.Removed, folderResults);
+            List<MailFolder> orderedFolders = [.. OrderForSync(folderList.SyncFolders)];
+            var folderResults = new List<FolderSyncResult>(orderedFolders.Count);
+            int lostConnections = 0;
+            for (int folderIndex = 0; folderIndex < orderedFolders.Count; folderIndex++)
+            {
+                MailFolder folder = orderedFolders[folderIndex];
+                var reporter = new FolderProgressReporter(
+                    progress,
+                    account.Id,
+                    folder,
+                    folderIndex + 1,
+                    orderedFolders.Count);
+                (FolderSyncResult result, bool folderFailed) = await SyncFolderAsync(
+                        account,
+                        transport,
+                        folder,
+                        reporter,
+                        ct)
+                    .ConfigureAwait(false);
+                folderResults.Add(result);
+
+                // B4: after a folder failure, a lost connection is replaced (bounded per pass) before the next folder.
+                if (!folderFailed || transport.IsConnected)
+                {
+                    continue;
+                }
+
+                lostConnections++;
+                if (lostConnections > options.MaxReconnectsPerPass)
+                {
+                    throw new MailTransportException(
+                        MailTransportFailure.Network,
+                        $"The connection to the mail server was lost too often during the pass ({lostConnections} times, at most {options.MaxReconnectsPerPass} reconnects allowed).");
+                }
+
+                IMailTransport lostTransport = transport;
+                transport = null;
+                await lostTransport.DisposeAsync().ConfigureAwait(false);
+                transport = await transportFactory.ConnectAsync(account, ct).ConfigureAwait(false);
+            }
+
+            return new SyncReport(account.Id, folderList.Added, folderList.Removed, folderResults);
+        }
+        finally
+        {
+            if (transport is not null)
+            {
+                await transport.DisposeAsync().ConfigureAwait(false);
+            }
+        }
     }
 
     // R1: visible server folders are upserted (role from the resolver, stored UIDVALIDITY kept, 0 for new ones);
@@ -194,27 +275,32 @@ public sealed class SyncEngine
         return new FolderListResult(syncFolders, addedCount, removedCount);
     }
 
-    // R9: only network/authentication failures and cancellation abort the pass; everything else stays in its folder.
-    private async Task<FolderSyncResult> SyncFolderAsync(
+    // R9 (B4): only authentication failures and cancellation abort the pass; everything else, including network
+    // failures, stays in its folder. Failed = the folder itself failed (not only single messages).
+    private async Task<(FolderSyncResult Result, bool Failed)> SyncFolderAsync(
         Account account,
         IMailTransport transport,
         MailFolder folder,
+        FolderProgressReporter reporter,
         CancellationToken ct)
     {
         var progress = new FolderProgress();
+        reporter.Report(progress);
         try
         {
-            await SyncFolderContentAsync(account, transport, folder, progress, ct).ConfigureAwait(false);
+            await SyncFolderContentAsync(account, transport, folder, progress, reporter, ct).ConfigureAwait(false);
 
             // Only per-message failures: the folder completed, the failed UIDs are retried next time.
             string? messageFailures = progress.FailedMessages == 0
                 ? null
                 : $"{progress.FailedMessages} message(s) failed (first: {progress.FirstFailureType})";
-            return progress.ToResult(folder, messageFailures);
+            reporter.Report(progress);
+            return (progress.ToResult(folder, messageFailures), false);
         }
-        catch (Exception exception) when (!AbortsSync(exception))
+        catch (Exception exception) when (!AbortsPass(exception))
         {
-            return progress.ToResult(folder, $"{exception.GetType().Name}: {exception.Message}");
+            reporter.Report(progress);
+            return (progress.ToResult(folder, $"{exception.GetType().Name}: {exception.Message}"), true);
         }
     }
 
@@ -223,6 +309,7 @@ public sealed class SyncEngine
         IMailTransport transport,
         MailFolder folder,
         FolderProgress progress,
+        FolderProgressReporter reporter,
         CancellationToken ct)
     {
         RemoteFolderState serverState = await transport.OpenFolderAsync(folder.FullName, ct).ConfigureAwait(false);
@@ -293,22 +380,19 @@ public sealed class SyncEngine
                 .Order(),
         ];
 
-        // One message never blocks its folder: non-aborting failures are collected and retried next time (they stay
-        // missing locally and above the floor).
-        foreach (uint uid in candidateUids)
+        progress.Candidates = candidateUids.Count;
+        reporter.Report(progress);
+
+        // B2: ascending batches; one message never blocks its folder: non-aborting failures are collected and retried
+        // next time (they stay missing locally and above the floor).
+        for (int batchStart = 0; batchStart < candidateUids.Count; batchStart += options.FetchBatchSize)
         {
-            try
-            {
-                if (await FetchAndStoreAsync(account, transport, folder, uid, ct).ConfigureAwait(false))
-                {
-                    progress.Added++;
-                }
-            }
-            catch (Exception exception) when (!AbortsSync(exception))
-            {
-                progress.FailedMessages++;
-                progress.FirstFailureType ??= exception.GetType().Name;
-            }
+            List<uint> batchUids = candidateUids.GetRange(
+                batchStart,
+                Math.Min(options.FetchBatchSize, candidateUids.Count - batchStart));
+            await FetchBatchAsync(account, transport, folder, batchUids, progress, ct).ConfigureAwait(false);
+            progress.Processed += batchUids.Count;
+            reporter.Report(progress);
         }
 
         // R7: server flags win for messages that were stored before this pass and still exist on the server.
@@ -344,22 +428,80 @@ public sealed class SyncEngine
         await syncStates.SaveAsync(completedState, ct).ConfigureAwait(false);
     }
 
-    // R5/R6/R11: fetch → EML file → parse the stored bytes → row with full-text body. False when the server returned nothing for the UID (retried next run).
-    private async Task<bool> FetchAndStoreAsync(
+    // B2: one batch fetch; every delivered message is stored with the per-message failure rule. A Protocol failure of
+    // the batch falls back to single fetches of the UIDs not delivered yet, each with the per-message failure rule.
+    // UIDs the server returns nothing for stay missing and are retried next pass. Other failures end the folder.
+    private async Task FetchBatchAsync(
         Account account,
         IMailTransport transport,
         MailFolder folder,
-        uint uid,
+        IReadOnlyList<uint> batchUids,
+        FolderProgress progress,
         CancellationToken ct)
     {
-        RemoteMessage? remoteMessage = await transport.FetchMessageAsync(uid, ct).ConfigureAwait(false);
-        if (remoteMessage is null)
+        var deliveredUids = new HashSet<uint>();
+        try
         {
-            return false;
+            await transport
+                .FetchMessagesAsync(
+                    batchUids,
+                    async (remoteMessage, messageCt) =>
+                    {
+                        deliveredUids.Add(remoteMessage.Uid);
+                        await StoreCountingFailuresAsync(account, folder, remoteMessage, progress, messageCt)
+                            .ConfigureAwait(false);
+                    },
+                    ct)
+                .ConfigureAwait(false);
         }
+        catch (MailTransportException exception) when (exception.Failure == MailTransportFailure.Protocol)
+        {
+            foreach (uint uid in batchUids.Where(uid => !deliveredUids.Contains(uid)))
+            {
+                RemoteMessage? remoteMessage;
+                try
+                {
+                    remoteMessage = await transport.FetchMessageAsync(uid, ct).ConfigureAwait(false);
+                }
+                catch (Exception singleException) when (!AbortsFolder(singleException))
+                {
+                    progress.CountFailure(singleException);
+                    continue;
+                }
 
+                if (remoteMessage is not null)
+                {
+                    await StoreCountingFailuresAsync(account, folder, remoteMessage, progress, ct).ConfigureAwait(false);
+                }
+            }
+        }
+    }
+
+    // F1: a non-aborting failure while storing one message is counted; the content is disposed on every path.
+    private async Task StoreCountingFailuresAsync(
+        Account account,
+        MailFolder folder,
+        RemoteMessage remoteMessage,
+        FolderProgress progress,
+        CancellationToken ct)
+    {
+        try
+        {
+            await StoreAsync(account, folder, remoteMessage, ct).ConfigureAwait(false);
+            progress.Added++;
+        }
+        catch (Exception exception) when (!AbortsFolder(exception))
+        {
+            progress.CountFailure(exception);
+        }
+    }
+
+    // R5/R6/R11: EML file → parse the stored bytes → row with full-text body.
+    private async Task StoreAsync(Account account, MailFolder folder, RemoteMessage remoteMessage, CancellationToken ct)
+    {
         // Owned from here on: disposed on every path, including failures of the path or the write.
         await using Stream remoteContent = remoteMessage.Content;
+        uint uid = remoteMessage.Uid;
         string emlPath = emlStore.RelativePathFor(account.Id, folder.Id, uid);
         await emlStore.WriteAsync(emlPath, remoteContent, ct).ConfigureAwait(false);
 
@@ -387,7 +529,6 @@ public sealed class SyncEngine
             EmlPath: emlPath,
             TextPreview: MimeBodyText.Cut(content.BodyText, PreviewMaxChars));
         await messages.UpsertAsync(row, content.BodyText, ct).ConfigureAwait(false);
-        return true;
     }
 
     // R6: header fields and body text. Any failure while loading or extracting (except cancellation) means
@@ -489,10 +630,16 @@ public sealed class SyncEngine
             return (serverUids.Max(), []);
         }
 
-        // UID 0 is not a valid IMAP UID; never let it wrap the floor around to uint.MaxValue.
+        // B7: UID 0 is not a valid IMAP UID (like UIDVALIDITY 0); the folder fails before anything is stored for it.
         uint lowestWindowUid = windowUids.Min();
-        uint floor = lowestWindowUid == 0 ? 0 : lowestWindowUid - 1;
-        return (floor, [.. windowUids]);
+        if (lowestWindowUid == 0)
+        {
+            throw new MailTransportException(
+                MailTransportFailure.Protocol,
+                "The server returned UID 0 in the initial window search.");
+        }
+
+        return (lowestWindowUid - 1, [.. windowUids]);
     }
 
     // Local midnight InitialSyncDays days back; null = no window (0 days, or a window reaching before year 1).
@@ -534,19 +681,49 @@ public sealed class SyncEngine
             .ThenBy(folder => folder.FullName, StringComparer.Ordinal);
     }
 
-    private static bool AbortsSync(Exception exception)
+    // B4: cancellation and authentication failures end the whole pass.
+    private static bool AbortsPass(Exception exception)
     {
         return exception switch
         {
             OperationCanceledException => true,
             AuthenticationFailedException => true,
-            MailTransportException transportException => transportException.Failure
-                is MailTransportFailure.Network or MailTransportFailure.Authentication,
+            MailTransportException transportException =>
+                transportException.Failure == MailTransportFailure.Authentication,
             _ => false,
         };
     }
 
+    // F1: besides the pass-aborting failures, a network failure ends the folder instead of counting as a failure of one
+    // message (the session is most likely gone).
+    private static bool AbortsFolder(Exception exception)
+    {
+        return AbortsPass(exception)
+            || exception is MailTransportException { Failure: MailTransportFailure.Network };
+    }
+
     private sealed record FolderListResult(IReadOnlyList<MailFolder> SyncFolders, int Added, int Removed);
+
+    // Reports the progress of one folder; a null target makes every report a no-op.
+    private sealed class FolderProgressReporter(
+        IProgress<SyncProgress>? target,
+        Guid accountId,
+        MailFolder folder,
+        int folderNumber,
+        int folderCount)
+    {
+        public void Report(FolderProgress progress)
+        {
+            target?.Report(new SyncProgress(
+                accountId,
+                folder.Id,
+                folder.Role,
+                folderNumber,
+                folderCount,
+                progress.Processed,
+                progress.Candidates));
+        }
+    }
 
     private sealed record ParsedContent(
         string? MessageId,
@@ -575,6 +752,16 @@ public sealed class SyncEngine
         public int FailedMessages { get; set; }
 
         public string? FirstFailureType { get; set; }
+
+        public int Candidates { get; set; }
+
+        public int Processed { get; set; }
+
+        public void CountFailure(Exception exception)
+        {
+            FailedMessages++;
+            FirstFailureType ??= exception.GetType().Name;
+        }
 
         public FolderSyncResult ToResult(MailFolder folder, string? error) =>
             new(folder.FullName, folder.Role, Added, FlagsUpdated, Deleted, UidValidityReset, error);
