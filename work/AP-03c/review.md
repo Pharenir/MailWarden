@@ -108,3 +108,86 @@ None.
 
 PLAN rows AP-03c 1–6 are marked ✅ and match the diff. Row 7 is marked ⚠️ (probe run pending), which is correct. The
 Q1 decision (no report field) is recorded in the requirement, and a TODO entry for AP-04 should follow (documenter).
+
+# review.2 (fix.2, reviewer, 2026-10-31)
+
+Scope: `git diff c2f7ced e4b68f7 -- src work/AP-03c/impl-notes.md` plus the probe `_scratch\command-probe\Program.cs`
+(worktree, git-ignored). `tests\` was not read.
+Build `dotnet build MailWarden.sln -warnaserror`: `src` 0 warnings / 0 errors. The only error is CS0738 in
+`tests\...\FakeCommandTransport.cs:84` (expected, the tester is adapting it). Probe build: 0 / 0.
+
+**Verdict: APPROVE.** The probe may be run against the real accounts.
+
+## Checks
+
+- **F1 (closes secure M1):** `SqliteMailCommandQueue.cs:304-330` `RequireSourceAsync` checks, in this order: folder
+  exists, UIDVALIDITY ≠ 0, `expectedUidValidity` = stored value, every UID stored locally. All four Enqueue methods
+  call it before `InsertAsync`. Move and MoveToTrash call it before the target/Trash checks. Nothing is stored when a
+  check fails. If a sync resets the folder between the check and the insert, the command still carries the old
+  UIDVALIDITY, so the executor rejects it (E2). Safe.
+- **F2:** `MailKitCommandTransport.cs` `ToCopyUidMap` returns Empty on any of: unequal counts, a repeated or 0
+  destination UID, mixed destination UIDVALIDITY or UIDVALIDITY 0, an unrequested source UID, a repeated source UID.
+  The executor checks the map again in `CommandExecutor.cs` `TrashUidsToExpunge` (a key outside the command, a
+  repeated or 0 value, UIDVALIDITY 0). It runs `SELECT trash` and compares the result with `DestinationUidValidity`
+  before `ExpungeAsync`. The only other expunge path (`expungeInPlace`) affects only `command.Uids` in the source
+  folder, after the UIDVALIDITY guard. No path expunges a UID that is not a mapped destination of this command.
+- **F3:** `MailKitCommandTransport.cs:184-194` + `UnmarkDeletedBestEffortAsync`. The `try` covers only the UIDPLUS
+  re-check and `UID EXPUNGE`. Cleanup is `UID STORE -FLAGS.SILENT (\Deleted)` on the same `uniqueIds`, with its own
+  10 s token. Every failure is swallowed, then `throw;` rethrows the original exception, which `RunAsync` maps.
+  `StoreAsync` with UIDs can send neither EXPUNGE nor CLOSE.
+- **F4:** each row is read in its own `try` (`StorageException`, `InvalidCastException`, `FormatException`,
+  `OverflowException`). All columns except `target_folder_id`/`next_attempt_at`/`last_error` are `NOT NULL`, so the
+  uncaught `InvalidOperationException` (NULL) cannot occur. The stub is neutral (no UIDs, UIDVALIDITY 0) and is
+  persisted as Failed with the fixed text. `ListDueAsync` skips it. The `uids` error text no longer contains the
+  value (review.1 NIT 2).
+- **F5:** `EmlFiles.DeleteSkippingFailuresAsync` behaves the same as both old copies (null/missing → skip, cancellation
+  propagates). `FolderLookup.FindTrash` uses the same rule as both old copies. There is no other Trash lookup in
+  `src`. Both review.1 SHOULDs are closed.
+- **Probe P1/P2/N3:** each server-changing step goes through one of the guarded commands below. The sync pass opens
+  folders read-only (`MailKitTransport.cs:97`, EXAMINE, so no `\Seen` side effect).
+  - Junk: `RequireVerifiedJunkFolder` + `RequireVerifiedJunkUidAsync` check the single Junk folder, the folder id and
+    UIDVALIDITY from the allow-list, that the UID is in the list, and that it is stored locally. SetFlags is limited
+    to Seen. MoveToTrash only to the single Trash folder.
+  - `empty-junk` checks local ⊆ list before the enqueue and the snapshot ⊆ list after it (discard on mismatch).
+  - The run guard (`Program.cs:419-452`) checks every Pending command: folder id, command UIDVALIDITY = list value,
+    UIDs ⊆ list, kind/flags/target. A Trash delete is accepted only when it is bound to its record by
+    `DeleteCommandId`, with the same Trash UIDVALIDITY. The executor then compares the server UIDVALIDITY again.
+  - Trash exception:
+    - The record holds the hash, size, date, Trash UIDVALIDITY, highest Trash UID and move id.
+    - It is resolved only after the move left the queue and the Junk UID is gone locally, and only on exactly one
+      match.
+    - At `delete <uid> trash`, `MatchesRecord` runs again against the current local row, and the enqueue uses the
+      recorded UIDVALIDITY (the F1 check then applies again).
+    - The record is removed after the delete completed and the UID is gone locally.
+  - Failure paths fail safe. For example, if `SaveTrashRecords` fails after an enqueue, the run guard refuses the
+    unbound delete.
+  - The allow-list file in `_private` uses the expected keys (`accounts[].accountId/junkFolderId/uidValidity/uids`).
+    I checked only the structure, not the values. Unknown or missing keys → refused.
+  - I found no path that changes a non-junk message.
+
+## BLOCK
+
+None.
+
+## SHOULD
+
+None.
+
+## NIT
+
+1. `src\MailWarden.Core\Sync\IMailCommandTransport.cs:47-48`: the list of "inconsistent" cases in the return
+   description misses "a repeated source UID" and "UIDVALIDITY 0". The implementation (`ToCopyUidMap`) and the class
+   remarks already contain both. Proposal: add both cases to the interface description so that both texts list the
+   same cases.
+2. `SqliteMailCommandQueue.cs:318-320`: F1 loads the UID map of the whole source folder (`GetUidFlagsAsync`) for every
+   Enqueue, although the check concerns at most 1,000 UIDs. This is acceptable for now; `EnqueueEmptyFolderAsync:137`
+   uses the same pattern. For AP-04 (Del key in large Inbox folders), a targeted `uid IN (...)` query could replace
+   it.
+3. `Program.cs:180-216` (`trash <uid>`): a second `trash` for the same Junk UID is not refused.
+   - Effect: two records with the same hash can both resolve to the same Trash UID. After the delete, the second
+     record stays forever.
+   - Risk: none. `MatchesRecord` fails once the row is gone.
+   - Proposal: refuse `trash` when a record for this Junk UID already exists.
+4. `Program.cs:199-200`: the recorded "highest Trash UID" is the local value. The residual risk is accepted by the
+   decision. Proposal for the planner: use the order `run` (sync) → `trash` → `run`, with no other client active
+   between these steps.
