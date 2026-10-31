@@ -1,4 +1,4 @@
-STEP-RESULT: done
+STEP-RESULT: done (fix.2: E5-E7 done)
 
 # AP-07b – Implementation notes (Builder, implement.1)
 
@@ -97,3 +97,17 @@ Untested: IO error paths (D11), very large files, non-UTF-8 files.
 - F2 D11: should `Load` wrap IO errors into an exception whose message names only the file name (AP-07c logs errors
   and the log must not contain the user profile path)?
 - F3 D10: should the Validate failure message name the JSON key instead of the record property name?
+
+## fix.2 (E5–E7)
+| File | Change |
+|---|---|
+| `src\MailWarden.Core\Classification\DisplayText.cs` | new public `DisplayText` (`MaximumLength = 100`, `Truncate`) with the former `ReasonText` logic (E5) |
+| `src\MailWarden.Core\Classification\ReasonText.cs` | `Truncate` delegates to `DisplayText.Truncate`; `MaximumValueLength` removed (no users) (E5) |
+| `src\MailWarden.Infrastructure\Classification\ClassifierSettingsFile.cs` | `InvalidKey` uses `DisplayText.Truncate`, `MaximumShownKeyLength` removed (E5); comment why the inner JsonException is kept (E6) |
+| `src\MailWarden.Core\Classification\Signals\AuthenticationSignal.cs` | compauth reason literal wrapped, text unchanged (E7) |
+| `PLAN.md` | AP-07b row 4 ⚠️ → ✅ (F3 accepted) |
+
+Deviations: none. Only difference in detail: `DisplayText.Truncate(null)` throws ArgumentNullException (public API, fail
+fast); before, `ReasonText.Truncate(null)` would have thrown NullReferenceException. No internal caller passes null.
+Verified: build `-warnaserror` green; probe `_scratch\Ap07bProbe` all PASS again (incl. key messages of cases 16–17).
+Not run: test stages (tester).
