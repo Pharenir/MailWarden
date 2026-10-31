@@ -125,6 +125,10 @@ Fall 30 (AuthProbe abbrechen) bleibt vorerst offen (Dennis 2026-10-31).
   Gemergt (`2e1420a`), S3 auf `main` 761/761, gepusht; echte `probe-data` nachgeprüft: 0 abweichende Ordner.
 
 ### Vertagt aus AP-03a (review.1/secure.1, Details `work\AP-03a\requirement.md` „Decisions fix.2“)
+**In AP-03b aufgenommen (2026-10-31, `work\AP-03b\requirement.md`):** gemeinsamer IMAP-Code (B6), Reconnect nach
+Abbruch/`ImapProtocolException` (B4), FETCH bündeln/Tempo (B1/B2), Fortschritt (B3), Gmail Important (B5), UID 0 im
+Startfenster (B7). Rest: lokale Rollen → AP-03c/AP-05; `DeleteFolderAsync`/Aufräumen → AP-04; Flags ohne CONDSTORE → AP-03c.
+AP-03 neu geteilt: AP-03b = Abgleich robust/schnell, **AP-03c** = Befehlswarteschlange, IDLE, Zeitplan (AP-07c danach).
 - [ ] AP-03b: gemeinsamer IMAP-Verbindungs-/Ordnerlisten-Code für `MailKitTransport` und `ConnectionProbe` (review SHOULD 2)
 - [ ] AP-03b: nach `ImapProtocolException` neu verbinden und mit dem nächsten Ordner weitermachen (Q4)
 - [ ] AP-03b/AP-05: rein lokale Rollen (Postausgang) von R1 ausnehmen (Q2)

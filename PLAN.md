@@ -81,7 +81,7 @@ Später: Naive Bayes aus Dennis’ Entscheidungen, Domain-Alter per RDAP.
 | AP-00 | **Spike Anmeldung:** MS-App-Registrierung (Kostenprüfung), MSAL-Login + MailKit-IMAP gegen hotmail.de; Google-Cloud-Projekt, OAuth-Login + IMAP gegen Gmail. Konsolenprogramm in `_scratch\`. | Go/No-Go, `docs\auth-setup.md` mit Schritt-für-Schritt-Anleitung |
 | AP-01 | Solution-Skelett (inkl. startfähiger WinUI-3-Leer-App als Tooling-Check), Core-Modell (Account, Folder, Message, Contact), SQLite-Schema + Migration, EML-Store, FTS5 | Build grün, Storage-Tests |
 | AP-02 | Kontenverwaltung + Zugangsdaten (DPAPI), Token-Cache, Provider-Profile. **AP-02a** ohne UI (Credential-Store, OAuth MS/Google, Provider-Profile, Ordnerrollen, Konto-Service, Verbindungstest); **AP-02b** = Konten-UI mit AP-04 | Konto anlegen/löschen/testen |
-| AP-03 | Sync-Engine: Ordnerliste, inkrementeller Sync (UIDVALIDITY, UIDNEXT, Flags), IDLE für Posteingang, Junk-Ordner immer mitsynchronisieren, Befehlswarteschlange (Move/Delete/Flag) mit Wiederholung. **AP-03a** = Transport + Abgleich Server → lokal (Ordner, Mails, Flags, Löschungen, UIDVALIDITY, Schema v2); **AP-03b** = Befehlswarteschlange lokal → Server, IDLE, Wiederverbindung/Zeitplan | Mails aller Konten lokal, Änderungen beidseitig |
+| AP-03 | Sync-Engine: Ordnerliste, inkrementeller Sync (UIDVALIDITY, UIDNEXT, Flags), IDLE für Posteingang, Junk-Ordner immer mitsynchronisieren, Befehlswarteschlange (Move/Delete/Flag) mit Wiederholung. **AP-03a** = Transport + Abgleich Server → lokal (Ordner, Mails, Flags, Löschungen, UIDVALIDITY, Schema v2); **AP-03b** = Abgleich robust und schnell (Blöcke, Fortschritt, Wiederverbindung im Lauf, Gmail Important); **AP-03c** = Befehlswarteschlange lokal → Server, IDLE, Zeitplan | Mails aller Konten lokal, Änderungen beidseitig |
 | AP-04 | WinUI-3-Oberfläche: Gruppenansichten Posteingang/Gesendet/Postausgang/Screener/Junk/Quarantäne über alle Konten, dieselben Ansichten je Konto, Ordnerbaum, Lesebereich (WebView2, bereinigt), Light/Dark/System | Lesen aller Konten in einer Ansicht |
 | AP-05 | Verfassen/Antworten/Weiterleiten, SMTP-Versand je Konto, Anhänge, Signatur je Konto, Gesendet-Ordner | Senden von allen Konten |
 
@@ -89,7 +89,7 @@ Später: Naive Bayes aus Dennis’ Entscheidungen, Domain-Alter per RDAP.
 | AP | Inhalt | Ergebnis |
 |---|---|---|
 | AP-06 | Adressbuch minimal: lokal, Import vCard/CSV, automatisches Sammeln aus gesendeten Mails, Allow-/Block-Listen | Grundlage für Stufe `TrustedContact` |
-| AP-07 | Klassifizierer: Signale v1, Schwellen, Entscheidungsprotokoll, Anlegen von `Screener`/`Quarantine` je Konto, Aufbewahrung Quarantäne, Rettung sicherer Absender aus Junk. **AP-07a** = Kern (erledigt); **AP-07b** = Kalibrierung an echten Headern (PstProbe) + Einstellungsdatei; **AP-07c** = Anbindung an Mails/Ordner (nach AP-03b) | Vier Stufen sichtbar, jede Entscheidung erklärbar |
+| AP-07 | Klassifizierer: Signale v1, Schwellen, Entscheidungsprotokoll, Anlegen von `Screener`/`Quarantine` je Konto, Aufbewahrung Quarantäne, Rettung sicherer Absender aus Junk. **AP-07a** = Kern (erledigt); **AP-07b** = Kalibrierung an echten Headern (PstProbe) + Einstellungsdatei; **AP-07c** = Anbindung an Mails/Ordner (nach AP-03c) | Vier Stufen sichtbar, jede Entscheidung erklärbar |
 | AP-08 | Regel-Engine + UI: eigene Regeln, „Warum?“-Ansicht je Mail, Rückmeldung „kein Junk“/„Junk“ pflegt Listen, Zuordnung Stufe → Aktion, Schalter „CertainSpam direkt löschen“ | Regeln ersetzen Outlook-Regeln |
 | AP-09 | Archivierung + Backup: Archiv-Ordner je Konto synchronisieren, Volltextsuche über alles, Export mbox/EML, Export/Import der Konto- und Regel-Einstellungen (verschlüsselt) | Datensicherung ohne Anbieter |
 
@@ -164,6 +164,19 @@ Vollständiger Schnittstellenvertrag: `work\AP-02a\requirement.md`.
 | 8 | Echte Konten: Abgleich aller drei Konten mit der SyncProbe, Zahlen plausibel gegen Outlook/Gmail-Web | ✅ SyncProbe + `_scratch\sync-check` (Server-STATUS gegen lokalen Bestand) | ✅ 2026-10-31: nach fix.3 alle Ordner aller drei Konten deckungsgleich (2.317 / 328 / 30), Ungelesen unverändert; vorher fehlten Papierkorb-Mails |
 
 Vollständiger Schnittstellenvertrag: `work\AP-03a\requirement.md`.
+
+### AP-03b Abgleich robust und schnell
+| # | Sollverhalten | Umgesetzt | Getestet |
+|---|---|---|---|
+| 1 | Fehlende Mails werden in Blöcken (Standard 50) mit wenigen IMAP-Kommandos geladen statt zwei Round-Trips je Mail; schlägt ein Block fehl, wird er einzeln nachgeladen | | |
+| 2 | Fortschritt je Ordner (Nummer/Anzahl, Rolle, verarbeitet/fehlend) wird während des Laufs gemeldet, ohne Ordnernamen, Betreffs oder Adressen | | |
+| 3 | Verbindungsabbruch in einem Ordner: Ordner bekommt Fehler, Abgleich verbindet neu (höchstens 3× je Lauf) und macht mit dem nächsten Ordner weiter; Anmeldefehler und Abbruch beenden den Lauf wie bisher | | |
+| 4 | Gmail `[Gmail]/Important` wird nicht abgeglichen (versteckt) | | |
+| 5 | Verbindungsaufbau und Ordnerliste: ein gemeinsamer Code für Abgleich und Verbindungstest; Verbindungstest unverändert | | |
+| 6 | Echte Konten: Neuabgleich mindestens 3× schneller als 4 Mails/s, Fortschritt sichtbar, alle Ordner deckungsgleich | | |
+
+Vollständiger Schnittstellenvertrag: `work\AP-03b\requirement.md`. AP-03c (Befehlswarteschlange lokal → Server, IDLE,
+Zeitplan) folgt danach; AP-07c setzt AP-03c voraus.
 
 ### AP-07b Kalibrierung + Einstellungsdatei
 | # | Sollverhalten | Umgesetzt | Getestet |
