@@ -121,23 +121,24 @@ Fall 30 (AuthProbe abbrechen) bleibt vorerst offen (Dennis 2026-10-31).
   Gemergt und gepusht.
 - **AP-03a Gate erreicht** (verify.2 S3 658/658, review.1 + review.2 APPROVE, secure.1 0/0/2/4, fix.2 F1–F7).
   Gemergt und gepusht.
+- **AP-03a fix.3 Gate erreicht** (`fix/ap-03a-missed-uids` @ `a221b2e`): verify.1 S3 761/761 (Core 360, Infrastructure
+  401), review-fix3 APPROVE (SHOULDs = Doku, vom Planer erledigt), echte Konten auf Datenkopie: 0 abweichende Ordner.
+  Wartet auf CPM. Nach Merge: `_scratch\sync-check` im Hauptordner auf `SkippedUpToUid` umstellen (Fassung im
+  Fix-Worktree), dann SyncProbe auf `probe-data` (migriert auf v3, lädt die fehlenden Papierkorb-Mails).
 
 ### Vertagt aus AP-03a (review.1/secure.1, Details `work\AP-03a\requirement.md` „Decisions fix.2“)
 - [ ] AP-03b: gemeinsamer IMAP-Verbindungs-/Ordnerlisten-Code für `MailKitTransport` und `ConnectionProbe` (review SHOULD 2)
 - [ ] AP-03b: nach `ImapProtocolException` neu verbinden und mit dem nächsten Ordner weitermachen (Q4)
 - [ ] AP-03b/AP-05: rein lokale Rollen (Postausgang) von R1 ausnehmen (Q2)
 - [ ] AP-03b: `IEmlStore.DeleteFolderAsync`, Aufräumen verwaister EML/`*.tmp` beim Start; `secure_delete`/`VACUUM` erwägen (Q3, secure N4)
-- [ ] AP-03b: Metadaten aller Kandidaten in einem FETCH; ohne CONDSTORE holt jeder Lauf alle Flags; vorübergehendes
-  FETCH-null vs. `HighestSyncedUid` (review NITs)
-- [ ] AP-03b: Einzelmail-Fehler beim **ersten** Abgleich speichert einen Stand → nächster Lauf ohne Startfenster lädt
-  ältere UIDs über der fehlgeschlagenen einmalig nach (review.2 NIT; z. B. beim Erstabgleich mit Fehlern keinen Stand speichern)
-- [ ] **AP-03a-Fehler aus Fall 28 (2026-10-31, `_scratch\sync-check`):** Papierkorb beider Outlook-Konten lokal
-  unvollständig (Server 99/117, lokal 15/10), ohne Fehlermeldung; der zweite Lauf holt nichts nach. Die fehlenden UIDs
-  liegen alle unter `HighestSyncedUid`. Mit zurückgesetztem Ordnerstand (Kopie der Probe-Daten) kamen alle 107 sofort.
-  Ursache: Beim Erstabgleich lieferte der Server die UIDs nicht (SEARCH unvollständig oder FETCH leer → als „verschwunden“
-  gewertet). Die Hochwassermarke springt trotzdem darüber hinweg (review.1 NIT „transient FETCH null“). Welche der
-  beiden Varianten es war, ist unbekannt. Vorschlag fix.3: Kandidaten = alle Server-UIDs, die lokal fehlen (oberhalb der
-  Untergrenze des Startfensters), statt nur „> HighestSyncedUid“
+- [ ] AP-03b: Metadaten aller Kandidaten in einem FETCH; ohne CONDSTORE holt jeder Lauf alle Flags (review NITs)
+- [x] Papierkorb-Mails fehlten (Fall 28) / FETCH-null vs. Hochwassermarke / Einzelfehler beim Erstabgleich → durch
+  AP-03a fix.3 behoben (`fix/ap-03a-missed-uids`: Kandidaten = jede lokal fehlende Server-UID über der
+  Startfenster-Grenze, Schema v3); Nachprüfung echte Konten: alle Ordner deckungsgleich
+- [ ] fix.3 review NIT: UID 0 im Startfenster setzt die Grenze still auf 0 → wie F3 als Protocol-Fehler behandeln
+  (`SyncEngine.cs:492-494`, mit MailKit praktisch unerreichbar)
+- [ ] fix.3 Restrisiko (nur mit Startfenster > 0): liefert SEARCH SINCE beim Erstabgleich unvollständig, liegt die
+  Grenze dauerhaft zu hoch; bei Standard 0 ohne Wirkung
 - [ ] AP-03b: **Tempo** – Fall 28 (2026-10-31): Outlook.com ~4 Mails/s beim Erstabgleich (zwei Round-Trips je Mail);
   Postfach mit >1.400 Mails braucht viele Minuten → FETCH bündeln (Body + Metadaten in einem Kommando, Blöcke à n UIDs)
 - [ ] AP-03b/AP-04: Fortschritt während des Abgleichs melden (`IProgress<…>` am `SyncEngine`); die SyncProbe zeigt bis
