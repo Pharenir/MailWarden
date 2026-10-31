@@ -81,7 +81,7 @@ Später: Naive Bayes aus Dennis’ Entscheidungen, Domain-Alter per RDAP.
 | AP-00 | **Spike Anmeldung:** MS-App-Registrierung (Kostenprüfung), MSAL-Login + MailKit-IMAP gegen hotmail.de; Google-Cloud-Projekt, OAuth-Login + IMAP gegen Gmail. Konsolenprogramm in `_scratch\`. | Go/No-Go, `docs\auth-setup.md` mit Schritt-für-Schritt-Anleitung |
 | AP-01 | Solution-Skelett (inkl. startfähiger WinUI-3-Leer-App als Tooling-Check), Core-Modell (Account, Folder, Message, Contact), SQLite-Schema + Migration, EML-Store, FTS5 | Build grün, Storage-Tests |
 | AP-02 | Kontenverwaltung + Zugangsdaten (DPAPI), Token-Cache, Provider-Profile. **AP-02a** ohne UI (Credential-Store, OAuth MS/Google, Provider-Profile, Ordnerrollen, Konto-Service, Verbindungstest); **AP-02b** = Konten-UI mit AP-04 | Konto anlegen/löschen/testen |
-| AP-03 | Sync-Engine: Ordnerliste, inkrementeller Sync (UIDVALIDITY, UIDNEXT, Flags), IDLE für Posteingang, Junk-Ordner immer mitsynchronisieren, Befehlswarteschlange (Move/Delete/Flag) mit Wiederholung. **AP-03a** = Transport + Abgleich Server → lokal (Ordner, Mails, Flags, Löschungen, UIDVALIDITY, Schema v2); **AP-03b** = Abgleich robust und schnell (Blöcke, Fortschritt, Wiederverbindung im Lauf, Gmail Important); **AP-03c** = Befehlswarteschlange lokal → Server, IDLE, Zeitplan | Mails aller Konten lokal, Änderungen beidseitig |
+| AP-03 | Sync-Engine: Ordnerliste, inkrementeller Sync (UIDVALIDITY, UIDNEXT, Flags), IDLE für Posteingang, Junk-Ordner immer mitsynchronisieren, Befehlswarteschlange (Move/Delete/Flag) mit Wiederholung. **AP-03a** = Transport + Abgleich Server → lokal (Ordner, Mails, Flags, Löschungen, UIDVALIDITY, Schema v2); **AP-03b** = Abgleich robust und schnell (Blöcke, Fortschritt, Wiederverbindung im Lauf, Gmail Important); **AP-03c** = Befehlswarteschlange lokal → Server; **AP-03d** = Hintergrunddienst (Zeitplan, IDLE) | Mails aller Konten lokal, Änderungen beidseitig |
 | AP-04 | WinUI-3-Oberfläche: Gruppenansichten Posteingang/Gesendet/Postausgang/Screener/Junk/Quarantäne über alle Konten, dieselben Ansichten je Konto, Ordnerbaum, Lesebereich (WebView2, bereinigt), Light/Dark/System | Lesen aller Konten in einer Ansicht |
 | AP-05 | Verfassen/Antworten/Weiterleiten, SMTP-Versand je Konto, Anhänge, Signatur je Konto, Gesendet-Ordner | Senden von allen Konten |
 
@@ -175,8 +175,23 @@ Vollständiger Schnittstellenvertrag: `work\AP-03a\requirement.md`.
 | 5 | Verbindungsaufbau und Ordnerliste: ein gemeinsamer Code für Abgleich und Verbindungstest; Verbindungstest unverändert | ✅ `Infrastructure\Providers\ImapSession.cs`, `MailKitTransportFactory.cs`, `MailKitTransport.cs`, `ConnectionProbe.cs` | ⚠️ Kein Unit-Test; Planer 2026-10-31 mit dem AuthProbe-Befehl `probe` gegen die echten Server: IMAP/SMTP ok, Ordnerzahlen 34/15/15 wie vorher, Important versteckt |
 | 6 | Echte Konten: Neuabgleich mindestens 3× schneller als 4 Mails/s, Fortschritt sichtbar, alle Ordner deckungsgleich | ✅ SyncProbe mit Fortschrittsausgabe, `_scratch\sync-check` | ✅ Fall 18, Planer 2026-10-31: 845 Mails in 60 s ≈ 14 Mails/s (vorher ≈ 4/s), Fortschritt sichtbar, 0 abweichende Ordner, Ungelesen unverändert |
 
-Vollständiger Schnittstellenvertrag: `work\AP-03b\requirement.md`. AP-03c (Befehlswarteschlange lokal → Server, IDLE,
-Zeitplan) folgt danach; AP-07c setzt AP-03c voraus.
+Vollständiger Schnittstellenvertrag: `work\AP-03b\requirement.md`.
+
+### AP-03c Befehlswarteschlange lokal → Server
+Löschen wie Outlook (Entscheidung Dennis 2026-10-31): Entf → Papierkorb, Umschalt+Entf → sofort endgültig,
+„Ordner leeren“ für Papierkorb und Junk → endgültig. AP-03d (Hintergrunddienst: Zeitplan + IDLE) folgt; AP-07c setzt
+AP-03c voraus.
+| # | Sollverhalten | Umgesetzt | Getestet |
+|---|---|---|---|
+| 1 | Aktionen (Flags, Verschieben, Papierkorb, endgültig löschen, Ordner leeren) werden als Befehl gespeichert und erst danach am Server ausgeführt; lokal ändert sich erst etwas nach Bestätigung durch den Server | | |
+| 2 | Ungültige Befehle werden beim Einreihen abgelehnt (fremder/gleicher Ordner, leere UIDs, `\Deleted` als Flag, Ordner leeren außer Papierkorb/Junk) | | |
+| 3 | „Ordner leeren“ löscht nur die Mails, die beim Auslösen lokal bekannt waren; später eingetroffene bleiben | | |
+| 4 | Nie ein ungezieltes EXPUNGE/CLOSE: endgültig gelöscht werden nur genau die Mails des Befehls; geänderte UIDVALIDITY → Befehl scheitert ohne Serveraktion | | |
+| 5 | Fehler: Netz → später erneut; vom Server abgelehnt → Wiederholung mit wachsendem Abstand (1, 2, 4 … max. 60 min), nach 5 Versuchen „fehlgeschlagen“; Anmeldefehler bricht ab ohne Versuch zu zählen | | |
+| 6 | Abgleich bleibt nur lesend (eigene Schnittstelle für Schreibbefehle) | | |
+| 7 | Echte Konten (nur Junk-Mails, Freigabe Dennis): gelesen/ungelesen, Papierkorb, endgültig löschen, Junk leeren – Server und lokaler Bestand stimmen danach überein | | |
+
+Vollständiger Schnittstellenvertrag: `work\AP-03c\requirement.md`.
 
 ### AP-07b Kalibrierung + Einstellungsdatei
 | # | Sollverhalten | Umgesetzt | Getestet |
