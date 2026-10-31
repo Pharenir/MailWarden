@@ -132,6 +132,12 @@ Abgezweigt von `chore/session-handover` @ `d39915b` (enthält Anforderungen AP-0
   FETCH-null vs. `HighestSyncedUid` (review NITs)
 - [ ] AP-03b: Einzelmail-Fehler beim **ersten** Abgleich speichert einen Stand → nächster Lauf ohne Startfenster lädt
   ältere UIDs über der fehlgeschlagenen einmalig nach (review.2 NIT; z. B. beim Erstabgleich mit Fehlern keinen Stand speichern)
+- [ ] AP-03b: **Tempo** – Fall 28 (2026-10-31): Outlook.com ~4 Mails/s beim Erstabgleich (zwei Round-Trips je Mail);
+  Postfach mit >1.400 Mails braucht viele Minuten → FETCH bündeln (Body + Metadaten in einem Kommando, Blöcke à n UIDs)
+- [ ] AP-03b/AP-04: Fortschritt während des Abgleichs melden (`IProgress<…>` am `SyncEngine`); die SyncProbe zeigt bis
+  zum Ende nichts an und wirkt deshalb hängend
+- [ ] Provider-Profil Gmail: `[Gmail]/Important` kam ohne `\Important`-Attribut (Rolle None, sichtbar) → wird als
+  normaler Ordner abgeglichen (Duplikate) → per Profil ausblenden wie All Mail
 - [ ] AP-03b: Mail, die jedes Mal `ImapProtocolException` auslöst, blockiert weiter das Konto (MailKit trennt) → mit Reconnect lösen
 - [ ] AP-04: Logging-Regel `SyncReport` – nur Typ, Rolle, Ordner-ID; nie `Error`-Text oder Ordnername (secure N1)
 - [ ] UI-AP: Steuer-/Bidi-Zeichen (RTLO) in Betreff/Absendername/Ordnernamen beim Anzeigen entschärfen
