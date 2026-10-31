@@ -1,0 +1,9 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <!-- Domain model and storage contracts. No IO, no package references (BCL only). -->
+  <PropertyGroup>
+    <TargetFramework>net9.0</TargetFramework>
+    <RootNamespace>MailWarden.Core</RootNamespace>
+  </PropertyGroup>
+
+</Project>
