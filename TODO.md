@@ -149,6 +149,21 @@ Fall 30 (AuthProbe abbrechen) bleibt vorerst offen (Dennis 2026-10-31).
 - **AP-03d gestartet** (`work\AP-03d\requirement.md`): Hintergrunddienst (Zeitplan 15 min, IDLE Posteingang,
   Sperrdatei je Datenordner, Status je Konto).
 
+- **AP-03d Gate erreicht** (`feat/ap-03d-mailbox-service` @ `a28d81d`): verify.2 S3 964/964 (Core 360, Infrastructure
+  604), review.1 + review.2 APPROVE, keine Security-Prüfung (Reviewer: kein Auslöser), Fall 19 echte Konten 15 min:
+  Testmail von Dennis → IDLE-Meldung, Abgleich nach 2 s; IDLE nach 9 min erneuert; zweite Instanz „in Benutzung“;
+  Beenden in 0,1 s. Wartet auf CPM: `chore/ap-03d-requirement` → `feat/ap-03d-…`; danach ServiceProbe nach
+  `_scratch\service-probe` retten, Probes (`sync-probe`, `command-probe`, `shiftdel-probe`) auf `DataFolderLock` umstellen.
+
+### Vertagt aus AP-03d (für AP-04)
+- [ ] SQLite: je Ablauf (Konto-Zyklus, IDLE-Watcher, UI) eine eigene `SqliteDatabase`-Verbindung; Komposition der Probe
+  in eine Produktionsklasse überführen; Test „zwei Konten schreiben parallel“ (SQLITE_BUSY) (review O1)
+- [ ] Sperre (`DataFolderLock`) vor `InitializeAsync` nehmen (O2)
+- [ ] Ausnahmen aus `StatusChanged`-Handlern als kritisch protokollieren (G3)
+- [ ] „Aktualisieren“ im Fehlerzustand ruft `RetryAccount`; UI filtert `CurrentStatus` gegen die Kontoliste;
+  `RetryAccount` verkürzt das Watcher-Backoff nicht (IDLE bis 30 min aus, Polling fängt ab) – ggf. ändern (review.2 NIT 1)
+- [ ] Security-Prüfung für AP-04 (gemeinsame Token-Caches, Logging, Enqueue aus der UI) – Empfehlung Reviewer
+
 ### Vertagt aus AP-03c
 - [ ] AP-03d: benannter Mutex je Datenordner um `ExecutePendingAsync` (secure N3; App/Dienst/Probe parallel)
 - [ ] AP-04: Bestätigung „Ordner leeren“ zeigt die Anzahl aus dem Snapshot (secure N2); Hinweis, wenn Umschalt+Entf
