@@ -255,3 +255,24 @@ probe remembers those UIDs in `<dataRoot>\command-probe-trash.json`.
   deleting actions.
 - Documenter: README (command queue, delete semantics); `docs\` stays local. PLAN rows AP-03c.
 - Case 24 green (planner).
+
+## Decisions after implement.1 / author.0 (planner, 2026-10-31)
+- D1 (builder): `MoveAsync` requires MOVE **and** UIDPLUS (stricter than S2), because MailKit without UIDPLUS moves
+  by sequence numbers. Accepted.
+- D4 (builder): Network failures use the backoff but never become permanent. Accepted.
+- Q1 (builder, E3 "n not expunged"): `CommandRunReport` stays unchanged. The partial case completes the command and
+  the messages stay visible in Trash after the next sync. The contract words "in the report" are void. A user
+  notice → TODO AP-04.
+- Q2 (builder): `EnqueueEmptyFolderAsync` is **not** subject to the 1,000-UID limit (one command with all local UIDs
+  of the folder; MailKit sends UID sets as ranges). The limit stays for the other Enqueue methods. Builder fix +
+  tester case 25.
+- Q3 (builder): no second UIDVALIDITY check for Trash between MOVE and SELECT – accepted (the map comes from the same
+  session).
+- Tester Q1: Gmail roles come from the folder flags (`\Trash`, `\Junk`) via `FolderRoleResolver`; Gmail has no
+  Archive role. Tester Q2: the E2 "folder missing locally" clause is defensive (FK cascade); no test needed. Tester Q3:
+  verify against the implementation in verify.1; do not pin the number of SELECTs if the builder reuses a selected
+  folder, pin order and target instead. Tester Q5: fine.
+
+| # | Case | Expected |
+|---|---|---|
+| 25 | EmptyFolder on Trash with 1,500 local messages | one command with all 1,500 UIDs; SetFlags/Move/Delete with 1,001 UIDs still rejected |
