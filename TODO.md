@@ -67,8 +67,8 @@ Original-Headern (Outlook.com); 1.870 ohne Header (vermutlich IMAP-/Gmail-Ordner
   zu secure M2 AP-03a und AP-02a-ACL-Punkt, 2026-10-31) → bewusst akzeptiert, keine Änderung
 
 ## Testzähler
-Testzähler: 0/4 seit letztem S3 (zuletzt 2026-10-31: S3 auf `main` @ `2e1420a` nach Merge von AP-03a fix.3,
-761/761 – Core.Tests 360, Infrastructure.Tests 401; Bericht `work\S3-main-2026-10-31-c.md`)
+Testzähler: 0/4 seit letztem S3 (zuletzt 2026-10-31: S3 auf `main` @ `3d646e8` nach Merge von AP-03b,
+803/803 – Core.Tests 360, Infrastructure.Tests 443; Bericht `work\S3-main-2026-10-31-d.md`)
 
 ## Stand 2026-10-31 (Session 2, Ende)
 **CPM erledigt:** `chore/app-icon`, AP-01, AP-07a, AP-02a per `--no-ff` nach `main` gemergt, Build grün
@@ -129,6 +129,11 @@ Fall 30 (AuthProbe abbrechen) bleibt vorerst offen (Dennis 2026-10-31).
   B6 mit AuthProbe gegen echte Server geprüft. Wartet auf CPM: `chore/session-handover-4` → `feat/ap-03b-…` (`--no-ff`),
   danach SyncProbe mit Fortschritt aus `.worktrees\feat-ap-03b\_scratch\sync-probe` nach `_scratch\sync-probe` kopieren.
   Hinweis: Builder hat einmal selbst Tests gestartet (Selbstkontrolle, gegen die Regel „nur Tester“).
+- AP-03b gemergt (`3d646e8`), S3 auf `main` 803/803 (`work\S3-main-2026-10-31-d.md`), gepusht; Worktrees/Branches
+  entfernt; SyncProbe mit Fortschritt in `_scratch\sync-probe`.
+- **AP-03c gestartet** (`work\AP-03c\requirement.md`): Befehlswarteschlange. Entscheidungen Dennis 2026-10-31: Löschen
+  wie Outlook (Entf → Papierkorb, Umschalt+Entf → endgültig, „Ordner leeren“ für Papierkorb/Junk); Echttest nur mit
+  den aktuellen Junk-Mails (geprüft, dürfen auch endgültig gelöscht werden); AP-03d = Hintergrunddienst (Zeitplan, IDLE).
 - Kosten Sitzung 3, Fortsetzung: fix.3 Builder ×1, Tester ×2 (+1), Reviewer ×1 · S3 main ×1 · AP-03b Builder ×1 (+1),
   Tester ×1 (+3), Reviewer ×2, Documenter ×1
 
