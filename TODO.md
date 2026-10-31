@@ -132,6 +132,13 @@ Abgezweigt von `chore/session-handover` @ `d39915b` (enthält Anforderungen AP-0
   FETCH-null vs. `HighestSyncedUid` (review NITs)
 - [ ] AP-03b: Einzelmail-Fehler beim **ersten** Abgleich speichert einen Stand → nächster Lauf ohne Startfenster lädt
   ältere UIDs über der fehlgeschlagenen einmalig nach (review.2 NIT; z. B. beim Erstabgleich mit Fehlern keinen Stand speichern)
+- [ ] **AP-03a-Fehler aus Fall 28 (2026-10-31, `_scratch\sync-check`):** Papierkorb beider Outlook-Konten lokal
+  unvollständig (Server 99/117, lokal 15/10), ohne Fehlermeldung; der zweite Lauf holt nichts nach. Die fehlenden UIDs
+  liegen alle unter `HighestSyncedUid`. Mit zurückgesetztem Ordnerstand (Kopie der Probe-Daten) kamen alle 107 sofort.
+  Ursache: Beim Erstabgleich lieferte der Server die UIDs nicht (SEARCH unvollständig oder FETCH leer → als „verschwunden“
+  gewertet). Die Hochwassermarke springt trotzdem darüber hinweg (review.1 NIT „transient FETCH null“). Welche der
+  beiden Varianten es war, ist unbekannt. Vorschlag fix.3: Kandidaten = alle Server-UIDs, die lokal fehlen (oberhalb der
+  Untergrenze des Startfensters), statt nur „> HighestSyncedUid“
 - [ ] AP-03b: **Tempo** – Fall 28 (2026-10-31): Outlook.com ~4 Mails/s beim Erstabgleich (zwei Round-Trips je Mail);
   Postfach mit >1.400 Mails braucht viele Minuten → FETCH bündeln (Body + Metadaten in einem Kommando, Blöcke à n UIDs)
 - [ ] AP-03b/AP-04: Fortschritt während des Abgleichs melden (`IProgress<…>` am `SyncEngine`); die SyncProbe zeigt bis

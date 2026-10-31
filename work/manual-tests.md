@@ -47,7 +47,8 @@ AuthProbe probe <Adresse>          # je Konto
 ```powershell
 AuthProbe probe <Adresse>          # je Konto
 AuthProbe list
-Select-String -Path "$probeData\credentials\*" -Pattern 'refresh_token','access_token','@' -SimpleMatch
+Select-String -Path "$probeData\credentials\*" -Pattern 'refresh_token','access_token','hotmail','googlemail' -SimpleMatch
+# (kein '@' suchen: die verschlüsselten Dateien enthalten zufällig das Byte 0x40)
 ```
 - [ ] Kein Browser, Zeile `Token (silent, no browser)`
 - [ ] Nur `.bin`-Dateien (`msal.cache.bin`, je Google-Konto `google.<64 Hex>.bin`); `Select-String` findet nichts
