@@ -161,6 +161,27 @@ public sealed class SqliteMessageStoreTests
         Assert.Equal(0, await storage.CountRowsAsync("messages"));
     }
 
+    // Case 11a (D15): update path - an existing message must not be moved to another account
+    [Fact(Timeout = TestTimeouts.PerTestMilliseconds)]
+    public async Task Upsert_of_existing_message_with_other_account_throws_and_keeps_stored_row()
+    {
+        await using StorageFixture storage = await StorageFixture.CreateAsync();
+        Account accountA = await storage.AddAccountAsync("Account_A");
+        Account accountB = await storage.AddAccountAsync("Account_B");
+        MailFolder inboxA = await storage.AddFolderAsync(accountA.Id, FolderRole.Inbox, "INBOX");
+        MailMessage original = await storage.AddMessageAsync(inboxA, 1, subject: "original_subject");
+
+        await Assert.ThrowsAnyAsync<StorageException>(
+            () => storage.Messages.UpsertAsync(
+                TestData.NewMessage(accountB.Id, inboxA.Id, 1, subject: "hijacked_subject"), "body"));
+
+        MailMessage? afterwards = await storage.Messages.GetByUidAsync(inboxA.Id, 1);
+        Assert.NotNull(afterwards);
+        Assert.Equal(accountA.Id, afterwards.AccountId);
+        Assert.Equal(original, afterwards);
+        Assert.Equal(1, await storage.CountRowsAsync("messages"));
+    }
+
     // Case 15a (D7): invalid paging arguments fail fast
     [Theory(Timeout = TestTimeouts.PerTestMilliseconds)]
     [InlineData(0, 0)]

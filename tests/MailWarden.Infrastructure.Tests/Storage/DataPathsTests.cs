@@ -58,6 +58,8 @@ public sealed class DataPathsTests
     [InlineData("COM1")]
     [InlineData("LPT9.eml")]
     [InlineData("accounts/a/aux/1.eml")]
+    [InlineData("COM¹")] // D14: superscript one
+    [InlineData("CON .eml")] // D14: device name with trailing space before the extension
     public void Resolve_rejects_trailing_dot_space_and_device_names(string relativePath)
     {
         var paths = new DataPaths(NewRoot());
