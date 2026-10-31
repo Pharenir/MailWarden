@@ -66,6 +66,29 @@ public sealed class MimeBodyTextTests
         Assert.Equal("Tom & Jerry", result);
     }
 
+    // Case 34 (fix.2 F5)
+    [Fact]
+    public void Title_content_is_dropped_but_the_body_stays()
+    {
+        string result = MimeBodyText.Extract(
+            HtmlMessage("<html><head><title>Secret title</title></head><body><p>Visible body text</p></body></html>"),
+            1000);
+
+        Assert.Equal("Visible body text", result);
+    }
+
+    // Case 34 (fix.2 F5): the head is not dropped as a whole - broken HTML often lacks the closing head tag
+    [Fact]
+    public void Title_is_dropped_even_when_the_head_is_never_closed()
+    {
+        string result = MimeBodyText.Extract(
+            HtmlMessage("<html><head><title>Secret title</title><p>Visible body text</p>"),
+            1000);
+
+        Assert.DoesNotContain("Secret", result, StringComparison.Ordinal);
+        Assert.Contains("Visible body text", result, StringComparison.Ordinal);
+    }
+
     // Case 25: entities are decoded after the tags are removed
     [Fact]
     public void Escaped_angle_brackets_stay_as_literal_text()
