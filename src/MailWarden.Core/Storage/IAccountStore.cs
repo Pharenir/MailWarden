@@ -9,7 +9,10 @@ public interface IAccountStore
 {
     /// <summary>Lists all accounts.</summary>
     /// <param name="ct">Cancellation token.</param>
-    /// <returns>All accounts ordered by <see cref="Account.DisplayName"/>.</returns>
+    /// <returns>
+    /// All accounts ordered by <see cref="Account.DisplayName"/>, case-insensitive for ASCII letters only (SQLite
+    /// <c>NOCASE</c>); not culture-aware.
+    /// </returns>
     Task<IReadOnlyList<Account>> ListAsync(CancellationToken ct = default);
 
     /// <summary>Loads one account.</summary>

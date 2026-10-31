@@ -9,7 +9,10 @@ namespace MailWarden.App;
 /// </summary>
 public partial class App : Application
 {
-    /// <summary>Environment variable that overrides the data directory (fully qualified path).</summary>
+    /// <summary>
+    /// Environment variable that overrides the data directory (fully qualified path). Unset, empty or whitespace-only
+    /// counts as unset and selects <c>&lt;exe dir&gt;\data</c>.
+    /// </summary>
     public const string DataDirectoryVariable = "MAILWARDEN_DATA_DIR";
 
     private const string DefaultDataDirectoryName = "data";
