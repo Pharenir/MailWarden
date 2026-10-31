@@ -196,12 +196,12 @@ Vollständiger Schnittstellenvertrag: `work\AP-03c\requirement.md`.
 ### AP-03d Hintergrunddienst
 | # | Sollverhalten | Umgesetzt | Getestet |
 |---|---|---|---|
-| 1 | Je Konto: erst offene Befehle ausführen, dann abgleichen; danach alle 15 min erneut (einstellbar) | ✅ `Background\MailboxService.cs`, `Background\MailboxServiceOptions.cs`, `Background\IServiceDelay.cs`, `Background\TimeProviderServiceDelay.cs` | |
-| 2 | Neue Mail im Posteingang löst über IDLE innerhalb von Sekunden einen Abgleich aus; IDLE wird alle 9 min erneuert; ohne IDLE bleibt der Zeitplan | ✅ `Core\Sync\IMailIdleWatcher*.cs`, `Sync\MailKitIdleWatcher*.cs`, Watcher-Schleife in `Background\MailboxService.cs` (MailKit-Nachweis: `work\AP-03d\impl-notes.md`) | |
-| 3 | Fehler: Netz/Server → Wartezeit 1, 2, 4 … 30 min; Anmeldung nötig → Konto wartet auf „erneut versuchen“; ein Konto bringt die anderen nie zum Stehen | ✅ `Background\MailboxService.cs` | |
-| 4 | Status je Konto (läuft, bereit, Fehler, Anmeldung nötig, gestoppt) mit letztem Erfolg, nächstem Lauf, Fortschritt – ohne Fehlertexte, Namen oder Inhalte | ✅ `Background\AccountSyncStatus.cs`, `Background\AccountSyncState.cs`, `Background\MailboxService.cs` | |
-| 5 | Ein Datenordner wird nur von einem Prozess benutzt (Sperrdatei); zweiter Start meldet „in Benutzung“ | ✅ `Storage\DataFolderLock.cs`, `Background\MailboxService.cs` (`StartAsync`) | |
-| 6 | Echte Konten: 10 min Dienstlauf ohne Fehler, Testmail löst sofort einen Abgleich aus, sauberes Beenden | ⚠️ Werkzeug `_scratch\service-probe` (git-ignoriert, im Worktree), nicht gelaufen (Planner); Komposition mit eigener SQLite-Verbindung je Konto und Ablauf, siehe `work\AP-03d\impl-notes.md` O1 | |
+| 1 | Je Konto: erst offene Befehle ausführen, dann abgleichen; danach alle 15 min erneut (einstellbar) | ✅ `Background\MailboxService.cs`, `Background\MailboxServiceOptions.cs`, `Background\IServiceDelay.cs`, `Background\TimeProviderServiceDelay.cs` | ✅ verify.2 (964/964), Review APPROVE; Fälle 3–6 |
+| 2 | Neue Mail im Posteingang löst über IDLE innerhalb von Sekunden einen Abgleich aus; IDLE wird alle 9 min erneuert; ohne IDLE bleibt der Zeitplan | ✅ `Core\Sync\IMailIdleWatcher*.cs`, `Sync\MailKitIdleWatcher*.cs`, Watcher-Schleife in `Background\MailboxService.cs` (MailKit-Nachweis: `work\AP-03d\impl-notes.md`) | ✅ verify.2 (964/964), Review APPROVE; Fälle 11–14, 20, 21 |
+| 3 | Fehler: Netz/Server → Wartezeit 1, 2, 4 … 30 min; Anmeldung nötig → Konto wartet auf „erneut versuchen“; ein Konto bringt die anderen nie zum Stehen | ✅ `Background\MailboxService.cs` | ✅ verify.2 (964/964), Review APPROVE; Fälle 7–9, 17 |
+| 4 | Status je Konto (läuft, bereit, Fehler, Anmeldung nötig, gestoppt) mit letztem Erfolg, nächstem Lauf, Fortschritt – ohne Fehlertexte, Namen oder Inhalte | ✅ `Background\AccountSyncStatus.cs`, `Background\AccountSyncState.cs`, `Background\MailboxService.cs` | ✅ verify.2 (964/964), Review APPROVE; Fälle 3, 10, 17 |
+| 5 | Ein Datenordner wird nur von einem Prozess benutzt (Sperrdatei); zweiter Start meldet „in Benutzung“ | ✅ `Storage\DataFolderLock.cs`, `Background\MailboxService.cs` (`StartAsync`) | ✅ verify.2 (964/964), Review APPROVE; Fälle 1, 2 |
+| 6 | Echte Konten: 10 min Dienstlauf ohne Fehler, Testmail löst sofort einen Abgleich aus, sauberes Beenden | ⚠️ Werkzeug `_scratch\service-probe` (git-ignoriert, im Worktree), Nutzung: `work\AP-03d\serviceprobe-usage.md`; Komposition mit eigener SQLite-Verbindung je Konto und Ablauf, siehe `work\AP-03d\impl-notes.md` O1 | ⚠️ Fall 19 läuft (Planner, 2026-10-31): Start, zweite Instanz („in Benutzung“) und Testmail → Abgleich nach 2 s ✅; IDLE-Erneuerung nach 9 min und sauberes Beenden ausstehend |
 
 Vollständiger Schnittstellenvertrag: `work\AP-03d\requirement.md`.
 
