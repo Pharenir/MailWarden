@@ -185,3 +185,62 @@ None.
 
 **Recommendation:** AP-04 needs a security review, because there the composition (O1.5, shared token caches across
 threads), the logging and the UI enqueue come together.
+
+# AP-03d – review.2 (reviewer, fix.2)
+
+Scope: `git diff e93e565 7107bb0 -- src work/AP-03d/impl-notes.md` (contract "Decisions fix.2" G1–G4). `tests\` not
+read. HEAD 1970b7b has no `src`/`PLAN.md` change since 7107bb0. Build `dotnet build MailWarden.sln -warnaserror` at
+HEAD: 0 warnings, 0 errors.
+
+## Verdict: APPROVE
+
+No blocker. G1–G4 are implemented as decided; the NIT changes add no race and lose no trigger.
+
+## Checked (OK)
+
+- **G1** `CancelCollectingAsync` (`MailboxService.cs:350`) in `StopAsync` (`:207`) and `AccountsChangedAsync` (`:302`):
+  - a throwing cancellation goes into `failures`; every worker is still awaited and disposed, and the `finally`
+    (`:213-219`) releases the lock only after that;
+  - the tokens are cancelled anyway: `CancelAsync` sets the cancelled state before it runs the callbacks and runs all
+    of them (no throw on the first one). Linked worker tokens and `worker.Stopped` are therefore set, so the wait ends.
+    Inside the watcher, a throwing DONE callback of MailKit still lets the `CancelAfter` abort (`MailKitIdleWatcher.cs:74`) run;
+  - OOM is excluded, as everywhere else.
+- **G2** `:639`: only `AuthenticationFailedException` with `InteractionRequired` → `SignInRequired` (waits for
+  `WatcherRetry` or stop). `Network`/`Unknown`/`AccessDenied`/`Configuration` → generic catch → backoff (`:601-604`,
+  max. 30 min, so no reconnect storm). Same rule as the account loop (`:481`). Doc of `RetryAccount` (`:244-248`) and
+  the loop comment (`:579-580`) match.
+- **G3** `StatusChanged` `<remarks>` (`:95-99`) matches `RaiseStatusChanged` (`:716-726`: per subscriber, swallowed);
+  the class remark refers to it. Behaviour unchanged.
+- **G4** `MailKitTransport.DisconnectQuietlyAsync` (`MailKitTransport.cs:371`) is identical to the three old copies:
+  `IsConnected` check, LOGOUT with 5 s timeout (all three constants were 5 000 ms), every exception except OOM
+  swallowed, `client.Dispose()` in `finally`. The callers keep their `isDisposed` guard and their own state reset
+  (watcher: events detached before). The remaining copies of the constant are gone. `ConnectionProbe.DisconnectIgnoringFailuresAsync`
+  (`ConnectionProbe.cs:148`) is not a duplicate: it propagates the caller's cancellation and also serves SMTP.
+- **NIT 1 (timer)** `:524-533`: `ObserveFault` for every existing timer. On an already awaited timer it is a no-op.
+- **NIT 2 (debounce/backoff on stop)** `DelayUnlessStoppedAsync` (`:677`):
+  - `worker.Stopped` is completed only by the token registration, so `ct` is always cancelled when `Stopped` wins.
+    `ThrowIfCancellationRequested` then throws the OCE that the loops treat as a normal end (`:424`, `:608`);
+  - the abandoned delay is observed (a cancelled task is not "unobserved");
+  - a faulting delay propagates as before;
+  - no lost trigger: `CycleTrigger`/`Retry` are reset only at cycle start (`:418-419`), so a trigger during the
+    debounce is served by the next cycle. The watcher backoff resets nothing.
+- **NIT 3 (message)** `:151` "…in use by another MailWarden instance." matches the contract ("data folder is in use")
+  and the XML doc (`:135`).
+- **NIT 4** `DataFolderLock.cs:31-34`: doc only, correct.
+
+## SHOULD
+
+1. **G1 only documented in `StopAsync`; the messages no longer fit.**
+   - `MailboxService.cs:264`: the `AggregateException` doc of `AccountsChangedAsync` still says only "a removed loop
+     ended with an unexpected failure". `StopAsync` (`:181-184`) was extended, so the two same flows now differ.
+   - `:223` "One or more account loops failed unexpectedly." and `:308` "One or more removed account loops failed
+     unexpectedly." can now also contain a cancellation-callback exception.
+   - Proposal: same doc sentence as `StopAsync` in `:264`; messages e.g. "Stopping the account loops failed: …" /
+     "…loops or their cancellation failed unexpectedly." Doc/text only; no test should depend on it.
+
+## NIT
+
+1. `MailboxService.cs:603`: `RetryAccount` does not shorten the watcher backoff (`WatcherRetry` is reset at `:591` and
+   not part of the backoff wait). Not new, but since G2 the common resume case (token refresh `Network`) now lands
+   here. After "retry" the cycle runs at once, while IDLE can stay off for up to 30 min; polling covers it. If it is
+   wanted: add `worker.WatcherRetry.WhenSet()` to the backoff race (planner/AP-04, no contract requirement).

@@ -220,7 +220,7 @@ public sealed class MailboxService : IAsyncDisposable
 
             if (failures.Count > 0)
             {
-                throw new AggregateException("One or more account loops failed unexpectedly.", failures);
+                throw new AggregateException("Stopping the account loops failed (cancellation or an unexpected loop failure).", failures);
             }
         }
         finally
@@ -261,7 +261,10 @@ public sealed class MailboxService : IAsyncDisposable
     /// <param name="ct">Cancels reading the account list.</param>
     /// <returns>A task that completes when new loops are started and removed loops have ended.</returns>
     /// <exception cref="InvalidOperationException">The service is not running.</exception>
-    /// <exception cref="AggregateException">A removed loop ended with an unexpected failure (programming error).</exception>
+    /// <exception cref="AggregateException">
+    /// A removed loop ended with an unexpected failure (programming error) or cancelling it threw; the method still waits
+    /// for every removed loop before it throws.
+    /// </exception>
     public async Task AccountsChangedAsync(CancellationToken ct = default)
     {
         await lifecycleGate.WaitAsync(ct).ConfigureAwait(false);
@@ -305,7 +308,7 @@ public sealed class MailboxService : IAsyncDisposable
 
             if (failures.Count > 0)
             {
-                throw new AggregateException("One or more removed account loops failed unexpectedly.", failures);
+                throw new AggregateException("Stopping the removed account loops failed (cancellation or an unexpected loop failure).", failures);
             }
         }
         finally
