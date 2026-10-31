@@ -34,6 +34,28 @@
 - [ ] authserv-id gegen Provider-Profil prüfen; vollständige Public Suffix List statt eingebauter Liste (C16)
 - [ ] Grenzfall `@`-Wort, das selbst `key=value` ist → fail-safe Domain null? (C24)
 
+### Befunde PstProbe 2026-10-31 (für AP-07b, anonymisiert)
+Werkzeug `_scratch\PstProbe` (XstReader.Api, Freigabe Dennis; nur lokal), Quelle `K:\Projekte\_private\MailWarden\backup.pst`,
+Ausgabe `K:\Projekte\_private\MailWarden\probe-out\`. 2.215 empfangene Mails (+68 gesendete), davon 345 mit
+Original-Headern (Outlook.com); 1.870 ohne Header (vermutlich IMAP-/Gmail-Ordner) → für AR-Auswertung unbrauchbar. Adressbuch simuliert aus
+43 Empfängern gesendeter Mails.
+- [ ] Outlook.com schreibt in 300 von 345 Headern **keine authserv-id** (Header beginnt mit `spf=…`), sonst
+  `mx.microsoft.com 1;` → Prüfung der authserv-id gegen das Provider-Profil (C16) taugt für Outlook nicht; Vertrauen
+  über „oberster Header“ beibehalten
+- [ ] `dmarc=bestguesspass` 5× (immer `dkim=none`, `compauth=pass reason=109`) → heute `Unknown`; durch SPF-Pass trotzdem
+  authentifiziert. Entscheidung: wie `none` behandeln? (C1)
+- [ ] `compauth` (Microsoft Composite Auth) wird nicht ausgewertet: 1 Kontakt-Mail mit `dmarc=fail`, `compauth=pass
+  reason=105` landet als LikelySpam (Fehlalarm). `compauth`/`reason` als Signal oder Gegengewicht prüfen
+- [ ] `dkim=timeout` (3×) → `Unknown`; ggf. wie `temperror`
+- [ ] `link-domain-mismatch` feuert bei fast allen legitimen Newslettern (z. B. 165/165, 26/27 in zwei Ordnern;
+  Tracking-Links) → Punkte/Bedingung kalibrieren
+- [ ] `random-domain`: Abkürzungs-Domains aus 5 Konsonanten (Score 0,78, knapp unter 0,8) treffen legitime Kontakte
+  (+15) → Abkürzungen berücksichtigen
+- [ ] Spam im Junk-Ordner: 6 Mails → 1 CertainSpam, 3 LikelySpam, 2 LikelyLegit. Gefälschte `header.from`-Werte wie
+  `--xxxx.yyyy.site` oder `AAA.comXXXX…` → künstliche Fixtures daraus bauen
+- [ ] `display-name-mismatch` hat in diesen Daten nie gefeuert (C4 hier nicht belegt)
+- [ ] Kein Parser-Ausfall: in keinem Header fehlte eine Methode, die im Rohtext stand
+
 ## Entschieden (2026-10-31)
 - Name/Ablage `K:\Projekte\Windows-Tools\MailWarden`, Lizenz PolyForm Noncommercial 1.0.0
 - **Mit Git**: öffentliches GitHub-Repo `Pharenir/MailWarden` (Google verlangt Homepage-, Datenschutz- und
