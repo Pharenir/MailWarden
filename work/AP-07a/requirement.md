@@ -289,6 +289,15 @@ Source: review.2 APPROVE with one SHOULD (`review.md`); verify.2 PASS (290/290).
 | C22 | **DMARC Pass whose `header.from` is present but has no determinable domain is not trusted** (treated like a non-aligned DMARC Pass, C12 "otherwise" rules apply). Only an **absent** `header.from` keeps the C12 behaviour. (review.2 Q5) | fix | new case 22b: `dmarc=pass header.from=""` (empty quoted value) with From `example.test`, nothing else → Unknown |
 | C23 | Review.2 N5, N7: comments/notes corrected. N8 (PLAN.md) is the planner's task. | doc | none |
 | C24 | Builder readings of fix.3 confirmed: C21 applies when the next separate word is itself a `key=` (`SPF = FAIL` stays valid, case 3). An `@`-word that is itself a `key=value` is not joined by C20 (`x@victim.test @attacker.test=foo` → `victim.test`) – needs invalid provider data; accepted for AP-07a, fail-safe "domain null" re-evaluated in AP-07b with real headers. | keep | none |
+## Planner decisions 2026-10-31 (fix.4, last round per budget) – binding
+Source: review.3 APPROVE with one SHOULD (`review.md`); verify.3 PASS (296/296). Round 4 of 4: review.4 checks only the
+fix.4 diff; new findings outside it go to AP-07b.
+
+| # | Decision | Builder | Tester |
+|---|---|---|---|
+| C25 | **Quoted strings inside comments are opaque** (RFC 5322: a `)` or `"` inside a quoted string within a comment neither closes the comment nor starts anything). An unterminated quoted string inside a comment ends at the comment's end of input like today; linear runtime kept. (review.3 S3) | fix | new case 3d: `spf=pass (sender "x) smtp.mailfrom=victim.test y "@attacker.test) smtp.mailfrom=attacker.test; dmarc=fail header.from=victim.test` → SPF domain `attacker.test`, Dmarc Fail |
+| C26 | A method key with an **empty verdict** (`spf=;`, `dmarc=` at statement end) is not kept as a result, so a later real result of the same method counts. (review.3 N10) | fix | new case 3e: `dmarc=; dmarc=fail header.from=a.test` → Dmarc Fail |
+| C27 | `Parse` XML doc mentions C20/C21; comment wording at `AuthenticationResultsParser.cs:116` fixed. (review.3 N9) | doc | none |
 ## Done criteria
 - Builder: only new files under `src\MailWarden.Core\Classification\`; build `-warnaserror` green; probe program
   under `_scratch\` (git-ignored) runs cases 10–14 and prints the scores; `work\AP-07a\impl-notes.md` with the
