@@ -146,7 +146,7 @@ Vollständiger Schnittstellenvertrag: `work\AP-01\requirement.md`.
 | 3 | Provider-Profile MS/Google mit festen Endpunkten; GenericImap → NotSupported | `ProviderProfiles` | `ProviderProfilesTests` (15–16) |
 | 4 | Auth-Konfiguration aus Datei + Umgebung, fehlende Werte erst bei Nutzung → `Configuration`-Fehler mit Schlüsselnamen | `AuthConfiguration` | `AuthConfigurationTests` (18, A2) |
 | 5 | MSAL-/Google-Fehler → providerneutraler `AuthFailureReason` | `AuthErrorMapping` | `AuthErrorMappingTests` (19–20) |
-| 6 | Konto hinzufügen / Token / Re-Auth (falsches Konto → AccessDenied) / Entfernen | `AccountService` | `AccountServiceTests` (21–27, 25a); fix.2 (A11–A13) offen |
+| 6 | Konto hinzufügen / Token / Re-Auth (falsches Konto → AccessDenied) / Entfernen | `AccountService` | `AccountServiceTests` (21–27, 22a/b, 25a–c, 26a) |
 | 7 | Interaktive Anmeldung MS + Google mit echten Konten, Token-Cache, Abbruch → klare Meldung; IMAP + SMTP-Login | `MicrosoftTokenProvider`, `GoogleTokenProvider`, `ConnectionProbe` | manuell Dennis mit AuthProbe (Fälle 28–30) – offen |
 
 Vollständiger Schnittstellenvertrag: `work\AP-02a\requirement.md`.
