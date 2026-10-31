@@ -14,8 +14,11 @@ namespace MailWarden.Infrastructure.Sync;
 /// <remarks>
 /// Order per folder: open (EXAMINE) → UIDVALIDITY check → deletions → new messages → flags → sync state. EML files
 /// are written before their rows and deleted before their rows, so a crash leaves at most an orphan file that the next
-/// run overwrites. Network/authentication failures and cancellation abort the pass; any other failure is recorded for
-/// its folder and the next folder continues. Not thread-safe; one pass at a time.
+/// run overwrites. Network/authentication failures and cancellation abort the pass. Any other failure of one message
+/// is collected and the folder continues: the folder completes with Error "&lt;n&gt; message(s) failed (first:
+/// &lt;Type.Name&gt;)" and its HighestSyncedUid is the lowest failed UID − 1, so failed and newer UIDs are retried.
+/// Any other failure of the folder itself is recorded as "&lt;ExceptionType&gt;: &lt;message&gt;", the folder keeps
+/// its previous sync state and the next folder continues. Not thread-safe; one pass at a time.
 /// </remarks>
 public sealed class SyncEngine
 {
