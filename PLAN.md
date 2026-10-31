@@ -103,7 +103,7 @@ Später: Naive Bayes aus Dennis’ Entscheidungen, Domain-Alter per RDAP.
 
 ## Arbeitsweise (festgelegt 2026-10-31)
 - AP-00 solo (Hauptagent). Ab AP-01 Drei-Rollen-Pipeline nach `agents.md` mit Git (Entscheidung Dennis 2026-10-31,
-  ersetzt „ohne Git“): Builder (fable) auf `feat/ap-NN-<slug>`, Tester (sonnet) auf `test/ap-NN-<slug>`, Reviewer
+  ersetzt „ohne Git“): Builder (fable, höchstens das Modell des Koordinators – Modellregel `agents.md`) auf `feat/ap-NN-<slug>`, Tester (sonnet) auf `test/ap-NN-<slug>`, Reviewer
   (opus) über den Diff gegen `main`. Leseverbote im Auftrag (Tester: kein `src\`, kein Diff; Reviewer: kein `tests\`).
   Anforderung und Notizen je AP in `work\<AP>\`.
 - Abschluss eines AP delegiert bei PASS + APPROVE (+ Security ohne Kritisch/Hoch): lokaler Merge-Commit in den

@@ -30,5 +30,14 @@ Testzähler: 0/4 seit letztem S3 (zuletzt: –, –)
 - **AP-00 abgeschlossen: Go.** Alle drei Konten: Cache ohne Browser, IMAP + SMTP ok, Kosten 0 €. Erkenntnisse in
   `docs\auth-setup.md`. Icon nach `assets\`, README-AI-usage angepasst (Icon aus Claude Design).
 - AP-01 gestartet: Anforderung `work\AP-01\requirement.md`, Pipeline Builder/Tester auf Worktrees unter `.worktrees\`.
-- Nächster Schritt: verify.1 (Branches zusammenführen, Tester lässt S2 laufen), review.1 parallel.
+  Koordinator auf Opus umgestellt → Builder (vorher fable, noch ohne Änderungen) gestoppt und auf Opus neu gestartet
+  (Modellregel `~/.claude/refs/agents.md`). Tester sonnet.
+- author.0 (Tester) fertig: 61 Testfälle für Fall 1–29 auf `test/ap-01-skeleton-storage` (`277919c`), ungelaufen.
+  Planer-Entscheidungen zu den Unklarheiten (beim verify in `requirement.md` nachtragen):
+  - Fall 19: Suchwörter werden mit implizitem AND verknüpft (FTS5-Standard bei Leerzeichen-Trennung).
+  - `FileEmlStore` muss jeden relativen Pfad über `DataPaths.ResolveMailPath` auflösen → `..`/absolute Pfade auch
+    dort `ArgumentException`; Test nachziehen (Security-relevant).
+  - `Limit <= 0`, `Offset < 0`, `SearchAsync(null)`, `DataPaths(null)` → `ArgumentException`/`ArgumentNullException`
+    (fail fast); Tests nachziehen.
+- Nächster Schritt: Builder abwarten → verify.1 (Branches zusammenführen, Tester lässt S2 laufen), review.1 parallel.
 - Blockiert durch: CPM-Freigabe für `chore/app-icon`; Dennis startet die WinUI-App manuell (Sollverhalten AP-01 #8).
