@@ -134,6 +134,21 @@ Fall 30 (AuthProbe abbrechen) bleibt vorerst offen (Dennis 2026-10-31).
 - **AP-03c gestartet** (`work\AP-03c\requirement.md`): Befehlswarteschlange. Entscheidungen Dennis 2026-10-31: Löschen
   wie Outlook (Entf → Papierkorb, Umschalt+Entf → endgültig, „Ordner leeren“ für Papierkorb/Junk); Echttest nur mit
   den aktuellen Junk-Mails (geprüft, dürfen auch endgültig gelöscht werden); AP-03d = Hintergrunddienst (Zeitplan, IDLE).
+- **AP-03c Gate erreicht** (`feat/ap-03c-command-queue` @ `96e2349`): verify.2 S3 922/922 (Core 360, Infrastructure 562),
+  review.1 + review.2 APPROVE, secure.1 0/0/1/7 (M1, N1, N4, N5 in fix.2 behoben), Fall 24 echte Konten (nur geprüfte
+  Junk-Mails, Kopie von `probe-data`): gelesen/ungelesen, Papierkorb + endgültig, endgültig aus Junk, Junk leeren
+  (Konto 2) – Server und lokal deckungsgleich; Sperre lehnt Posteingangs-Mail ab. Wartet auf CPM:
+  `chore/ap-03c-requirement` → `feat/ap-03c-…`; danach `probe-data` abgleichen (Junk von Konto 2 ist am Server
+  leer), CommandProbe nach `_scratch\command-probe` retten.
+  Am echten Server ungeprüft: Umschalt+Entf außerhalb Papierkorb/Junk (MOVE + COPYUID-Expunge), Rücknahme von
+  `\Deleted` nach gescheitertem Expunge (F3).
+
+### Vertagt aus AP-03c
+- [ ] AP-03d: benannter Mutex je Datenordner um `ExecutePendingAsync` (secure N3; App/Dienst/Probe parallel)
+- [ ] AP-04: Bestätigung „Ordner leeren“ zeigt die Anzahl aus dem Snapshot (secure N2); Hinweis, wenn Umschalt+Entf
+  Mails nur in den Papierkorb gebracht hat (kein COPYUID, Q1); fehlgeschlagene Befehle anzeigen/verwerfen
+- [ ] AP-04: F1 lädt beim Einreihen die UID-Map des ganzen Ordners (Performance bei großen Ordnern, review.2 NIT)
+- [ ] `command-probe-verified.json` (in `_private`) nach Abschluss der Junk-Tests löschen (Rückfrage Dennis)
 - Kosten Sitzung 3, Fortsetzung: fix.3 Builder ×1, Tester ×2 (+1), Reviewer ×1 · S3 main ×1 · AP-03b Builder ×1 (+1),
   Tester ×1 (+3), Reviewer ×2, Documenter ×1
 
