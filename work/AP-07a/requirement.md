@@ -278,6 +278,7 @@ Source: review.1 (`review.md`). verify.1 was PASS (272/272).
 | C16 | Out of scope → AP-07b (`TODO.md`): authserv-id check against the provider profile (Q3); full Public Suffix List instead of the built-in multi-label list. | – | – |
 | C17 | Refines C10: the domain is the part after the last `@` **outside quotes**; a value without such an `@` has no domain (null). `x@attacker.test"@victim.test"` → `attacker.test`; `"x@victim.test"@attacker.test` → `attacker.test` (unchanged). (builder fix.2 question 1) | fix | add both examples to 3a |
 | C18 | `ISpamSignal` XML doc states the C13 rule (SignalId must equal `Id`, Reason non-empty, else `Classify` throws InvalidOperationException). | doc | none |
+| C19 | Refines C17 (RFC 8601 `value = token / quoted-string`): a value that consists of **exactly one quoted string** is unquoted first, then the C17 rule applies to its content (`"Bounce@Example.TEST"` → `example.test`; `header.i="@victim.test"` → `victim.test`). A value without any `@` is itself the domain (`smtp.mailfrom=example.test`, `header.d`, `header.from`) – confirmed builder reading. Mixed values keep C17 (`"x@victim.test"@attacker.test` → `attacker.test`). | fix | add the two quoted examples to 3a |
 ## Done criteria
 - Builder: only new files under `src\MailWarden.Core\Classification\`; build `-warnaserror` green; probe program
   under `_scratch\` (git-ignored) runs cases 10–14 and prints the scores; `work\AP-07a\impl-notes.md` with the
