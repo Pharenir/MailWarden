@@ -6,8 +6,8 @@ namespace MailWarden.Infrastructure.Storage;
 
 /// <summary>
 /// Maintains the FTS5 table <c>messages_fts</c> (rowid = <c>messages.id</c>) and builds safe MATCH expressions.
-/// The only writer of <c>messages_fts</c> and the single place that knows the index layout; every caller passes the
-/// transaction of the row change so that row and index entry never diverge. Foreign-key cascades do not reach the
+/// The only writer of <c>messages_fts</c> (the search query in <c>SqliteMessageStore</c> joins it read-only); every
+/// caller passes the transaction of the row change so that row and index entry never diverge. Foreign-key cascades do not reach the
 /// virtual table, hence the explicit account/folder/UID deletes before the rows go.
 /// </summary>
 internal static class MessageSearchIndex

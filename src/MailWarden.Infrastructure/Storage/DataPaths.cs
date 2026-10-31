@@ -65,7 +65,8 @@ public sealed class DataPaths
     /// <exception cref="ArgumentException">
     /// The path is empty, rooted, contains "..", "." or empty segments, segments ending in "." or a space, reserved
     /// device names (<c>CON</c>, <c>PRN</c>, <c>AUX</c>, <c>NUL</c>, <c>COM1</c>-<c>COM9</c>, <c>LPT1</c>-<c>LPT9</c>,
-    /// with or without extension), or characters invalid in file names.
+    /// the superscript variants <c>COM¹</c>-<c>COM³</c> and <c>LPT¹</c>-<c>LPT³</c>, with or without extension), or
+    /// characters invalid in file names.
     /// </exception>
     public string ResolveMailPath(string relativePath)
     {
