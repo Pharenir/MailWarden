@@ -1,8 +1,9 @@
 # TODO – MailWarden
 
 ## Offen
-- [ ] **CPM Dennis:** Merge nach `main` + Push für `chore/app-icon`, AP-01, AP-07a, AP-02a (Reihenfolge unter „Übergabe“)
 - [ ] Dennis: AP-01 Fall 30 – WinUI-App starten (Pfad unten unter „Übergabe“)
+- [ ] Freigabe Dennis: Worktrees/Branches von AP-01, AP-07a, AP-02a und `chore/app-icon` löschen (alles in `main`)
+- [ ] Freigabe Dennis: leere, ungetrackte Datei `AuthenticationResultsParser.cs` (0 Byte) im Projektordner löschen
 - [ ] AP-13: `.ico` aus `assets\mailwarden-512.png` erzeugen (Exe-Icon, Installer)
 - [ ] AP-13: WindowsAppSDK-Metapaket zieht ~38 MB KI-Komponenten (onnxruntime/DirectML) → nur benötigte Teilpakete? (Paketentscheidung Dennis)
 - [ ] AP-04: ungültiges `MAILWARDEN_DATA_DIR` beendet die App beim Start stumm → Logger + Meldungsfenster
@@ -45,12 +46,14 @@
 - AP-07a und AP-02a parallel zu AP-01 vorgezogen (Dennis 2026-10-31)
 
 ## Testzähler
-Testzähler: 0/4 seit letztem S3 (zuletzt 2026-10-31: AP-01 verify.2 100/100, AP-07a verify.5 399/399 inkl. AP-01,
-AP-02a verify.3 243/243 inkl. AP-01 – je volle Suite im Feature-Branch)
+Testzähler: 0/4 seit letztem S3 (zuletzt 2026-10-31: S3 auf `main` @ `e45b892` nach allen vier Merges, 542/542 –
+Core.Tests 299, Infrastructure.Tests 243; Bericht `work\S3-main-2026-10-31.md`)
 
-## Stand 2026-10-31 (Session 2)
-Alle drei APs haben das Gate erreicht (PASS + APPROVE, AP-02a + Security ohne Kritisch/Hoch) und sind dokumentiert.
-**Warten auf CPM von Dennis** für Merge nach `main` + Push. Nichts ist gepusht.
+## Stand 2026-10-31 (Session 2, Ende)
+**CPM erledigt:** `chore/app-icon`, AP-01, AP-07a, AP-02a per `--no-ff` nach `main` gemergt, Build grün
+(`-warnaserror`), S3 542/542 grün, `main` @ `e45b892` gepusht. Konflikte wie erwartet: beide `requirement.md` →
+Fassung des Feature-Branches; `README.md` → Status, Projektstruktur und Testbeschreibung von AP-07a und AP-02a
+zusammengeführt. „Fertig“ im Sinne von Dennis erst nach seinen manuellen Prüfungen (siehe „Offen“).
 - **AP-01** `feat/ap-01-skeleton-storage` @ `cf788ec`: verify.2 100/100, review.2 APPROVE (NIT 1/3 vom Planer als
   Kommentar behoben, NIT 2 Index `messages.account_id` bewusst nicht – bei Bedarf Migration v2), README, `.env.example`
   korrigiert, PLAN-Spalten gefüllt. Offen nur Fall 30 (Dennis, App starten).
@@ -62,13 +65,9 @@ Alle drei APs haben das Gate erreicht (PASS + APPROVE, AP-02a + Security ohne Kr
   `.env.example` um Google-Variablen ergänzt. Offen: Dennis Fälle 28–30 mit AuthProbe.
 
 ## Übergabe – so geht es weiter
-1. **CPM Dennis** (eine Freigabe für alles oder je Branch). Danach Merge-Reihenfolge nach `main` (alles `--no-ff`):
-   `chore/app-icon` → `feat/ap-01-skeleton-storage` → `feat/ap-07a-classifier-core` → `feat/ap-02a-accounts-auth`.
-   Erwartete Konflikte (Probe-Merge 2026-10-31): `work/AP-07a/requirement.md` und `work/AP-02a/requirement.md`
-   (add/add mit dem älteren Stand aus `chore/app-icon` → Fassung des Feature-Branches nehmen); `README.md` zwischen
-   AP-07a und AP-02a (beide Documenter-Ergänzungen zusammenführen). Nach dem letzten Merge: Build + S3 auf `main`
-   (Tester), dann Push. `MailWarden.sln` ohne BOM halten (`dotnet sln` fügt es wieder ein).
-2. Danach Worktrees/Branches der drei APs aufräumen (Löschen nur nach Freigabe).
+1. Dieser Handover liegt auf `chore/session-handover` (lokal, nicht gepusht) → beim nächsten CPM mit nach `main`.
+2. Worktrees/Branches der drei APs aufräumen (Löschen nur nach Freigabe). `MailWarden.sln` ohne BOM halten
+   (`dotnet sln` fügt es wieder ein).
 3. Nächste APs laut PLAN: AP-03 (Sync-Engine) und AP-07b (Klassifizierer an Mails/Ordner, Punkte oben), AP-04 (UI
    inkl. AP-02b Konten-UI). Vor Start: Anforderung je AP schreiben (Planer), Modellwahl wie bisher.
 
