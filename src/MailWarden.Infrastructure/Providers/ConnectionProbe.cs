@@ -163,7 +163,10 @@ public sealed class ConnectionProbe
         }
     }
 
-    private static SecureSocketOptions ToSocketOptions(TransportSecurity security)
+    /// <summary>Maps the profile's transport security to MailKit socket options (shared with the sync transport).</summary>
+    /// <param name="security">Transport security of an endpoint.</param>
+    /// <returns>The MailKit socket options.</returns>
+    internal static SecureSocketOptions ToSocketOptions(TransportSecurity security)
     {
         return security switch
         {

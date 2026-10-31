@@ -72,9 +72,20 @@ internal static class SchemaMigrations
         );
         """;
 
+    /// <summary>Version 2: sync progress per folder (removed together with its folder).</summary>
+    private const string Version2 = """
+        CREATE TABLE folder_sync_state (
+            folder_id          INTEGER NOT NULL PRIMARY KEY REFERENCES folders (id) ON DELETE CASCADE,
+            highest_synced_uid INTEGER NOT NULL,
+            highest_mod_seq    INTEGER NOT NULL,
+            last_synced_at     TEXT    NULL -- ISO 8601 round-trip ("O")
+        );
+        """;
+
     /// <summary>All migrations in ascending order; versions are contiguous starting at 1.</summary>
     internal static readonly IReadOnlyList<(int Version, string Sql)> Ordered =
     [
         (1, Version1),
+        (2, Version2),
     ];
 }
