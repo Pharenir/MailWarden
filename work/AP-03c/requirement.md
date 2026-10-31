@@ -276,3 +276,49 @@ probe remembers those UIDs in `<dataRoot>\command-probe-trash.json`.
 | # | Case | Expected |
 |---|---|---|
 | 25 | EmptyFolder on Trash with 1,500 local messages | one command with all 1,500 UIDs; SetFlags/Move/Delete with 1,001 UIDs still rejected |
+
+## Decisions fix.2 (planner, 2026-10-31, after verify.1 PASS 909/909, review.1 APPROVE, secure.1 0/0/1/7)
+Code (builder):
+- F1 (secure M1, contract change C1): `EnqueueSetFlagsAsync`, `EnqueueMoveAsync`, `EnqueueMoveToTrashAsync`,
+  `EnqueueDeletePermanentlyAsync` get a new parameter `uint expectedUidValidity` directly after `folderId` (the
+  value the caller read together with the UIDs, i.e. `MailFolder.UidValidity` of its view). ≠ stored folder value →
+  `ArgumentException`, nothing stored. Additionally every UID must be stored locally in the source folder →
+  otherwise `ArgumentException`, nothing stored. `EnqueueEmptyFolderAsync` unchanged (takes its own snapshot).
+- F2 (secure N1): `MoveAsync` returns an empty map when the COPYUID source/destination counts differ or a destination
+  UID repeats. The executor expunges in Trash only when the map's destination UIDVALIDITY equals the value returned
+  by `SelectFolderAsync(trash)`; otherwise nothing is expunged (messages stay in Trash, command completes as in E3).
+  The map type may carry the destination UIDVALIDITY (builder's choice, e.g. `CopyUidMap(uint DestinationUidValidity,
+  IReadOnlyDictionary<uint,uint> Uids)`); `IMailCommandTransport.MoveAsync` signature may change accordingly.
+- F3 (secure N4): when UID EXPUNGE fails after a successful STORE `\Deleted`, send best effort
+  `UID STORE -FLAGS.SILENT (\Deleted)` for the same UIDs; ignore its failure; the original exception propagates.
+- F4 (secure N5 + review NIT): an unreadable queue row no longer breaks `ListAsync`/`ListDueAsync`: it is skipped
+  for `ListDueAsync`, and set to Failed with LastError "unreadable command row" (fixed text, never the UIDs) so the
+  UI can show and discard it.
+- F5 (review SHOULD code): one shared helper for "delete EML files, skip failures" (`SyncEngine` + `CommandExecutor`)
+  and one for "Trash folder of the account" (`SqliteMailCommandQueue` + `CommandExecutor`).
+- Review NITs: builder's choice.
+Probe (builder, `_scratch\command-probe`):
+- P1 (review SHOULD + secure N6/N7): Trash exception rebuilt:
+  - at `trash <uid>`: record the highest local Trash UID and the Trash UIDVALIDITY; store only a SHA-256 hash of the
+    Message-ID. A message without a Message-ID → the probe refuses `trash` for it.
+  - Resolve the Trash UID only after the move command has completed. Accept only a Trash UID above the recorded
+    highest UID, with the same hash, size and date, and the same Trash UIDVALIDITY. At `delete <uid> trash`, check all
+    of this again. Remove the record after a successful delete.
+- P2 (review SHOULD, Dennis's approval scope): allow-list of verified junk messages. The planner created
+  `K:\Projekte\_private\MailWarden\command-probe-verified.json` from `probe-data` before any further sync. It holds
+  the accounts, junk folder id, UIDVALIDITY and UIDs. The probe reads `<dataRoot>\command-probe-verified.json`; the
+  planner copies it there. Every Junk action (including `empty-junk` and `run`) refuses any UID that is not in the
+  allow-list for that account, or whose Junk UIDVALIDITY differs. `empty-junk` refuses unless the local Junk UIDs
+  are a subset of the allow-list.
+- N3: the probe prints a warning that it must run only on a copy of `probe-data` while no app or service runs.
+Deferred: N2 (confirmation count in AP-04, TODO), N3 mutex per data folder → AP-03d requirement.
+
+### Additional test cases (fix.2)
+| # | Case | Expected |
+|---|---|---|
+| 26 | Enqueue with expectedUidValidity ≠ folder value | ArgumentException, nothing stored (all four methods) |
+| 27 | Enqueue Move/Delete/SetFlags with a UID not stored locally | ArgumentException, nothing stored |
+| 28 | COPYUID map with unequal counts / duplicate destination UID | empty map → nothing expunged, command completed |
+| 29 | Map destination UIDVALIDITY ≠ Trash SELECT value | nothing expunged, command completed |
+| 30 | Expunge fails (Protocol) after STORE | transport sends -FLAGS \Deleted for the same UIDs (fake records it); original failure recorded |
+| 31 | Corrupt queue row (e.g. uids text "x") | ListDueAsync skips it, other commands due; ListAsync shows it Failed with "unreadable command row" |
