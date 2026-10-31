@@ -1,3 +1,5 @@
+using System.Collections.Frozen;
+
 namespace MailWarden.Infrastructure.Storage;
 
 /// <summary>
@@ -12,6 +14,15 @@ public sealed class DataPaths
 
     private static readonly char[] PathSeparators = ['/', '\\'];
     private static readonly char[] InvalidSegmentCharacters = Path.GetInvalidFileNameChars();
+
+    // Reserved DOS device names (case-insensitive); COM/LPT with superscript 1-3 are devices on Windows as well.
+    private static readonly FrozenSet<string> DosDeviceNames = new[]
+    {
+        "CON", "PRN", "AUX", "NUL",
+        "COM1", "COM2", "COM3", "COM4", "COM5", "COM6", "COM7", "COM8", "COM9",
+        "LPT1", "LPT2", "LPT3", "LPT4", "LPT5", "LPT6", "LPT7", "LPT8", "LPT9",
+        "COM¹", "COM²", "COM³", "LPT¹", "LPT²", "LPT³",
+    }.ToFrozenSet(StringComparer.OrdinalIgnoreCase);
 
     /// <summary>Creates the path set for a data root. Does not touch the file system.</summary>
     /// <param name="rootDirectory">Fully qualified data root directory.</param>
@@ -52,7 +63,9 @@ public sealed class DataPaths
     /// <param name="relativePath">Relative path, e.g. <c>accounts/{id}/folders/1/2.eml</c>.</param>
     /// <returns>Absolute path below <see cref="MailRoot"/>.</returns>
     /// <exception cref="ArgumentException">
-    /// The path is empty, rooted, contains "..", "." or empty segments, or contains characters invalid in file names.
+    /// The path is empty, rooted, contains "..", "." or empty segments, segments ending in "." or a space, reserved
+    /// device names (<c>CON</c>, <c>PRN</c>, <c>AUX</c>, <c>NUL</c>, <c>COM1</c>-<c>COM9</c>, <c>LPT1</c>-<c>LPT9</c>,
+    /// with or without extension), or characters invalid in file names.
     /// </exception>
     public string ResolveMailPath(string relativePath)
     {
@@ -79,6 +92,21 @@ public sealed class DataPaths
                     $"Mail path contains invalid characters: '{relativePath}'.",
                     nameof(relativePath));
             }
+
+            // Windows strips a trailing '.' or space ("x.eml." aliases "x.eml", "..." aliases the parent).
+            if (segment.EndsWith('.') || segment.EndsWith(' '))
+            {
+                throw new ArgumentException(
+                    $"Mail path contains a segment ending in '.' or a space: '{relativePath}'.",
+                    nameof(relativePath));
+            }
+
+            if (IsDosDeviceName(segment))
+            {
+                throw new ArgumentException(
+                    $"Mail path contains a reserved device name: '{relativePath}'.",
+                    nameof(relativePath));
+            }
         }
 
         // Defence in depth: the normalised result must still lie below the mail root.
@@ -92,5 +120,14 @@ public sealed class DataPaths
         }
 
         return resolvedPath;
+    }
+
+    // Windows maps these names to devices in every directory, with or without extension ("NUL", "con.eml");
+    // trailing spaces before the extension are ignored by Windows as well ("CON .eml").
+    private static bool IsDosDeviceName(string segment)
+    {
+        int extensionStart = segment.IndexOf('.', StringComparison.Ordinal);
+        string baseName = (extensionStart < 0 ? segment : segment[..extensionStart]).TrimEnd(' ');
+        return DosDeviceNames.Contains(baseName);
     }
 }

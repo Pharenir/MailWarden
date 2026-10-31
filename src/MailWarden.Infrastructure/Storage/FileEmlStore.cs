@@ -15,7 +15,9 @@ public sealed class FileEmlStore(DataPaths paths) : IEmlStore
     private readonly DataPaths paths = paths ?? throw new ArgumentNullException(nameof(paths));
 
     /// <inheritdoc />
-    /// <exception cref="ArgumentOutOfRangeException"><paramref name="folderId"/> or <paramref name="uid"/> is 0.</exception>
+    /// <exception cref="ArgumentOutOfRangeException">
+    /// <paramref name="folderId"/> is not positive or <paramref name="uid"/> is 0.
+    /// </exception>
     public string RelativePathFor(Guid accountId, long folderId, uint uid)
     {
         ArgumentOutOfRangeException.ThrowIfNegativeOrZero(folderId);
@@ -79,7 +81,8 @@ public sealed class FileEmlStore(DataPaths paths) : IEmlStore
 
         try
         {
-            // Delete sharing lets a later overwrite or delete succeed while a reader is still open.
+            // Delete sharing lets a delete succeed while a reader is still open; overwriting an open file fails
+            // (the replacing move is denied), see IEmlStore.WriteAsync.
             var options = new FileStreamOptions
             {
                 Mode = FileMode.Open,
