@@ -4,7 +4,8 @@ Windows mail client for personal use: several accounts (Outlook.com / Gmail / an
 transparent four-level spam classifier and user-defined rules. All move/delete actions are executed on the server via
 IMAP, so other devices see the same state.
 
-MailWarden is developed and used by a single person and is not offered as a service. Privacy policy: `PRIVACY.md`.
+MailWarden is developed and used by a single person and is not offered as a service.
+Privacy policy: `PRIVACY.md` · Terms of service: `TERMS.md`.
 
 Status: planning (see `PLAN.md`). No application code yet.
 
