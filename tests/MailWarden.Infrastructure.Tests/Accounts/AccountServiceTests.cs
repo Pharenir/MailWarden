@@ -136,6 +136,26 @@ public sealed class AccountServiceTests
         Assert.Equal(account, await storage.Accounts.GetAsync(account.Id));
     }
 
+    // Case 25a (A3)
+    [Fact(Timeout = TestTimeouts.PerTestMilliseconds)]
+    public async Task Reauthenticate_with_grant_of_other_stored_account_throws_AccessDenied_without_sign_out()
+    {
+        await using StorageFixture storage = await StorageFixture.CreateAsync();
+        Account account = await StoreAccountAsync(storage);
+        Account secondAccount = await StoreAccountAsync(storage, "user_b@example.test");
+        var fake = new FakeTokenProvider();
+        fake.EnqueueSignIn("user_b@example.test");
+        var service = new AccountService(storage.Accounts, [fake]);
+
+        AuthenticationFailedException exception =
+            await Assert.ThrowsAsync<AuthenticationFailedException>(() => service.ReauthenticateAsync(account.Id));
+
+        Assert.Equal(AuthFailureReason.AccessDenied, exception.Reason);
+        Assert.Empty(fake.SignedOutUsernames);
+        Assert.Equal(account, await storage.Accounts.GetAsync(account.Id));
+        Assert.Equal(secondAccount, await storage.Accounts.GetAsync(secondAccount.Id));
+    }
+
     [Fact(Timeout = TestTimeouts.PerTestMilliseconds)]
     public async Task Reauthenticate_with_same_account_case_insensitive_returns_token_without_sign_out()
     {
