@@ -109,7 +109,7 @@ public sealed class CommandEndToEndTests
         MailFolder archive = await harness.Sync.GetFolderAsync("Archive");
         Assert.Equal(new uint[] { 1, 2, 3 }, await harness.LocalUidsAsync(inbox));
         Assert.Empty(await harness.LocalUidsAsync(archive));
-        await harness.Queue.EnqueueMoveAsync(inbox.Id, [1, 3], archive.Id);
+        await harness.Queue.EnqueueMoveAsync(inbox.Id, inbox.UidValidity, [1, 3], archive.Id);
 
         CommandRunReport report = await harness.ExecuteAsync();
         SyncReport sync = await harness.RunSyncAsync();
@@ -131,7 +131,7 @@ public sealed class CommandEndToEndTests
     {
         await using CommandHarness harness = await CreateSyncedAsync();
         MailFolder inbox = await harness.Sync.GetFolderAsync("INBOX");
-        await harness.Queue.EnqueueMoveToTrashAsync(inbox.Id, [2]);
+        await harness.Queue.EnqueueMoveToTrashAsync(inbox.Id, inbox.UidValidity, [2]);
 
         await harness.ExecuteAsync();
         SyncReport sync = await harness.RunSyncAsync();
@@ -146,7 +146,7 @@ public sealed class CommandEndToEndTests
     {
         await using CommandHarness harness = await CreateSyncedAsync();
         MailFolder inbox = await harness.Sync.GetFolderAsync("INBOX");
-        await harness.Queue.EnqueueDeletePermanentlyAsync(inbox.Id, [1]);
+        await harness.Queue.EnqueueDeletePermanentlyAsync(inbox.Id, inbox.UidValidity, [1]);
 
         CommandRunReport report = await harness.ExecuteAsync();
         SyncReport sync = await harness.RunSyncAsync();
@@ -183,7 +183,7 @@ public sealed class CommandEndToEndTests
     {
         await using CommandHarness harness = await CreateSyncedAsync();
         MailFolder inbox = await harness.Sync.GetFolderAsync("INBOX");
-        await harness.Queue.EnqueueSetFlagsAsync(inbox.Id, [1, 2], MessageFlags.Seen | MessageFlags.Flagged, MessageFlags.None);
+        await harness.Queue.EnqueueSetFlagsAsync(inbox.Id, inbox.UidValidity, [1, 2], MessageFlags.Seen | MessageFlags.Flagged, MessageFlags.None);
 
         await harness.ExecuteAsync();
         SyncReport sync = await harness.RunSyncAsync();
