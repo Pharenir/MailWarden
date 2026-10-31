@@ -228,9 +228,11 @@ Build `-warnaserror` → 0 warnings, 0 errors. Probe → **146 checks OK, 0 FAIL
 Note to the tester: the "fully quoted address → domain null" note from addendum 1 is **void**; fully quoted values
 give the domain of their content again (as before C17).
 
-Remaining edge (no action, by reasoning only): inside a single quoted string, escaped quotes are plain characters
-after unquoting, so `"x@attacker.test\"@victim.test\""` gives `victim.test` (C17 is not re-applied to quotes inside
-the content). Contrived and not valid SMTP; with C11 a provider DMARC fail still wins.
+Remaining edge (no action, by reasoning only; corrected in fix.3 per review.2 N7): inside a single quoted string,
+escaped quotes are plain characters after unquoting, so `"x@attacker.test\"@victim.test\""` gives `victim.test"`
+**with** the trailing quote (`Normalize` does not strip `"`), which is never aligned with `victim.test`. Only an
+unbalanced inner quote (`"x@attacker.test\"@victim.test"`) yields a clean `victim.test` – an envelope address
+whose real domain cannot be determined and that a provider would reject; with C11 a provider DMARC fail still wins.
 
 ### Open questions (fix.2 addendum) – resolved
 Both answered by C19 (question 1) and the planner's confirmation (question 2); kept below for the record.
@@ -243,3 +245,54 @@ Both answered by C19 (question 1) and the planner's confirmation (question 2); k
 2. Interpretation of C17 "a value without such an `@` has no domain": applied only to values that contain `@`
    exclusively inside quotes; values without any `@` (Outlook `smtp.mailfrom=example.test`, `header.d`,
    `header.from`) keep the whole value as domain – otherwise case 2 would break. Confirm.
+
+---
+
+## fix.3 (2026-10-31)
+
+STEP-RESULT: done
+
+Basis: planner decisions C20–C23 (`requirement.md`, fix.3), review.2 (`review.md`). Commit `34648e9` on
+`feat/ap-07a-classifier-core`. Build `dotnet build MailWarden.sln -warnaserror` → 0 warnings, 0 errors.
+Changed: `AuthenticationResultsParser.cs`, `AuthStatusEvaluator.cs`, `AuthenticationResults.cs` (internal member
+only), this file. No public signature, no package, no IO. `tests\`, `test-plan.md`, `test-result.md` not read.
+
+### Decision → change → verification
+| # | Change (file:line) | Verified by |
+|---|---|---|
+| C20 | `AuthenticationResultsParser.cs:150-160` the value run continues over a separated token when `IsAddressDomainContinuation` (`:213`): a Word starting with `@` that is not a key (`IsKeyAt`, `:117`). Only for property values (`isPropertyValue`, decided before reading, `:99-100`), never for method verdicts. Quoted `"@…"` words are appended too → mixed value → quoted `@` gives no domain (fail-safe). Appending happens before C17/C19. | Probe 3b: `"x@victim.test" @attacker.test`, `"x@victim.test" (c) @attacker.test`, `"x@victim.test"(c)@attacker.test`, `victim.test (c) @attacker.test`, folded `x@victim.test CRLF TAB @attacker.test` → `attacker.test`; `"x@victim.test" "@attacker.test"` → null; `a@b.test @c.test @d.test` → `d.test`; `header.i=victim.test (c) @attacker.test` → DKIM `attacker.test`; following `; dmarc=fail` intact; `dkim=pass @x.test header.d=a.test` → verdict Pass. End-to-end: spoofed contact via SPF and via Gmail-style `header.i` → Unknown, not TrustedContact. |
+| C21 | `:141-146` empty value when the token after `=` is missing (statement end) or is separated by whitespace/comment **and** is itself a key; `IsKeyAt` now needs only `position + 1 < end`, so `key=` at the statement end is a present property with empty value. `key = value` (case 3) unchanged because `value` is not followed by `=`. | Probe 3c: `spf=pass smtp.mailfrom= dmarc=fail header.from=a.test` → Dmarc Fail, SPF domain null; `smtp.mailfrom=;` / `header.d=` at the end → domain null; `spf= dkim=fail …` → SPF Unknown, DKIM Fail parsed; `spf = pass smtp.mailfrom = a@b.test` → Pass `b.test`; #3 unchanged. |
+| C22 | Parser records whether the kept (first) DMARC result had a `header.from` that was present but domain-less (`:334`) → `AuthenticationResults.IsDmarcHeaderFromWithoutDomain` (internal init, `AuthenticationResults.cs:26`, set at `AuthenticationResultsParser.cs:348`). `AuthStatusEvaluator.cs:56` trusts a domain-less DMARC pass only when that flag is false (header.from absent); otherwise C12 "otherwise" rules apply. | Probe 22b: `header.from=""`, `header.from=` (end), `header.from= spf=none`, `header.from="a""b@c.test"`, `header.from=.` → Unknown, no `authentication` finding; absent header.from → Authenticated; domain-less DMARC pass + aligned DKIM → Authenticated via DKIM; only the first DMARC counts; contact → unverified (LikelyLegit + override). |
+| C23 | N5: `ReadValue` comment (`AuthenticationResultsParser.cs:134`) example now `"a""b@c.test"` → null, C19 mentioned. N7: "Remaining edge" in fix.2 addendum 2 corrected (`victim.test"`, not aligned). N8 not mine (PLAN.md). | Reading. |
+
+Design note C22: the flag lives on `AuthenticationResults` (not on `AuthMethodResult`) so that record equality of
+`AuthMethodResult` values (e.g. `Dmarc == new AuthMethodResult(Pass, null)`) is unaffected; `AuthenticationResults`
+equality is only affected for headers with a present but domain-less DMARC `header.from`. Custom signals cannot see
+the flag (internal); they see `Dmarc` = Pass/null as before, but `context.AuthStatus` already reflects C22.
+
+### Probe and self-check
+- `dotnet run --project _scratch\ClassifierProbe` → **174 checks OK, 0 FAIL** (all previous cases 1–31, C10–C19,
+  plus the C20–C22 cases above). Hostile 1 MB inputs incl. 150 000 `(c) @a` continuations and 330 000 empty
+  `k= ` values: ≤ 180 ms (linear; each token visited once, never throws).
+- Watchdog self-check (not a test stage): `FullyQualifiedName~AuthenticationResultsParser` 49/49,
+  `FullyQualifiedName~Classifier` 115/115 passed.
+
+### Tested vs. untested
+- Verified by probe: everything in the table.
+- Untested / by reasoning: real provider headers with CFWS inside pvalues (none known, AP-07b); Unicode in values.
+
+### Note to the tester
+- New behaviour can affect existing cases only where a property value is followed by a separated `@…` word, where
+  `key=` is followed by whitespace and another `key=` (previously the next pair was swallowed as the value), where
+  `key=` stands at the statement end (previously the property was absent, now present with domain null – for
+  `header.from` that turns a DMARC pass untrusted), and DMARC pass with a present but domain-less `header.from`.
+  The self-check above showed no failing existing test.
+
+### Open questions (fix.3)
+1. `src\MailWarden.Core\Classification\AuthenticationResultsParser.cs:213` – per C20 an `@…` word that is itself a
+   key (`x@victim.test @attacker.test=foo`) is not appended, so the domain stays `victim.test`. A real domain cannot
+   contain `=`, so this needs a provider writing invalid data; no action unless the planner wants the fail-safe
+   (domain null) for that case too.
+2. `src\MailWarden.Core\Classification\AuthenticationResultsParser.cs:141` – C21 read as "empty value when the
+   next separated word is a key"; a literal "`key=` + whitespace → always empty" would break case 3
+   (`SPF = FAIL`, `dkim = pass`). Interpretation consistent with review.2 N6 – confirm.
