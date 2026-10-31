@@ -1,5 +1,7 @@
+using MailWarden.Core.Accounts;
 using MailWarden.Core.Sync;
 
+using MailWarden.Infrastructure.Sync;
 namespace MailWarden.Infrastructure.Tests.Sync;
 
 /// <summary>AP-03a fix.3 (G1): UIDs the server did not deliver are retried; initial-window floor. Cases 35-38 and 40.</summary>
