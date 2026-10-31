@@ -2,17 +2,15 @@
 
 ## Offen
 - [ ] Dennis: AP-01 Fall 30 – WinUI-App starten (Pfad unten unter „Übergabe“)
-- [ ] Freigabe Dennis: Worktrees/Branches von AP-01, AP-07a, AP-02a und `chore/app-icon` löschen (alles in `main`)
-- [ ] Freigabe Dennis: leere, ungetrackte Datei `AuthenticationResultsParser.cs` (0 Byte) im Projektordner löschen
 - [ ] AP-13: `.ico` aus `assets\mailwarden-512.png` erzeugen (Exe-Icon, Installer)
 - [ ] AP-13: WindowsAppSDK-Metapaket zieht ~38 MB KI-Komponenten (onnxruntime/DirectML) → nur benötigte Teilpakete? (Paketentscheidung Dennis)
 - [ ] AP-04: ungültiges `MAILWARDEN_DATA_DIR` beendet die App beim Start stumm → Logger + Meldungsfenster
 - [ ] AP-03/AP-04: EML überschreiben scheitert bei offenem Leser → Lesebereich lädt EML in den Speicher, Befehlswarteschlange wiederholt
-- [ ] Dennis: AP-02a Fälle 28–30 mit der AuthProbe (Anleitung `.worktrees\feat-ap-02a\work\AP-02a\impl-notes.md`,
-  „AuthProbe usage for Dennis“); dabei prüfen: `%APPDATA%\Google.Apis.Auth` entsteht **nicht**; Abbruch auf der
+- [ ] Dennis: AP-02a Fälle 28–30 mit der AuthProbe (Anleitung `work\AP-02a\impl-notes.md`, „AuthProbe usage for
+  Dennis“ – Worktree ist entfernt: statt `cd .worktrees\feat-ap-02a` aus dem Projektordner starten, die Probe liegt
+  jetzt unter `_scratch\auth-probe`); dabei prüfen: `%APPDATA%\Google.Apis.Auth` entsteht **nicht**; Abbruch auf der
   Google-Seite meldet UserCancelled/AccessDenied, nicht `state_mismatch`
-- [ ] Dennis: AP-07a Begründungstexte der Probe ansehen (`.worktrees\feat-ap-07a\_scratch\ClassifierProbe`)
-- [ ] Probe-Datenbanken aus `_scratch\` mit altem Schema-v1-Layout (vor D3) vor weiterer Nutzung löschen (Freigabe Dennis)
+- [ ] Dennis: AP-07a Begründungstexte ansehen (`docs\classifier.md`; Probe `_scratch\ClassifierProbe`)
 
 ### Vertagt aus AP-02a (A18, secure.1/2, review.2)
 - [ ] Gemeinsamer Atomic-Write-Helfer für `FileEmlStore`/`DpapiCredentialStore` (berührt AP-01-Code)
@@ -90,22 +88,17 @@ zusammengeführt. „Fertig“ im Sinne von Dennis erst nach seinen manuellen Pr
 
 ## Übergabe – so geht es weiter
 1. Dieser Handover liegt auf `chore/session-handover` (lokal, nicht gepusht) → beim nächsten CPM mit nach `main`.
-2. Worktrees/Branches der drei APs aufräumen (Löschen nur nach Freigabe). `MailWarden.sln` ohne BOM halten
-   (`dotnet sln` fügt es wieder ein).
+2. Aufgeräumt 2026-10-31 (Freigabe Dennis): alle sechs AP-Worktrees und sieben Branches (inkl. `chore/app-icon`)
+   entfernt, leere Datei `AuthenticationResultsParser.cs` gelöscht; Probe-DBs gab es keine mehr. AuthProbe und
+   ClassifierProbe vorher nach `_scratch\auth-probe` bzw. `_scratch\ClassifierProbe` im Hauptordner gerettet.
+   `MailWarden.sln` ohne BOM halten (`dotnet sln` fügt es wieder ein).
 3. Nächste APs laut PLAN: AP-03 (Sync-Engine) und AP-07b (Klassifizierer an Mails/Ordner, Punkte oben), AP-04 (UI
    inkl. AP-02b Konten-UI). Vor Start: Anforderung je AP schreiben (Planer), Modellwahl wie bisher.
 
 ## Worktrees (alle unter `.worktrees\`, git-ignoriert)
-| Worktree | Branch |
-|---|---|
-| `feat-ap-01` | `feat/ap-01-skeleton-storage` |
-| `test-ap-01` | `test/ap-01-skeleton-storage` |
-| `feat-ap-07a` | `feat/ap-07a-classifier-core` |
-| `test-ap-07a` | `test/ap-07a-classifier-core` |
-| `feat-ap-02a` | `feat/ap-02a-accounts-auth` |
-| `test-ap-02a` | `test/ap-02a-accounts-auth` |
+Keine aktiven.
 
-WinUI-App für Fall 30: in `.worktrees\feat-ap-01` `dotnet build MailWarden.sln`, dann
+WinUI-App für Fall 30: im Projektordner `dotnet build MailWarden.sln`, dann
 `src\MailWarden.App\bin\x64\Debug\net9.0-windows10.0.19041.0\win-x64\MailWarden.App.exe` starten.
 
 ## Kosten (Agenten)
