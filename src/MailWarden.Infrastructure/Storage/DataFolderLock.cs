@@ -28,7 +28,10 @@ public sealed class DataFolderLock : IDisposable
     /// <returns>The held lock, or null when another process (or another instance in this process) holds it.</returns>
     /// <exception cref="ArgumentNullException"><paramref name="paths"/> is null.</exception>
     /// <exception cref="IOException">The lock file could not be opened for another reason than a held lock.</exception>
-    /// <exception cref="UnauthorizedAccessException">The data root is not writable.</exception>
+    /// <exception cref="UnauthorizedAccessException">
+    /// The data root is not writable, or (rarely) the lock file is just being deleted by a holder that released it at
+    /// the same moment (Windows delete-pending state); a retry then succeeds.
+    /// </exception>
     public static DataFolderLock? TryAcquire(DataPaths paths)
     {
         ArgumentNullException.ThrowIfNull(paths);

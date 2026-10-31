@@ -358,6 +358,18 @@ internal sealed class MailKitTransport : IMailTransport
 
         isDisposed = true;
         openFolder = null;
+        await DisconnectQuietlyAsync(client).ConfigureAwait(false);
+    }
+
+    /// <summary>
+    /// Logs out (best effort, at most <see cref="DisconnectTimeoutMilliseconds"/>) and disposes the client. Failures of
+    /// the logout are ignored: the session is over either way and disposing releases the socket. Shared by every MailKit
+    /// session class (sync, commands, IDLE watcher).
+    /// </summary>
+    /// <param name="client">Client to close; disposed on every path.</param>
+    /// <returns>A task that completes when the client is disposed.</returns>
+    internal static async Task DisconnectQuietlyAsync(ImapClient client)
+    {
         try
         {
             if (client.IsConnected)

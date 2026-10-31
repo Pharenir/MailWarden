@@ -14,8 +14,6 @@ namespace MailWarden.Infrastructure.Sync;
 /// </summary>
 internal sealed class MailKitIdleWatcher : IMailIdleWatcher
 {
-    private const int DisconnectTimeoutMilliseconds = 5_000;
-
     // After the done token fired (change, maxWait or stop) DONE is sent first; the IDLE command is aborted only when the
     // server does not answer in time (MailKit: cancel the done token before the cancellation token).
     private static readonly TimeSpan DoneGracePeriod = TimeSpan.FromSeconds(10);
@@ -109,22 +107,7 @@ internal sealed class MailKitIdleWatcher : IMailIdleWatcher
         inbox.CountChanged -= OnInboxChanged;
         inbox.MessageExpunged -= OnInboxChanged;
         inbox.MessageFlagsChanged -= OnInboxChanged;
-        try
-        {
-            if (client.IsConnected)
-            {
-                using var disconnectTimeout = new CancellationTokenSource(DisconnectTimeoutMilliseconds);
-                await client.DisconnectAsync(quit: true, disconnectTimeout.Token).ConfigureAwait(false);
-            }
-        }
-        catch (Exception exception) when (exception is not OutOfMemoryException)
-        {
-            // Ignored on purpose: the session is over either way; disposing below releases the socket.
-        }
-        finally
-        {
-            client.Dispose();
-        }
+        await MailKitTransport.DisconnectQuietlyAsync(client).ConfigureAwait(false);
     }
 
     // Raised by MailKit on the thread that reads the IDLE response; ends the running IDLE like MailKit's IDLE example.

@@ -207,3 +207,35 @@ reflection tool (`_scratch\il-probe`, git-ignored; lists the members a method re
   (schema migration would also run there if pending). For AP-04: acquire before `InitializeAsync`, e.g. by letting the
   app hold the lock and the service accept it, or by a lazily initialised account store.
 - **O3:** `docs\`/README not touched (documenter).
+
+## fix.2 (builder, after review.1 APPROVE; decisions "Decisions fix.2" in `requirement.md`)
+
+Build `dotnet build MailWarden.sln -warnaserror` → 0 warnings / 0 errors (incl. tests). No tests run or edited;
+`_scratch\service-probe` untouched (running case 19).
+
+- **G1** `MailboxService.cs:350` `CancelCollectingAsync`: a throwing cancellation (`serviceStop.CancelAsync` `:207`,
+  `worker.CancelAsync` in `AccountsChangedAsync` `:302`) is added to the collected failures instead of propagating.
+  Then every worker is still awaited; only afterwards the `finally` releases the lock. The exception surfaces in the
+  existing `AggregateException`.
+- **G2** `:639` – only `AuthenticationFailedException` with `InteractionRequired` ends the watcher session as
+  `WatcherEnd.SignInRequired` (waits for `RetryAccount`, `:597`). Every other auth failure falls into the generic catch
+  → reconnect after the watcher backoff (cases 20/21). The `RetryAccount` XML doc was updated.
+- **G3** The XML doc of `StatusChanged` (`:95-100`, `<remarks>`) states that subscriber exceptions are caught and
+  ignored per subscriber, and that subscribers report their own errors (AP-04 logs them as critical). Behaviour
+  unchanged.
+- **G4** `MailKitTransport.DisconnectQuietlyAsync(ImapClient)` (`MailKitTransport.cs:371`, internal static):
+  - LOGOUT best effort within 5 s, failures ignored, client disposed in `finally`;
+  - used by `MailKitTransport.DisposeAsync :361`, `MailKitCommandTransport.DisposeAsync :212` and
+    `MailKitIdleWatcher.DisposeAsync :110`;
+  - the two duplicate `DisconnectTimeoutMilliseconds` constants were removed.
+- **NIT 1** `:532` – the poll/backoff timer is observed whenever it exists (also if it faulted while a trigger won).
+- **NIT 2** `DelayUnlessStoppedAsync :677` – the debounce (`:538`) and the watcher backoff (`:603`) also end on
+  `worker.Stopped`. Every wait of the service now races against stop, so the earlier note is accurate now.
+- **NIT 3** `:151` – the message now reads "The data folder is in use by another MailWarden instance." It still
+  contains "data folder is in use" / "in use"; the probe's `Contains("in use")` and the lifecycle test still match.
+- **NIT 4** `DataFolderLock.cs:31-34` – the XML doc mentions the rare delete-pending `UnauthorizedAccessException`.
+- **NIT 5/6** (no code): the AP-04 shutdown can take up to about 15 s per account with a dead connection (10 s DONE
+  grace + 5 s LOGOUT; accounts in parallel). A cycle that executed commands causes exactly one more cycle through the
+  IDLE events of its own changes. Both are for the documenter/AP-04.
+- **NIT 7** not done (the backoff in `CommandExecutor` has a different cap; a shared helper is optional, no
+  refactoring on the side).

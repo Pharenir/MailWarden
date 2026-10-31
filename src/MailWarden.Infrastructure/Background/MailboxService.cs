@@ -26,7 +26,7 @@ namespace MailWarden.Infrastructure.Background;
 /// Concurrency: <see cref="StartAsync"/>, <see cref="StopAsync"/> and <see cref="AccountsChangedAsync"/> are
 /// serialised. Status changes are stored under a lock and <see cref="StatusChanged"/> is raised after the lock is
 /// released, always from the account's loop (a thread-pool thread), so the events of one account arrive in order.
-/// An exception of a subscriber is ignored so that it cannot stop an account loop. Subscribers must not block on
+/// An exception of a subscriber is ignored (see <see cref="StatusChanged"/>). Subscribers must not block on
 /// <see cref="StopAsync"/> inside the handler (the stop waits for the loop that raises the event).
 /// </para>
 /// </remarks>
@@ -92,6 +92,11 @@ public sealed class MailboxService : IAsyncDisposable
     /// Raised on a thread-pool thread whenever the status of an account changes (also for every progress report of a
     /// running cycle). Never raised while the service holds a lock.
     /// </summary>
+    /// <remarks>
+    /// An exception thrown by a subscriber is caught and ignored, per subscriber: the UI must not be able to stop an
+    /// account loop or keep other subscribers from being called. Subscribers therefore handle and report their own
+    /// errors (AP-04 logs them as critical). Do not block on <see cref="StopAsync"/> inside a handler.
+    /// </remarks>
     public event EventHandler<AccountSyncStatus>? StatusChanged;
 
     private enum ServiceState
@@ -104,7 +109,7 @@ public sealed class MailboxService : IAsyncDisposable
     private enum WatcherEnd
     {
         NotSupported,
-        AuthenticationFailed,
+        SignInRequired,
         ConnectionFailed,
     }
 
@@ -143,7 +148,7 @@ public sealed class MailboxService : IAsyncDisposable
 
             // Lock first: a second process must fail before any account is read or any loop runs.
             DataFolderLock acquiredLock = DataFolderLock.TryAcquire(paths)
-                ?? throw new InvalidOperationException("The data folder is in use by another MailWarden process.");
+                ?? throw new InvalidOperationException("The data folder is in use by another MailWarden instance.");
             try
             {
                 IReadOnlyList<Account> accountList = await accounts.ListAsync(ct).ConfigureAwait(false);
@@ -173,7 +178,10 @@ public sealed class MailboxService : IAsyncDisposable
     /// does nothing when the service was never started.
     /// </summary>
     /// <returns>A task that completes when every loop has ended and the lock is released.</returns>
-    /// <exception cref="AggregateException">A loop ended with an unexpected failure (programming error); the service is stopped anyway.</exception>
+    /// <exception cref="AggregateException">
+    /// A loop ended with an unexpected failure (programming error) or a cancellation callback threw; the service is
+    /// stopped anyway and the lock is released after every loop ended.
+    /// </exception>
     public async Task StopAsync()
     {
         await lifecycleGate.WaitAsync().ConfigureAwait(false);
@@ -192,10 +200,11 @@ public sealed class MailboxService : IAsyncDisposable
                 workers.Clear();
             }
 
+            // A throwing cancellation callback must not skip the wait: the lock is released only after all loops ended.
             List<Exception> failures = [];
             try
             {
-                await serviceStop!.CancelAsync().ConfigureAwait(false);
+                await CancelCollectingAsync(serviceStop!.CancelAsync, failures).ConfigureAwait(false);
                 foreach (AccountWorker worker in runningWorkers)
                 {
                     await WaitForWorkerAsync(worker, failures).ConfigureAwait(false);
@@ -234,8 +243,8 @@ public sealed class MailboxService : IAsyncDisposable
 
     /// <summary>
     /// Leaves <see cref="AccountSyncState.NeedsSignIn"/> / <see cref="AccountSyncState.WaitingAfterError"/> and runs a
-    /// cycle soon (after <see cref="MailboxServiceOptions.TriggerDebounce"/>); also restarts an IDLE watcher stopped by
-    /// an authentication failure. Unknown accounts and a service that is not running are ignored.
+    /// cycle soon (after <see cref="MailboxServiceOptions.TriggerDebounce"/>); also restarts an IDLE watcher stopped
+    /// because a sign-in is needed. Unknown accounts and a service that is not running are ignored.
     /// </summary>
     /// <param name="accountId">Account to retry.</param>
     public void RetryAccount(Guid accountId)
@@ -290,7 +299,7 @@ public sealed class MailboxService : IAsyncDisposable
             List<Exception> failures = [];
             foreach (AccountWorker worker in removedWorkers)
             {
-                await worker.CancelAsync().ConfigureAwait(false);
+                await CancelCollectingAsync(worker.CancelAsync, failures).ConfigureAwait(false);
                 await WaitForWorkerAsync(worker, failures).ConfigureAwait(false);
             }
 
@@ -335,6 +344,19 @@ public sealed class MailboxService : IAsyncDisposable
             CancellationToken.None,
             TaskContinuationOptions.OnlyOnFaulted | TaskContinuationOptions.ExecuteSynchronously,
             TaskScheduler.Default);
+    }
+
+    // Cancels and records a throwing cancellation callback instead of propagating it, so the caller still waits.
+    private static async Task CancelCollectingAsync(Func<Task> cancel, List<Exception> failures)
+    {
+        try
+        {
+            await cancel().ConfigureAwait(false);
+        }
+        catch (Exception exception) when (exception is not OutOfMemoryException)
+        {
+            failures.Add(exception);
+        }
     }
 
     // Collects unexpected failures of a worker's loops; cancellation is the normal end. Disposes the worker afterwards.
@@ -499,16 +521,21 @@ public sealed class MailboxService : IAsyncDisposable
         }
         finally
         {
-            if (timerTask is { IsCompleted: false })
+            if (timerTask is not null)
             {
-                await timerCancel.CancelAsync().ConfigureAwait(false);
+                if (!timerTask.IsCompleted)
+                {
+                    await timerCancel.CancelAsync().ConfigureAwait(false);
+                }
+
+                // Also a timer that faulted while a trigger won (awaiting it again is harmless).
                 ObserveFault(timerTask);
             }
         }
 
         if (triggered && options.TriggerDebounce > TimeSpan.Zero)
         {
-            await DelayAsync(options.TriggerDebounce, ct).ConfigureAwait(false);
+            await DelayUnlessStoppedAsync(worker, options.TriggerDebounce, ct).ConfigureAwait(false);
         }
     }
 
@@ -550,7 +577,7 @@ public sealed class MailboxService : IAsyncDisposable
     }
 
     // Watcher loop: connect, IDLE until failure; reconnect after its own backoff, stop on NotSupported, wait for a
-    // retry after an authentication failure. A change triggers a cycle like TriggerAccount.
+    // retry when a sign-in is needed (InteractionRequired). A change triggers a cycle like TriggerAccount.
     private async Task RunWatcherLoopAsync(AccountWorker worker)
     {
         CancellationToken ct = worker.Token;
@@ -567,13 +594,13 @@ public sealed class MailboxService : IAsyncDisposable
                 {
                     case WatcherEnd.NotSupported:
                         return;
-                    case WatcherEnd.AuthenticationFailed:
+                    case WatcherEnd.SignInRequired:
                         await Task.WhenAny(worker.WatcherRetry.WhenSet(), worker.Stopped).ConfigureAwait(false);
                         worker.WatcherFailures = 0;
                         break;
                     default:
                         worker.WatcherFailures++;
-                        await DelayAsync(Backoff(worker.WatcherFailures), ct).ConfigureAwait(false);
+                        await DelayUnlessStoppedAsync(worker, Backoff(worker.WatcherFailures), ct).ConfigureAwait(false);
                         break;
                 }
             }
@@ -609,13 +636,14 @@ public sealed class MailboxService : IAsyncDisposable
         {
             return WatcherEnd.NotSupported;
         }
-        catch (AuthenticationFailedException)
+        catch (AuthenticationFailedException exception) when (exception.Reason == AuthFailureReason.InteractionRequired)
         {
-            return WatcherEnd.AuthenticationFailed;
+            return WatcherEnd.SignInRequired;
         }
         catch (Exception exception) when (exception is not OutOfMemoryException)
         {
-            // MailTransportException and anything unexpected: reconnect after the watcher backoff.
+            // MailTransportException, other token failures (e.g. no network after resume) and anything unexpected:
+            // reconnect after the watcher backoff.
             return WatcherEnd.ConnectionFailed;
         }
         finally
@@ -643,6 +671,20 @@ public sealed class MailboxService : IAsyncDisposable
     private async Task DelayAsync(TimeSpan duration, CancellationToken ct)
     {
         await delay.DelayAsync(duration, ct).ConfigureAwait(false);
+    }
+
+    // A wait that also ends on stop, even when a delay implementation ignores the token.
+    private async Task DelayUnlessStoppedAsync(AccountWorker worker, TimeSpan duration, CancellationToken ct)
+    {
+        Task delayTask = DelayAsync(duration, ct);
+        Task first = await Task.WhenAny(delayTask, worker.Stopped).ConfigureAwait(false);
+        if (first != delayTask)
+        {
+            ObserveFault(delayTask);
+            ct.ThrowIfCancellationRequested();
+        }
+
+        await delayTask.ConfigureAwait(false);
     }
 
     // Stores the changed status under the lock and raises the event after releasing it.
