@@ -98,6 +98,17 @@ internal sealed class MailKitTransport : IMailTransport
                 openFolder = null;
                 IMailFolder folder = await client.GetFolderAsync(fullName, ct).ConfigureAwait(false);
                 await folder.OpenAsync(FolderAccess.ReadOnly, ct).ConfigureAwait(false);
+
+                // UIDVALIDITY 0 is not a valid IMAP value; stored UIDs could never be validated against it.
+                if (folder.UidValidity == 0)
+                {
+                    throw new MailTransportException(
+                        MailTransportFailure.Protocol,
+                        string.Create(
+                            CultureInfo.InvariantCulture,
+                            $"IMAP server {endpoint.Host}:{endpoint.Port} reported UIDVALIDITY 0 for the folder."));
+                }
+
                 openFolder = folder;
 
                 bool hasCondStore = client.Capabilities.HasFlag(ImapCapabilities.CondStore);

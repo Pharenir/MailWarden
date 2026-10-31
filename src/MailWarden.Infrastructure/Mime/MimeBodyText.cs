@@ -10,9 +10,10 @@ namespace MailWarden.Infrastructure.Mime;
 /// </summary>
 public static class MimeBodyText
 {
-    // Content of these elements is never visible text.
+    // Content of these elements is not body text (title is metadata; head itself is kept because broken HTML often
+    // lacks </head>).
     private static readonly FrozenSet<string> SkippedElementNames =
-        new[] { "script", "style" }.ToFrozenSet(StringComparer.OrdinalIgnoreCase);
+        new[] { "script", "style", "title" }.ToFrozenSet(StringComparer.OrdinalIgnoreCase);
 
     // Inline elements do not separate words ("<b>Mail</b>Warden" stays one word); every other tag acts as whitespace.
     private static readonly FrozenSet<string> InlineElementNames = new[]
@@ -23,7 +24,7 @@ public static class MimeBodyText
 
     /// <summary>
     /// Plain text of the message: <see cref="MimeMessage.TextBody"/> when it contains non-whitespace, otherwise
-    /// <see cref="MimeMessage.HtmlBody"/> converted to text (script/style content dropped, tags removed, entities
+    /// <see cref="MimeMessage.HtmlBody"/> converted to text (script/style/title content dropped, tags removed, entities
     /// decoded), otherwise "". Whitespace runs collapse to one space; the result is trimmed and cut to
     /// <paramref name="maxChars"/> (one character less when the cut would split a surrogate pair).
     /// </summary>

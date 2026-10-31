@@ -68,10 +68,13 @@ public sealed class SyncEngine
     /// <exception cref="ArgumentException">The account is unknown.</exception>
     /// <exception cref="AuthenticationFailedException">No token could be obtained (e.g. a sign-in is needed).</exception>
     /// <exception cref="MailTransportException">
-    /// Network or authentication failure (protocol failures inside a folder are recorded instead), or the folder list
-    /// could not be read.
+    /// Network or authentication failure (protocol failures inside a folder are recorded instead), the folder list
+    /// could not be read, or it contains no inbox (Protocol; nothing is changed then).
     /// </exception>
-    /// <exception cref="StorageException">The folder list could not be stored.</exception>
+    /// <exception cref="StorageException">
+    /// The folder list could not be stored or a removed folder could not be deleted. Failing EML deletes of removed
+    /// folders are skipped; storage failures inside a folder (including EML deletes) are recorded for that folder.
+    /// </exception>
     /// <exception cref="OperationCanceledException">The pass was cancelled.</exception>
     public async Task<SyncReport> SyncAccountAsync(Guid accountId, CancellationToken ct = default)
     {
@@ -126,6 +129,14 @@ public sealed class SyncEngine
             }
         }
 
+        // An account always has an inbox; a list without one is incomplete and must not remove local folders.
+        if (!visibleRoles.ContainsValue(FolderRole.Inbox))
+        {
+            throw new MailTransportException(
+                MailTransportFailure.Protocol,
+                "The server folder list contains no inbox; no local folder was changed.");
+        }
+
         int addedCount = 0;
         var syncFolders = new List<MailFolder>(visibleRoles.Count);
         foreach ((string fullName, FolderRole role) in visibleRoles)
@@ -157,7 +168,7 @@ public sealed class SyncEngine
             IReadOnlyDictionary<uint, string?> emlPaths = await messages
                 .GetUidEmlPathsAsync(storedFolder.Id, ct)
                 .ConfigureAwait(false);
-            await DeleteEmlFilesAsync(emlPaths, emlPaths.Keys, ct).ConfigureAwait(false);
+            await DeleteEmlFilesSkippingFailuresAsync(emlPaths.Values, ct).ConfigureAwait(false);
 
             // Cascades to rows, full-text entries and sync state.
             await folders.DeleteAsync(storedFolder.Id, ct).ConfigureAwait(false);
@@ -178,7 +189,12 @@ public sealed class SyncEngine
         try
         {
             await SyncFolderContentAsync(account, transport, folder, progress, ct).ConfigureAwait(false);
-            return progress.ToResult(folder, error: null);
+
+            // Only per-message failures: the folder completed, the failed UIDs are retried next time.
+            string? messageFailures = progress.FailedMessages == 0
+                ? null
+                : $"{progress.FailedMessages} message(s) failed (first: {progress.FirstFailureType})";
+            return progress.ToResult(folder, messageFailures);
         }
         catch (Exception exception) when (!AbortsSync(exception))
         {
@@ -194,6 +210,14 @@ public sealed class SyncEngine
         CancellationToken ct)
     {
         RemoteFolderState serverState = await transport.OpenFolderAsync(folder.FullName, ct).ConfigureAwait(false);
+
+        // UIDVALIDITY 0 is not a valid IMAP value; nothing of this folder is stored or changed then.
+        if (serverState.UidValidity == 0)
+        {
+            throw new MailTransportException(
+                MailTransportFailure.Protocol,
+                "The server reported UIDVALIDITY 0 for the folder.");
+        }
 
         // R3: a changed UIDVALIDITY invalidates every stored UID of the folder; never keep a mixed copy.
         if (folder.UidValidity != 0 && folder.UidValidity != serverState.UidValidity)
@@ -247,16 +271,30 @@ public sealed class SyncEngine
             }
         }
 
+        // One message never blocks its folder: non-aborting failures are collected and retried next time.
+        uint? lowestFailedUid = null;
         foreach (uint uid in candidateUids)
         {
-            if (await FetchAndStoreAsync(account, transport, folder, uid, ct).ConfigureAwait(false))
+            try
             {
-                progress.Added++;
+                if (await FetchAndStoreAsync(account, transport, folder, uid, ct).ConfigureAwait(false))
+                {
+                    progress.Added++;
+                }
+            }
+            catch (Exception exception) when (!AbortsSync(exception))
+            {
+                progress.FailedMessages++;
+                progress.FirstFailureType ??= exception.GetType().Name;
+                lowestFailedUid ??= uid;
             }
         }
 
+        // Candidates are ascending, so the first failed UID is the lowest; it and every newer UID are retried.
         uint highestServerUid = serverUids.Count == 0 ? 0 : serverUids.Max();
-        uint newHighestSyncedUid = Math.Max(highestSyncedUid, highestServerUid);
+        uint newHighestSyncedUid = lowestFailedUid is uint failedUid
+            ? failedUid - 1
+            : Math.Max(highestSyncedUid, highestServerUid);
 
         // R7: server flags win for messages that were stored before this pass and still exist on the server.
         if (localFlags.Keys.Any(serverUidSet.Contains))
@@ -304,11 +342,10 @@ public sealed class SyncEngine
             return false;
         }
 
+        // Owned from here on: disposed on every path, including failures of the path or the write.
+        await using Stream remoteContent = remoteMessage.Content;
         string emlPath = emlStore.RelativePathFor(account.Id, folder.Id, uid);
-        await using (remoteMessage.Content.ConfigureAwait(false))
-        {
-            await emlStore.WriteAsync(emlPath, remoteMessage.Content, ct).ConfigureAwait(false);
-        }
+        await emlStore.WriteAsync(emlPath, remoteContent, ct).ConfigureAwait(false);
 
         // Parse what was stored, so row and file always describe the same bytes.
         ParsedContent content;
@@ -337,21 +374,16 @@ public sealed class SyncEngine
         return true;
     }
 
-    // R6: header fields and body text; a message MimeKit cannot parse at all is stored with empty fields.
+    // R6: header fields and body text. Any failure while loading or extracting (except cancellation) means
+    // "unparseable": the message is stored with empty fields. persistent: the stream is seekable and stays open while
+    // the message is used, so MimeKit does not copy the content into memory again.
     private static async Task<ParsedContent> ParseAsync(Stream storedContent, CancellationToken ct)
     {
-        MimeMessage message;
         try
         {
-            message = await MimeMessage.LoadAsync(storedContent, ct).ConfigureAwait(false);
-        }
-        catch (FormatException)
-        {
-            return ParsedContent.Unparseable;
-        }
-
-        using (message)
-        {
+            using MimeMessage message = await MimeMessage
+                .LoadAsync(storedContent, persistent: true, ct)
+                .ConfigureAwait(false);
             MailboxAddress? sender = message.From.Mailboxes.FirstOrDefault();
 
             // A missing or unparseable Date header (MimeKit reports MinValue) falls back to INTERNALDATE.
@@ -367,6 +399,10 @@ public sealed class SyncEngine
                 Date: date,
                 HasAttachments: message.Attachments.Any(),
                 BodyText: MimeBodyText.Extract(message, BodyTextMaxChars));
+        }
+        catch (Exception exception) when (exception is not OperationCanceledException)
+        {
+            return ParsedContent.Unparseable;
         }
     }
 
@@ -391,6 +427,28 @@ public sealed class SyncEngine
             if (emlPaths.TryGetValue(uid, out string? emlPath) && emlPath is not null)
             {
                 await emlStore.DeleteAsync(emlPath, ct).ConfigureAwait(false);
+            }
+        }
+    }
+
+    // R1 (folder removal): a file that cannot be deleted is skipped so that the folder row still goes; the orphan file
+    // is left for a later cleanup. Cancellation still propagates.
+    private async Task DeleteEmlFilesSkippingFailuresAsync(IEnumerable<string?> emlPaths, CancellationToken ct)
+    {
+        foreach (string? emlPath in emlPaths)
+        {
+            if (emlPath is null)
+            {
+                continue;
+            }
+
+            try
+            {
+                await emlStore.DeleteAsync(emlPath, ct).ConfigureAwait(false);
+            }
+            catch (Exception exception) when (exception is not OperationCanceledException)
+            {
+                // Skipped on purpose, see method comment.
             }
         }
     }
@@ -471,6 +529,10 @@ public sealed class SyncEngine
         public int Deleted { get; set; }
 
         public bool UidValidityReset { get; set; }
+
+        public int FailedMessages { get; set; }
+
+        public string? FirstFailureType { get; set; }
 
         public FolderSyncResult ToResult(MailFolder folder, string? error) =>
             new(folder.FullName, folder.Role, Added, FlagsUpdated, Deleted, UidValidityReset, error);
