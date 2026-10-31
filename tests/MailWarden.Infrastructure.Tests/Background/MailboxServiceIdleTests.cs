@@ -43,7 +43,7 @@ public sealed class MailboxServiceIdleTests
         await MailboxServiceHarness.NegativeCheckWindowAsync();
 
         Assert.All(harness.WaitMaxWaits(account.Id), maxWait => Assert.Equal(IdleRenew, maxWait));
-        Assert.False(harness.DelayRequests.Any(request => request.Duration == Debounce));
+        Assert.DoesNotContain(harness.DelayRequests, request => request.Duration == Debounce);
         Assert.Equal(1, harness.SyncCount(account.Id));
         Assert.Equal(1, harness.ConnectCount(account.Id));
     }
