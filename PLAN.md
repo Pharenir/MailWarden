@@ -127,14 +127,14 @@ Spalten *Umgesetzt* / *Getestet* geführt. Vorab festgelegt:
 ### AP-01 Skelett + Storage
 | # | Sollverhalten | Umgesetzt | Getestet |
 |---|---|---|---|
-| 1 | Neue, leere DB wird mit aktuellem Schema angelegt; Schema-Version gespeichert | | |
-| 2 | Message speichern/lesen: Header, Flags, Konto, Ordner, UID, EML-Pfad; FTS findet Betreff und Textkörper | | |
-| 3 | Gleiche (Konto, Ordner, UID) zweimal speichern → Update, kein Duplikat | | |
-| 4 | EML-Store: Datei liegt unter `<daten>\mail\accounts\<accountId>\folders\<folderId>\<uid>.eml` (UIDs sind nur je Ordner eindeutig – Abweichung vom ersten Entwurf `yyyy\mm\uid`, Planer 2026-10-31); fehlende Datei → `EmlNotFoundException`, nie leerer Inhalt; Schreiben atomar | | |
-| 5 | Ältere Schema-Version → Migration läuft; unbekannte höhere Version → `SchemaVersionException` vor jedem Schreibzugriff (fail fast) | | |
-| 6 | `ListAsync(MessageQuery)` liefert Mails nach Ordner-Rolle über alle Konten oder gefiltert auf ein Konto, neueste zuerst, mit Limit/Offset – Grundlage der Gruppenansichten | | |
-| 7 | Fremdschlüssel: Mail für unbekannten Ordner → `StorageException`; Konto löschen entfernt Ordner und Mails (Cascade) | | |
-| 8 | WinUI-3-Leer-App baut mit `dotnet build` ohne Visual Studio und startet unpackaged (Fenster „MailWarden“, folgt dem Windows-Farbschema) | | manuell Dennis |
+| 1 | Neue, leere DB wird mit aktuellem Schema angelegt; Schema-Version gespeichert | `SqliteDatabase`, `SchemaMigrations` | `SqliteDatabaseTests` (Fälle 1–4a) |
+| 2 | Message speichern/lesen: Header, Flags, Konto, Ordner, UID, EML-Pfad; FTS findet Betreff und Textkörper | `SqliteMessageStore`, `MessageSearchIndex` | `SqliteMessageStoreTests`, `SqliteMessageSearchTests` (9, 17–19) |
+| 3 | Gleiche (Ordner, UID) zweimal speichern → Update, kein Duplikat; Konto der Mail muss das Konto des Ordners sein (D3) | Schlüssel `UNIQUE(folder_id, uid)`, FK `(folder_id, account_id)` | `SqliteMessageStoreTests` (10, 11a) |
+| 4 | EML-Store: Datei liegt unter `<daten>\mail\accounts\<accountId>\folders\<folderId>\<uid>.eml` (UIDs sind nur je Ordner eindeutig – Abweichung vom ersten Entwurf `yyyy\mm\uid`, Planer 2026-10-31); fehlende Datei → `EmlNotFoundException`, nie leerer Inhalt; Schreiben atomar | `FileEmlStore`, `DataPaths` | `FileEmlStoreTests`, `DataPathsTests` (24–28) |
+| 5 | Ältere Schema-Version → Migration läuft; unbekannte höhere Version → `SchemaVersionException` vor jedem Schreibzugriff (fail fast) | `SqliteDatabase` (Migration 0→1; v2 existiert noch nicht) | `SqliteDatabaseTests` (2, 3) – Migration aus echter Altversion erst mit v2 testbar |
+| 6 | `ListAsync(MessageQuery)` liefert Mails nach Ordner-Rolle über alle Konten oder gefiltert auf ein Konto, neueste zuerst, mit Limit/Offset – Grundlage der Gruppenansichten | `SqliteMessageStore.ListAsync`, Ausdrucksindizes (D4) | `SqliteMessageStoreTests` (12–16, 15a) |
+| 7 | Fremdschlüssel: Mail für unbekannten Ordner → `StorageException`; Konto löschen entfernt Ordner und Mails (Cascade) | Schema v1 + `MessageSearchIndex` | `SqliteAccountStoreTests`, `SqliteFolderStoreTests` (11, 22, 23, D16) |
+| 8 | WinUI-3-Leer-App baut mit `dotnet build` ohne Visual Studio und startet unpackaged (Fenster „MailWarden“, folgt dem Windows-Farbschema) | `src\MailWarden.App` (baut) | manuell Dennis – offen |
 
 Vollständiger Schnittstellenvertrag: `work\AP-01\requirement.md`.
 
