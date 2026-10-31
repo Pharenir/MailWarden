@@ -5,6 +5,7 @@ tokens/
 
 # Local-only files
 _scratch/
+.worktrees/
 CLAUDE.md
 docs/
 .test-logs/

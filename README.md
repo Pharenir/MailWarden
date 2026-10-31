@@ -32,4 +32,5 @@ free to use, change and share for noncommercial purposes; selling or other comme
 
 ## AI usage
 AI (Claude by Anthropic) was used to assist with the code in this project.
-No generative AI was used to create artwork, music or sounds.
+The application icon (`assets/mailwarden-512.png`) was created with Claude Design. No other generative AI was used
+to create artwork, music or sounds.
