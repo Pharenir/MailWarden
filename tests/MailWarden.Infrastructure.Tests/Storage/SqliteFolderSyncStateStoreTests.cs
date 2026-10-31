@@ -100,7 +100,7 @@ public sealed class SqliteFolderSyncStateStoreTests
         await store.DeleteAsync(987654);
 
         Assert.Null(await store.GetAsync(doomed.Id));
-        Assert.Equal(2u, (await store.GetAsync(survivor.Id))!.HighestSyncedUid);
+        Assert.Equal(2u, (await store.GetAsync(survivor.Id))!.SkippedUpToUid);
         Assert.Equal(1, await storage.CountRowsAsync("folder_sync_state"));
     }
 
@@ -117,7 +117,7 @@ public sealed class SqliteFolderSyncStateStoreTests
         await store.SaveAsync(new FolderSyncState(first.Id, 11, 111, SyncedAt));
         await store.SaveAsync(new FolderSyncState(second.Id, 22, 222, null));
 
-        Assert.Equal(11u, (await store.GetAsync(first.Id))!.HighestSyncedUid);
+        Assert.Equal(11u, (await store.GetAsync(first.Id))!.SkippedUpToUid);
         Assert.Equal(222UL, (await store.GetAsync(second.Id))!.HighestModSeq);
     }
 

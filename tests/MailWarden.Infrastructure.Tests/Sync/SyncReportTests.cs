@@ -58,8 +58,8 @@ public sealed class SyncReportTests
         Assert.Null(await harness.FindFolderAsync("Old_Projects"));
         Assert.Equal(6, await harness.Storage.CountRowsAsync("messages"));
         Assert.Equal(6, harness.EmlFileCount());
-        Assert.Equal(5u, (await harness.StateOfAsync("INBOX"))!.HighestSyncedUid);
-        Assert.Equal(3u, (await harness.StateOfAsync("Junk"))!.HighestSyncedUid);
+        Assert.Equal(0u, (await harness.StateOfAsync("INBOX"))!.SkippedUpToUid);
+        Assert.Equal(0u, (await harness.StateOfAsync("Junk"))!.SkippedUpToUid);
         Assert.Equal(inbox.HighestModSeq, (await harness.StateOfAsync("INBOX"))!.HighestModSeq);
     }
 
