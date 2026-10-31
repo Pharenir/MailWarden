@@ -183,13 +183,13 @@ Löschen wie Outlook (Entscheidung Dennis 2026-10-31): Entf → Papierkorb, Umsc
 AP-03c voraus.
 | # | Sollverhalten | Umgesetzt | Getestet |
 |---|---|---|---|
-| 1 | Aktionen (Flags, Verschieben, Papierkorb, endgültig löschen, Ordner leeren) werden als Befehl gespeichert und erst danach am Server ausgeführt; lokal ändert sich erst etwas nach Bestätigung durch den Server | | |
-| 2 | Ungültige Befehle werden beim Einreihen abgelehnt (fremder/gleicher Ordner, leere UIDs, `\Deleted` als Flag, Ordner leeren außer Papierkorb/Junk) | | |
-| 3 | „Ordner leeren“ löscht nur die Mails, die beim Auslösen lokal bekannt waren; später eingetroffene bleiben | | |
-| 4 | Nie ein ungezieltes EXPUNGE/CLOSE: endgültig gelöscht werden nur genau die Mails des Befehls; geänderte UIDVALIDITY → Befehl scheitert ohne Serveraktion | | |
-| 5 | Fehler: Netz → später erneut; vom Server abgelehnt → Wiederholung mit wachsendem Abstand (1, 2, 4 … max. 60 min), nach 5 Versuchen „fehlgeschlagen“; Anmeldefehler bricht ab ohne Versuch zu zählen | | |
-| 6 | Abgleich bleibt nur lesend (eigene Schnittstelle für Schreibbefehle) | | |
-| 7 | Echte Konten (nur Junk-Mails, Freigabe Dennis): gelesen/ungelesen, Papierkorb, endgültig löschen, Junk leeren – Server und lokaler Bestand stimmen danach überein | | |
+| 1 | Aktionen (Flags, Verschieben, Papierkorb, endgültig löschen, Ordner leeren) werden als Befehl gespeichert und erst danach am Server ausgeführt; lokal ändert sich erst etwas nach Bestätigung durch den Server | ✅ `Core\Commands\*`, `Storage\SqliteMailCommandQueue.cs`, `Commands\CommandExecutor.cs` | |
+| 2 | Ungültige Befehle werden beim Einreihen abgelehnt (fremder/gleicher Ordner, leere UIDs, `\Deleted` als Flag, Ordner leeren außer Papierkorb/Junk) | ✅ `Storage\SqliteMailCommandQueue.cs` | |
+| 3 | „Ordner leeren“ löscht nur die Mails, die beim Auslösen lokal bekannt waren; später eingetroffene bleiben | ✅ `Storage\SqliteMailCommandQueue.cs` (`EnqueueEmptyFolderAsync`) | |
+| 4 | Nie ein ungezieltes EXPUNGE/CLOSE: endgültig gelöscht werden nur genau die Mails des Befehls; geänderte UIDVALIDITY → Befehl scheitert ohne Serveraktion | ✅ `Sync\MailKitCommandTransport.cs`, `Commands\CommandExecutor.cs` (Nachweis MailKit-Quelltext: `work\AP-03c\impl-notes.md`) | |
+| 5 | Fehler: Netz → später erneut; vom Server abgelehnt → Wiederholung mit wachsendem Abstand (1, 2, 4 … max. 60 min), nach 5 Versuchen „fehlgeschlagen“; Anmeldefehler bricht ab ohne Versuch zu zählen | ✅ `Commands\CommandExecutor.cs`, `Commands\CommandOptions.cs` | |
+| 6 | Abgleich bleibt nur lesend (eigene Schnittstelle für Schreibbefehle) | ✅ `Core\Sync\IMailCommandTransport.cs`; `SyncEngine`/`IMailTransport` unverändert | |
+| 7 | Echte Konten (nur Junk-Mails, Freigabe Dennis): gelesen/ungelesen, Papierkorb, endgültig löschen, Junk leeren – Server und lokaler Bestand stimmen danach überein | ⚠️ Werkzeug `_scratch\command-probe` (git-ignoriert, im Worktree) fertig; Lauf durch den Planner steht aus | |
 
 Vollständiger Schnittstellenvertrag: `work\AP-03c\requirement.md`.
 
