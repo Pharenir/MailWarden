@@ -72,4 +72,26 @@ public interface IMessageStore
     /// <param name="ct">Cancellation token.</param>
     /// <returns>A task that completes when the messages are deleted.</returns>
     Task DeleteByUidsAsync(long folderId, IReadOnlyCollection<uint> uids, CancellationToken ct = default);
+
+    /// <summary>Loads UID and flags of all messages of one folder.</summary>
+    /// <param name="folderId">Folder id.</param>
+    /// <param name="ct">Cancellation token.</param>
+    /// <returns>UID → flags; empty for an unknown folder.</returns>
+    Task<IReadOnlyDictionary<uint, MessageFlags>> GetUidFlagsAsync(long folderId, CancellationToken ct = default);
+
+    /// <summary>Loads UID and EML path of all messages of one folder.</summary>
+    /// <param name="folderId">Folder id.</param>
+    /// <param name="ct">Cancellation token.</param>
+    /// <returns>UID → <see cref="MailMessage.EmlPath"/> (null when the row has none); empty for an unknown folder.</returns>
+    Task<IReadOnlyDictionary<uint, string?>> GetUidEmlPathsAsync(long folderId, CancellationToken ct = default);
+
+    /// <summary>
+    /// Sets the flags of existing messages of one folder in one transaction. Unknown UIDs are ignored. The full-text
+    /// index is not touched.
+    /// </summary>
+    /// <param name="folderId">Folder id.</param>
+    /// <param name="flags">UID → new flags.</param>
+    /// <param name="ct">Cancellation token.</param>
+    /// <returns>A task that completes when the flags are stored.</returns>
+    Task UpdateFlagsAsync(long folderId, IReadOnlyDictionary<uint, MessageFlags> flags, CancellationToken ct = default);
 }

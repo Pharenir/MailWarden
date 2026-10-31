@@ -9,10 +9,12 @@ Privacy policy: `PRIVACY.md` · Terms of service: `TERMS.md`.
 
 Status: early development (see `PLAN.md`). Implemented so far: solution skeleton, local storage layer (SQLite
 database and EML file store), the core of the spam classifier (a library in `MailWarden.Core`, calibrated against real
-message headers and with a settings file loader; not yet connected to any mail), account and sign-in library (OAuth for Outlook.com and Gmail, encrypted token storage, provider profiles
-with a connection check) and an empty WinUI 3 main window. The account library has no user interface yet; account
-setup in the app comes with AP-04. There is no synchronisation and no inbox view yet; the classifier does not sort or
-move any mail yet.
+message headers and with a settings file loader; not yet connected to any mail), account and sign-in library (OAuth for
+Outlook.com and Gmail, encrypted token storage, provider profiles with a connection check), the one-way sync from the
+server to the local store (folders, messages, flags, deletions; read-only towards the server) and an empty WinUI 3 main
+window. The sync is a library only: it has no user interface, no schedule and no IDLE yet, and it never changes anything
+on the server. Account setup in the app comes with AP-04; there is no inbox view yet, and the classifier does not sort
+or move any mail yet.
 
 ## Requirements
 - Windows 11
@@ -31,7 +33,7 @@ dotnet run --project src\MailWarden.App
 ```
 
 - Build: the first build restores NuGet packages and needs internet access.
-- Tests: `dotnet test` runs the unit tests of the storage layer, the account library and the spam classifier core. They use temporary folders and artificial data only.
+- Tests: `dotnet test` runs the unit tests of the storage layer, the account library, the sync (with a fake mail server connection) and the spam classifier core. They use temporary folders and artificial data only; no real server is contacted.
 - Start: `dotnet run` opens the main window (currently empty). Alternatively start the built
   `src\MailWarden.App\bin\x64\Debug\net9.0-windows10.0.19041.0\win-x64\MailWarden.App.exe`. The app is
   self-contained; no separate Windows App SDK runtime has to be installed.
@@ -46,25 +48,26 @@ Layout:
 
 | Entry | Content |
 |---|---|
-| `mailwarden.db` | SQLite database: accounts, folders, message metadata, full-text search index |
-| `mail\` | one `.eml` file per message |
+| `mailwarden.db` | SQLite database (schema version 2): accounts, folders, message metadata, full-text search index, sync state per folder (how far each folder has been synced). An older database is upgraded automatically on start. |
+| `mail\` | one `.eml` file per message, stored per account and folder |
 | `credentials\` | DPAPI-encrypted sign-in tokens, one `.bin` file per entry |
 | `auth-config.json` | optional OAuth client configuration (see Environment variables) |
 | `classifier-settings.json` | optional spam classifier settings (thresholds, lists); the loader exists, the app does not read the file yet (see `docs\classifier.md`) |
 | `logs\` | log files |
 
 On start the app creates the data folder itself. The database, `mail\` and `logs\` are created by the storage layer
-as soon as it is used; the app does not use it yet, so a fresh start leaves the folder empty.
+as soon as it is used; the app does not start a sync yet, so a fresh start leaves the folder empty.
 
 ## Project structure
 ```
-src\MailWarden.Core            domain model, storage interfaces, account service and the spam classifier core
-                               (no I/O, no packages)
+src\MailWarden.Core            domain model, storage interfaces, account service, sync interfaces (Sync) and the
+                               spam classifier core (no I/O, no packages)
 src\MailWarden.Infrastructure  SQLite stores, EML file store, OAuth sign-in (Microsoft, Google), DPAPI credential
-                               store, provider profiles and connection check
+                               store, provider profiles and connection check, IMAP connection and sync engine
+                               (Sync), message text extraction for search and preview (Mime)
 src\MailWarden.App             WinUI 3 app (main window only)
 tests\MailWarden.Core.Tests             unit tests for the spam classifier core
-tests\MailWarden.Infrastructure.Tests   unit tests for the storage layer and the account library
+tests\MailWarden.Infrastructure.Tests   unit tests for the storage layer, the account library and the sync
 ```
 
 ## Environment variables

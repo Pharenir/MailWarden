@@ -291,6 +291,101 @@ public sealed class SqliteMessageStore(SqliteDatabase database) : IMessageStore
         }
     }
 
+    /// <inheritdoc />
+    public async Task<IReadOnlyDictionary<uint, MessageFlags>> GetUidFlagsAsync(
+        long folderId,
+        CancellationToken ct = default)
+    {
+        try
+        {
+            await using var command = database.Connection.CreateCommand();
+            command.CommandText = "SELECT uid, flags FROM messages WHERE folder_id = $folder_id;";
+            command.Parameters.AddWithValue("$folder_id", folderId);
+
+            var flagsByUid = new Dictionary<uint, MessageFlags>();
+            await using var reader = await command.ExecuteReaderAsync(ct).ConfigureAwait(false);
+            while (await reader.ReadAsync(ct).ConfigureAwait(false))
+            {
+                flagsByUid.Add(SqliteValues.ReadUInt32(reader, 0), ReadFlags(reader, 1));
+            }
+
+            return flagsByUid;
+        }
+        catch (SqliteException exception)
+        {
+            throw SqliteValues.Wrap("Loading message flags", exception);
+        }
+    }
+
+    /// <inheritdoc />
+    public async Task<IReadOnlyDictionary<uint, string?>> GetUidEmlPathsAsync(
+        long folderId,
+        CancellationToken ct = default)
+    {
+        try
+        {
+            await using var command = database.Connection.CreateCommand();
+            command.CommandText = "SELECT uid, eml_path FROM messages WHERE folder_id = $folder_id;";
+            command.Parameters.AddWithValue("$folder_id", folderId);
+
+            var pathsByUid = new Dictionary<uint, string?>();
+            await using var reader = await command.ExecuteReaderAsync(ct).ConfigureAwait(false);
+            while (await reader.ReadAsync(ct).ConfigureAwait(false))
+            {
+                pathsByUid.Add(SqliteValues.ReadUInt32(reader, 0), SqliteValues.ReadNullableString(reader, 1));
+            }
+
+            return pathsByUid;
+        }
+        catch (SqliteException exception)
+        {
+            throw SqliteValues.Wrap("Loading message EML paths", exception);
+        }
+    }
+
+    /// <inheritdoc />
+    public async Task UpdateFlagsAsync(
+        long folderId,
+        IReadOnlyDictionary<uint, MessageFlags> flags,
+        CancellationToken ct = default)
+    {
+        ArgumentNullException.ThrowIfNull(flags);
+        if (flags.Count == 0)
+        {
+            return;
+        }
+
+        try
+        {
+            SqliteConnection connection = database.Connection;
+            await using var transaction = (SqliteTransaction)await connection
+                .BeginTransactionAsync(ct)
+                .ConfigureAwait(false);
+
+            // One prepared command, executed once per UID; unknown UIDs update no row. The FTS index holds no flags.
+            await using (var command = connection.CreateCommand())
+            {
+                command.Transaction = transaction;
+                command.CommandText = "UPDATE messages SET flags = $flags WHERE folder_id = $folder_id AND uid = $uid;";
+                command.Parameters.AddWithValue("$folder_id", folderId);
+                SqliteParameter uidParameter = command.Parameters.Add("$uid", SqliteType.Integer);
+                SqliteParameter flagsParameter = command.Parameters.Add("$flags", SqliteType.Integer);
+                foreach ((uint uid, MessageFlags messageFlags) in flags)
+                {
+                    uidParameter.Value = (long)uid;
+                    flagsParameter.Value = (int)messageFlags;
+                    await command.ExecuteNonQueryAsync(ct).ConfigureAwait(false);
+                }
+            }
+
+            await transaction.CommitAsync(ct).ConfigureAwait(false);
+        }
+        catch (SqliteException exception)
+        {
+            throw SqliteValues.Wrap("Updating message flags", exception);
+        }
+    }
+
     private static async Task<IReadOnlyList<MailMessage>> ReadMessagesAsync(SqliteCommand command, CancellationToken ct)
     {
         var messages = new List<MailMessage>();

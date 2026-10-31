@@ -139,7 +139,7 @@ public static class MimeBodyText
 ### `MailWarden.Infrastructure.Sync`
 ```csharp
 /// InitialSyncDays: window of the first sync of a folder; 0 = everything; < 0 → ArgumentOutOfRangeException.
-public sealed record SyncOptions(int InitialSyncDays = 90);
+public sealed record SyncOptions(int InitialSyncDays = 0);   // default changed from 90 to 0 by Dennis, 2026-10-31
 
 public sealed record FolderSyncResult(string FolderFullName, FolderRole Role, int Added, int FlagsUpdated, int Deleted,
     bool UidValidityReset, string? Error);
@@ -247,3 +247,42 @@ updated, deleted, error type) and the duration – never subjects, addresses or 
 - Build `-warnaserror` green; S3 green (central building blocks touched: Core interfaces, schema, SyncEngine).
 - Security review without Kritisch/Hoch (trigger: e-mail data on disk, data from the server).
 - README updated by the documenter; PLAN rows AP-03a filled; case 28 handed to Dennis.
+
+## Decisions fix.2 (planner, 2026-10-31, after verify.1 PASS 646/646, review.1 APPROVE, secure.1 0/0/2/4)
+- F1 (review SHOULD 1 + secure M1, fix – contract change of R5/R8/R9): a single message must never block its
+  folder. In R5, any exception for one UID that does not abort the sync (R9: Network/Authentication transport errors,
+  AuthenticationFailedException, OperationCanceledException still abort) is caught per message: the UID is collected
+  as failed and the remaining candidates continue; R7 runs normally. R8 then saves
+  `HighestSyncedUid = min(failed UIDs) − 1` (so only failed and newer UIDs are retried; stored ones are skipped as
+  before), otherwise as before. `Error` of the folder = "<n> message(s) failed (first: <Type.Name>)" when only
+  per-message failures happened. Parsing: any exception except OperationCanceledException while loading/extracting
+  counts as "unparseable" (R6 last sentence), `MimeBodyText.Extract` inside the same try.
+- F2 (secure M1 second part, fix): in R1, a failing EML delete of a removed folder does not abort: continue with the
+  next file, delete the folder row anyway (orphan files are cleaned up later, TODO).
+- F3 (review SHOULD 3, fix): `RemoteFolderState.UidValidity == 0` → the engine treats the folder as a Protocol
+  error (`MailTransportException(Protocol)` recorded as folder Error per R9), stores nothing for it.
+  `MailKitTransport.OpenFolderAsync` throws the same itself.
+- F4 (secure N3, fix): a folder list without any folder resolved to `FolderRole.Inbox` →
+  `MailTransportException(Protocol)` propagates before anything is added or removed.
+- F5 (review Q1, fix – contract change of `MimeBodyText`): content of `title` is dropped like script/style. The
+  whole `<head>` is NOT dropped (broken HTML often lacks `</head>`).
+- F6 (secure N2 + review NITs, fix): `MimeMessage.LoadAsync(stream, persistent: true, ct)`; `await using` of the
+  content stream directly after the null check; XML doc of `SyncAccountAsync` lists StorageException from EML deletes.
+- F7 (secure hint, fix): `.gitignore` gets `*.db`, `*.db-wal`, `*.db-shm`, `*.eml` and `!tests/fixtures/**/*.eml`.
+- Deferred to AP-03b (TODO): review SHOULD 2 (shared IMAP connect/list code with `ConnectionProbe`, touches AP-02a
+  code – AP-03b reworks the connection anyway for reconnect); reconnect after `ImapProtocolException` (Q4); local-only
+  roles excluded from R1 (Q2); `IEmlStore.DeleteFolderAsync` + start-up cleanup of orphan EML/`*.tmp` (Q3, secure N4);
+  metadata of all candidates in one FETCH; full flag fetch without CONDSTORE; transient FETCH null vs.
+  HighestSyncedUid.
+- Deferred to AP-04 (TODO): logging rule for SyncReport (type, role, folder id only – never `Error` text or folder
+  name; secure N1); data folder ACL / location (secure M2 – Dennis decides).
+
+### Additional test cases (fix.2)
+| # | Case | Expected |
+|---|---|---|
+| 29 | Fetch of one UID (of 3) throws `MailTransportException(Protocol)` | other 2 stored; folder Error "1 message(s) failed (first: MailTransportException)"; state HighestSyncedUid = failed UID − 1; next run fetches only the failed UID (and newer) |
+| 30 | EML write fails for one UID (StorageException from the store) | same as 29 with StorageException |
+| 31 | Removed folder whose EML file cannot be deleted (file held open without sharing) | folder row removed, sync continues, no exception |
+| 32 | Fake returns UidValidity 0 for one folder | that folder Error starts with "MailTransportException"; no rows stored for it; other folders synced |
+| 33 | Folder list without Inbox | SyncAccountAsync throws MailTransportException(Protocol); stored folders untouched |
+| 34 | HTML with `<title>Secret title</title>` and body text | title text absent from Extract result, body present |
