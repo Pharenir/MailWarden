@@ -32,7 +32,7 @@ public sealed class AuthenticationResultsParserTests
 
     // Case 2
     [Fact]
-    public void Parse_outlook_example_without_authserv_id_and_ignoring_compauth()
+    public void Parse_outlook_example_without_authserv_id()
     {
         AuthenticationResults parsed = AuthenticationResultsParser.Parse(AuthHeaders.Outlook);
 
