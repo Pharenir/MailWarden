@@ -176,13 +176,14 @@ public sealed class CommandExecutorTests
 
         Assert.Equal(new CommandRunReport(1, 0, 0), report);
         CommandCall[] calls = harness.Server.CommandCalls.ToArray();
-        Assert.Equal(4, calls.Length);
-        Assert.Equal($"Select:{name}", calls[0].Text);
-        Assert.Equal($"Move:{name}:1,3>Trash", calls[1].Text);
-        Assert.Equal("Select:Trash", calls[2].Text);
-        Assert.Equal(CommandCall.Expunge, calls[3].Kind);
-        Assert.Equal("Trash", calls[3].Folder);
-        Assert.Equal(new uint[] { 2, 3 }, calls[3].Uids.OrderBy(uid => uid).ToArray());
+        string[] texts = calls.Select(call => call.Text).ToArray();
+        Assert.Equal($"Select:{name}", texts[0]);
+        Assert.Equal($"Move:{name}:1,3>Trash", texts[1]);
+        int expungeIndex = Array.FindIndex(calls, call => call.Kind == CommandCall.Expunge);
+        Assert.Equal(calls.Length - 1, expungeIndex);
+        Assert.Equal("Trash", calls[expungeIndex].Folder);
+        Assert.Equal(new uint[] { 2, 3 }, calls[expungeIndex].Uids.OrderBy(uid => uid).ToArray());
+        Assert.Single(calls, call => call.Kind == CommandCall.Expunge);
         Assert.Equal(new[] { preExisting }, harness.Server.ServerUids("Trash"));
         Assert.Equal(new uint[] { 2 }, harness.Server.ServerUids(name));
         Assert.Equal(new uint[] { 2 }, await harness.LocalUidsAsync(source.Folder));

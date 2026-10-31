@@ -22,7 +22,7 @@ public sealed class CommandEndToEndTests
     {
         CommandHarness harness = await CommandHarness.CreateAsync();
         FakeMailFolder inbox = harness.Server.AddFolder("INBOX", ServerFolderFlags.Inbox);
-        harness.Server.AddFolder("Archive", ServerFolderFlags.Archive);
+        harness.Server.AddFolder("Archive");
         harness.Server.AddFolder(TrashName, ServerFolderFlags.Trash);
         FakeMailFolder junk = harness.Server.AddFolder(JunkName, ServerFolderFlags.Junk);
         for (int index = 1; index <= 3; index++)
@@ -39,7 +39,6 @@ public sealed class CommandEndToEndTests
         Assert.All(report.Folders, folder => Assert.Null(folder.Error));
         Assert.Equal(FolderRole.Trash, (await harness.Sync.GetFolderAsync(TrashName)).Role);
         Assert.Equal(FolderRole.Junk, (await harness.Sync.GetFolderAsync(JunkName)).Role);
-        Assert.Equal(FolderRole.Archive, (await harness.Sync.GetFolderAsync("Archive")).Role);
         return harness;
     }
 

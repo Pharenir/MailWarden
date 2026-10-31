@@ -439,4 +439,28 @@ public sealed class CommandEnqueueTests
 
         Assert.Equal(kept.Id, Assert.Single(await fixture.Queue.ListAsync(fixture.Account.Id)).Id);
     }
+
+    // Case 25
+    [Fact(Timeout = TestTimeouts.PerTestMilliseconds)]
+    public async Task EmptyFolder_has_no_1000_uid_limit_while_the_other_enqueue_methods_keep_it()
+    {
+        await using CommandQueueFixture fixture = await CommandQueueFixture.CreateAsync();
+        for (uint uid = 1; uid <= 1500; uid++)
+        {
+            await fixture.Storage.AddMessageAsync(fixture.Trash, uid);
+        }
+
+        MailCommand? command = await fixture.Queue.EnqueueEmptyFolderAsync(fixture.Trash.Id);
+
+        Assert.NotNull(command);
+        Assert.Equal(Enumerable.Range(1, 1500).Select(value => (uint)value), command.Uids);
+        Assert.Equal(MailCommandKind.DeletePermanently, command.Kind);
+        Assert.Equal(1L, await fixture.CommandRowCountAsync());
+        uint[] tooMany = Enumerable.Range(1, 1001).Select(value => (uint)value).ToArray();
+        await Assert.ThrowsAnyAsync<ArgumentException>(() => fixture.Queue.EnqueueSetFlagsAsync(fixture.Inbox.Id, tooMany, MessageFlags.Seen, MessageFlags.None));
+        await Assert.ThrowsAnyAsync<ArgumentException>(() => fixture.Queue.EnqueueMoveAsync(fixture.Inbox.Id, tooMany, fixture.Archive.Id));
+        await Assert.ThrowsAnyAsync<ArgumentException>(() => fixture.Queue.EnqueueMoveToTrashAsync(fixture.Inbox.Id, tooMany));
+        await Assert.ThrowsAnyAsync<ArgumentException>(() => fixture.Queue.EnqueueDeletePermanentlyAsync(fixture.Inbox.Id, tooMany));
+        Assert.Equal(1L, await fixture.CommandRowCountAsync());
+    }
 }

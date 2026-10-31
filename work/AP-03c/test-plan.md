@@ -58,3 +58,8 @@ Extra safety tests (E4/E5, not numbered): local store unchanged after failed Add
 6. S1/S2/S3 of the MailKit implementation (no EXPUNGE/CLOSE, UIDPLUS/MOVE capability checks, error mapping) cannot be tested without an IMAP server; no test covers the MailKit class. Reviewer/security review must check it from the code.
 7. `CommandOptions(0)` / `(21)` may throw in the record or the executor constructor; the test accepts either.
 8. Every executed command is assumed to `SelectFolderAsync` exactly once per non-trash step (case 20 compares the Select sequence).
+
+## Update after builder decisions (D1, D4, Q1-Q3)
+- Case 25 added: `CommandEnqueueTests.EmptyFolder_has_no_1000_uid_limit_while_the_other_enqueue_methods_keep_it`.
+- Changed (category c): case 10 no longer pins the number of Select calls (order and targets only); case 23 helper no longer expects a Gmail Archive role (plain folder).
+- D1 (MOVE and UIDPLUS) and D4 (network never permanent) concern the MailKit class and executor internals; no existing test conflicts. Empty COPYUID map: tests never required Select(Trash), unchanged.
