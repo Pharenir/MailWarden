@@ -25,6 +25,11 @@ internal sealed class MailKitTransport : IMailTransport
 
     private const int DisconnectTimeoutMilliseconds = 5_000;
 
+    // Metadata of a message fetch; shared by the single and the batch fetch so both deliver the same fields.
+    private const MessageSummaryItems MessageMetadataItems =
+        MessageSummaryItems.UniqueId | MessageSummaryItems.Flags | MessageSummaryItems.InternalDate
+        | MessageSummaryItems.Size;
+
     // \Seen \Answered \Flagged \Deleted \Draft; keywords and \Recent are ignored.
     private static readonly (ImapMessageFlags ImapFlag, MessageFlags Flag)[] FlagMapping =
     [
@@ -176,9 +181,7 @@ internal sealed class MailKitTransport : IMailTransport
             {
                 // Metadata first: an empty answer means the server returned nothing for the UID (gone or not delivered).
                 var uniqueId = new UniqueId(folder.UidValidity, uid);
-                var request = new FetchRequest(
-                    MessageSummaryItems.UniqueId | MessageSummaryItems.Flags | MessageSummaryItems.InternalDate
-                    | MessageSummaryItems.Size);
+                var request = new FetchRequest(MessageMetadataItems);
                 IList<IMessageSummary> summaries = await folder
                     .FetchAsync([uniqueId], request, ct)
                     .ConfigureAwait(false);
@@ -219,8 +222,9 @@ internal sealed class MailKitTransport : IMailTransport
     /// reads the response and disposes the stream after the callback returned. Bodies are only requested for UIDs with
     /// metadata. A metadata answer without INTERNALDATE, or bodies arriving out of UID order, raise
     /// <see cref="MailTransportFailure.Protocol"/> (bodies out of order: after all in-order bodies were delivered);
-    /// the connection stays usable then. An exception of <paramref name="onMessage"/> makes MailKit drop the
-    /// connection.
+    /// the connection stays usable then. A UID that vanished between the two commands gets no body (no callback); a
+    /// <see cref="MessageNotFoundException"/> (not raised by MailKit 4.18 for this call, mapped defensively) is
+    /// Protocol as well. An exception of <paramref name="onMessage"/> makes MailKit drop the connection.
     /// </remarks>
     public async Task FetchMessagesAsync(
         IReadOnlyList<uint> uids,
@@ -246,9 +250,7 @@ internal sealed class MailKitTransport : IMailTransport
                     {
                         // Metadata of all UIDs in one command; UIDs the server does not answer for are skipped.
                         List<UniqueId> requestedIds = [.. uids.Select(uid => new UniqueId(folder.UidValidity, uid))];
-                        var request = new FetchRequest(
-                            MessageSummaryItems.UniqueId | MessageSummaryItems.Flags | MessageSummaryItems.InternalDate
-                            | MessageSummaryItems.Size);
+                        var request = new FetchRequest(MessageMetadataItems);
                         IList<IMessageSummary> summaries = await folder
                             .FetchAsync(requestedIds, request, ct)
                             .ConfigureAwait(false);
@@ -376,8 +378,8 @@ internal sealed class MailKitTransport : IMailTransport
 
     /// <summary>
     /// Runs one MailKit operation and maps its failures: socket/IO/TLS/timeouts and a lost connection → Network,
-    /// rejected login → Authentication, rejected command, protocol error or unknown folder → Protocol. Cancellation
-    /// by the caller and all other exceptions pass through unchanged.
+    /// rejected login → Authentication, rejected command, protocol error, unknown folder or message → Protocol.
+    /// Cancellation by the caller and all other exceptions pass through unchanged.
     /// </summary>
     /// <typeparam name="TResult">Result type of the operation.</typeparam>
     /// <param name="endpoint">Server endpoint (for the message).</param>
@@ -408,7 +410,8 @@ internal sealed class MailKitTransport : IMailTransport
             OperationCanceledException when ct.IsCancellationRequested => null,
             MailTransportException => null,
             AuthenticationException => MailTransportFailure.Authentication,
-            ImapCommandException or ImapProtocolException or FolderNotFoundException => MailTransportFailure.Protocol,
+            ImapCommandException or ImapProtocolException or FolderNotFoundException or MessageNotFoundException =>
+                MailTransportFailure.Protocol,
             SslHandshakeException or SocketException or IOException or TimeoutException
                 or ServiceNotConnectedException or OperationCanceledException => MailTransportFailure.Network,
             _ => null,

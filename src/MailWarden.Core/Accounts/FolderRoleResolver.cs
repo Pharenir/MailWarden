@@ -5,8 +5,8 @@ namespace MailWarden.Core.Accounts;
 /// <summary>
 /// Maps a server folder (full name, hierarchy delimiter, flags) to a <see cref="FolderClassification"/>. Roles come
 /// from server flags first; names are only used for INBOX, the app-owned folders, Gmail's "Important" folder and
-/// the documented Microsoft folders without flags. The server "Outbox" is never <see cref="FolderRole.Outbox"/> (that role is the local send
-/// queue).
+/// the documented Microsoft folders without flags. The server "Outbox" is never <see cref="FolderRole.Outbox"/>
+/// (that role is the local send queue).
 /// </summary>
 public static class FolderRoleResolver
 {

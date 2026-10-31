@@ -1,3 +1,4 @@
+using System.Globalization;
 using MailWarden.Core.Accounts;
 using MailWarden.Core.Model;
 using MailWarden.Core.Storage;
@@ -36,8 +37,8 @@ namespace MailWarden.Infrastructure.Sync;
 /// the folder completes with Error "&lt;n&gt; message(s) failed (first: &lt;Type.Name&gt;)", its state is saved as
 /// usual and the failed UIDs are retried next pass because they are still missing locally. Any other failure of the
 /// folder itself (including network failures) is recorded as "&lt;ExceptionType&gt;: &lt;message&gt;", the folder keeps
-/// its previous sync state and the next folder continues. After a folder failure with a lost connection
-/// (<see cref="IMailTransport.IsConnected"/> false) the transport is replaced by a new one, at most
+/// its previous sync state and the next folder continues. Before every folder after the first, a lost connection
+/// (<see cref="IMailTransport.IsConnected"/> false) is replaced by a new one, at most
 /// <see cref="SyncOptions.MaxReconnectsPerPass"/> times per pass. Accepted consequence: a message that always makes
 /// MailKit drop the connection (e.g. an <c>ImapProtocolException</c> while reading it) costs the rest of its folder
 /// in every pass, not the whole account. Not thread-safe; one pass at a time.
@@ -108,7 +109,9 @@ public sealed class SyncEngine
     /// <param name="accountId">Account to sync.</param>
     /// <param name="progress">
     /// Receives <see cref="SyncProgress"/> synchronously via <see cref="IProgress{T}.Report"/>: when a folder starts,
-    /// when its candidates are known, after every batch and when the folder ends (also on error). Null = no reports.
+    /// when its candidates are known, after every batch and when the folder ends (also when the folder fails). No
+    /// folder-end report is sent when the pass aborts (cancellation, authentication, reconnect failure or budget). An
+    /// exception thrown by <see cref="IProgress{T}.Report"/> aborts the pass. Null = no reports.
     /// </param>
     /// <param name="ct">Cancellation token.</param>
     /// <returns>Counts per folder; folders that failed carry their error.</returns>
@@ -146,39 +149,34 @@ public sealed class SyncEngine
             for (int folderIndex = 0; folderIndex < orderedFolders.Count; folderIndex++)
             {
                 MailFolder folder = orderedFolders[folderIndex];
+
+                // B4 (fix.2 K1): before every folder after the first, a lost connection is replaced (bounded per
+                // pass), whether or not the previous folder failed. Nothing is reconnected after the last folder.
+                if (folderIndex > 0 && !transport.IsConnected)
+                {
+                    lostConnections++;
+                    if (lostConnections > options.MaxReconnectsPerPass)
+                    {
+                        throw new MailTransportException(
+                            MailTransportFailure.Network,
+                            string.Create(
+                                CultureInfo.InvariantCulture,
+                                $"The connection to the mail server was lost too often during the pass ({lostConnections} times, at most {options.MaxReconnectsPerPass} reconnects allowed)."));
+                    }
+
+                    IMailTransport lostTransport = transport;
+                    transport = null;
+                    await lostTransport.DisposeAsync().ConfigureAwait(false);
+                    transport = await transportFactory.ConnectAsync(account, ct).ConfigureAwait(false);
+                }
+
                 var reporter = new FolderProgressReporter(
                     progress,
                     account.Id,
                     folder,
                     folderIndex + 1,
                     orderedFolders.Count);
-                (FolderSyncResult result, bool folderFailed) = await SyncFolderAsync(
-                        account,
-                        transport,
-                        folder,
-                        reporter,
-                        ct)
-                    .ConfigureAwait(false);
-                folderResults.Add(result);
-
-                // B4: after a folder failure, a lost connection is replaced (bounded per pass) before the next folder.
-                if (!folderFailed || transport.IsConnected)
-                {
-                    continue;
-                }
-
-                lostConnections++;
-                if (lostConnections > options.MaxReconnectsPerPass)
-                {
-                    throw new MailTransportException(
-                        MailTransportFailure.Network,
-                        $"The connection to the mail server was lost too often during the pass ({lostConnections} times, at most {options.MaxReconnectsPerPass} reconnects allowed).");
-                }
-
-                IMailTransport lostTransport = transport;
-                transport = null;
-                await lostTransport.DisposeAsync().ConfigureAwait(false);
-                transport = await transportFactory.ConnectAsync(account, ct).ConfigureAwait(false);
+                folderResults.Add(await SyncFolderAsync(account, transport, folder, reporter, ct).ConfigureAwait(false));
             }
 
             return new SyncReport(account.Id, folderList.Added, folderList.Removed, folderResults);
@@ -276,8 +274,8 @@ public sealed class SyncEngine
     }
 
     // R9 (B4): only authentication failures and cancellation abort the pass; everything else, including network
-    // failures, stays in its folder. Failed = the folder itself failed (not only single messages).
-    private async Task<(FolderSyncResult Result, bool Failed)> SyncFolderAsync(
+    // failures, stays in its folder.
+    private async Task<FolderSyncResult> SyncFolderAsync(
         Account account,
         IMailTransport transport,
         MailFolder folder,
@@ -295,12 +293,12 @@ public sealed class SyncEngine
                 ? null
                 : $"{progress.FailedMessages} message(s) failed (first: {progress.FirstFailureType})";
             reporter.Report(progress);
-            return (progress.ToResult(folder, messageFailures), false);
+            return progress.ToResult(folder, messageFailures);
         }
         catch (Exception exception) when (!AbortsPass(exception))
         {
             reporter.Report(progress);
-            return (progress.ToResult(folder, $"{exception.GetType().Name}: {exception.Message}"), true);
+            return progress.ToResult(folder, $"{exception.GetType().Name}: {exception.Message}");
         }
     }
 

@@ -48,7 +48,9 @@ public interface IMailTransport : IAsyncDisposable
     /// number of IMAP commands that does not grow with the number of UIDs (target: one FETCH for the metadata of all
     /// UIDs plus one for all bodies). Calls <paramref name="onMessage"/> once per delivered message, in ascending UID
     /// order, and awaits it before the next call. The callback owns <see cref="RemoteMessage.Content"/> and disposes it.
-    /// UIDs the server returns nothing for are skipped (no callback).
+    /// The content is valid only until the task returned by the callback completes: the callback must consume it
+    /// before that and must not keep it or hand it to other work. UIDs the server returns nothing for are skipped
+    /// (no callback).
     /// </summary>
     /// <param name="uids">UIDs in the open folder.</param>
     /// <param name="onMessage">Called per delivered message with the message and the cancellation token.</param>
