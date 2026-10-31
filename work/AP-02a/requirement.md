@@ -296,3 +296,11 @@ Small round before the merge: SHOULDs and cheap low-severity findings.
 | A16 | `ConnectionProbe`: an exception in `DisconnectAsync` after a successful login does not turn `ImapOk`/`SmtpOk` false. (review NIT 10) | fix | none |
 | A17 | `MicrosoftTokenProvider` class doc: one instance per credential store. Review NITs 8, 9: at the builder's discretion (do not change the contract sentence of NIT 8). | doc | none |
 | A18 | Out of scope → `TODO.md`: shared atomic-write helper for `FileEmlStore`/`DpapiCredentialStore` (review SHOULD 3, touches AP-01); `DataPaths.CredentialsDirectory`/`AuthConfigPath` (AP-02b/AP-04); logging rule "never `ToString()` of auth exceptions" (AP-02b, secure N1); ACL / location of the data folder (AP-13, secure N3); server-side revoke (secure N6); cleanup of orphaned grants at start. | – | – |
+
+## Planner decisions 2026-10-31 (fix.3) – binding
+Source: verify.2 PASS (242/242), review.2 APPROVE with one SHOULD, secure.2 0/0/0/1 (N7 → A18 TODO).
+
+| # | Decision | Builder | Tester |
+|---|---|---|---|
+| A19 | `ReauthenticateAsync` signs out the wrong grant **best effort** like `AddAccountAsync` (`SignOutBestEffortAsync`, `CancellationToken.None`): a sign-out failure never replaces the AccessDenied result. (review.2 SHOULD 1) | fix | new case 25c: fake signs in another (not stored) address and its SignOut throws AuthenticationFailedException → still AccessDenied, account unchanged |
+| A20 | Comments in `AccountService.cs` around removal / best-effort sign-out describe exactly what is swallowed (only `AuthenticationFailedException`) and that a grant may remain on disk (→ A18). `DpapiCredentialStore`: one instance per folder is a requirement for the AP-04 composition root (→ TODO). (review.2 NIT 3/4) | doc | none |
