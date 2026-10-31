@@ -103,3 +103,84 @@ Umfang: `git diff e5eea7e bed96dd -- . ":(exclude)tests"` (Core `Accounts\`, Inf
 - Getestet: nichts ausgeführt (reines Code-Review am eingefrorenen Stand `bed96dd`).
 - Ungetestet/vermutlich korrekt: Verhalten von MSAL/Google-Listenern bei Timeout, Windows-Sharing-Verhalten bei
   SHOULD 1 (aus der Dokumentation von `MoveFileEx`/FileShare abgeleitet, nicht reproduziert).
+
+## review.2 (2026-10-31)
+
+**Urteil: APPROVE** (keine BLOCK-Befunde; ein SHOULD, gern noch vor dem Merge, sonst als TODO)
+
+Umfang: `git diff 2e2e8a7 9600019 -- src` (fix.2, Commit `89dc243`) plus Wechselwirkungen mit dem unveränderten Code.
+Grundlage: `requirement.md` @ `9600019` (A9–A18), `impl-notes.md` Abschnitt fix.2, review.1, secure.1. Nichts unter
+`tests\` gelesen, kein `test-plan.md`/`test-result.md`. Build nicht selbst ausgeführt (Builder meldet `-warnaserror` grün).
+
+### A9 – Abweichung im Mechanismus: akzeptiert
+- Die Begründung stimmt: Ersetzen per `File.Move(overwrite)` wird bei offenem Ziel-Handle auch mit `FileShare.Delete`
+  verweigert. `FileEmlStore.cs:84-85` (AP-01) dokumentiert genau das; meine Annahme in review.1 SHOULD 1 („Delete-Sharing
+  reicht“) war falsch. Die `SemaphoreSlim` je Instanz war dort schon als Alternative genannt.
+- Sperrreihenfolge: MSAL hält seine Cache-Sperre während Before/AfterAccess und ruft darin den Store auf
+  (MSAL → Store). Der Store ruft in seiner Sperre nichts Fremdes auf (kein Callback, kein zweiter Store-Aufruf);
+  Google ruft Lesen und Schreiben nacheinander auf, nicht verschachtelt. Kein Zyklus, also kein Deadlock.
+- Async-Sperre: `WaitAsync(ct)` steht jeweils **vor** dem `try` (`DpapiCredentialStore.cs:57, 103, 134`). Ein Abbruch
+  beim Warten gibt nichts frei, was nicht erworben wurde. `Release` im `finally` deckt den Not-found-Return (`:64`),
+  Abbruch und IO-Fehler ab. DPAPI läuft außerhalb der Sperre (`:74`, `:94`), die Sperre ist also kurz.
+- Dispose: Die Klasse ist nicht `IDisposable`, `AvailableWaitHandle` wird nie benutzt → die Semaphore braucht kein
+  Dispose. In Ordnung.
+- `ListKeysAsync` ohne Sperre ist unkritisch: Move ist atomar, `.tmp` wird gefiltert.
+- Die Restlücke (mehrere Instanzen/Prozesse auf einem Ordner) ist in den Remarks dokumentiert (`:15-18`).
+
+### A10–A17 geprüft und in Ordnung
+- A10: Der Filter `IOException or UnauthorizedAccessException` (`AuthFailures.cs:58-61`) erfasst keine
+  `OperationCanceledException`, die Cancellation-Semantik bleibt also erhalten. `CredentialStoreException` wird jeweils
+  vorher gefangen (`GoogleTokenProvider.cs:293`, `MicrosoftTokenProvider.cs:196`), die inner exception bleibt erhalten.
+  Abgedeckt sind Google Lesen/Schreiben/SignOut und die MSAL-Load/Save-Callbacks. `AuthenticationFailedException`
+  läuft unverändert durch die beiden `TranslateFailuresAsync` und `InteractiveSignInTimeout`.
+- A11: Nur `AuthenticationFailedException` wird geschluckt (`AccountService.cs:182`), OCE und andere Fehler
+  propagieren und das Konto bleibt. Microsoft ohne Konfiguration (`GetApplication` wirft im async-Kontext) wird
+  dadurch abgedeckt.
+- A12/A13 Reihenfolge: Anmeldung → Suche → gleicher Provider: bestehendes Konto / anderer Provider: SignOut + AccessDenied
+  `address_in_use` / neu: Upsert, bei Fehler SignOut + Rethrow (`AccountService.cs:69-103`). Re-Auth-Guard
+  providerbezogen (`:151`). SignOut läuft auf dem Provider, der den Grant erzeugt hat; der Grant des anderen Providers
+  bleibt unberührt.
+- A14: Der State wird vor `error`/`code` geprüft (`GoogleTokenProvider.cs:161-165`). `FixedTimeEquals`, 32 Byte aus
+  `RandomNumberGenerator`, Base64Url. Ein ungültiger `error` wird null → `Unknown`.
+- A15: In `src` gibt es keine interpolierte Adresse mehr in Meldungen (git grep @ `9600019`).
+- A16: `DisconnectIgnoringFailuresAsync` (`ConnectionProbe.cs:154-164`) wirft nur einen Abbruch des Aufrufers weiter,
+  gleiche `IsCancellation`-Regel wie bei IMAP/SMTP.
+- A17: Remarks und Umbenennung wie entschieden.
+
+### Befunde
+
+**BLOCK** – keine.
+
+**SHOULD**
+
+1. `src/MailWarden.Core/Accounts/AccountService.cs:150-154` – Re-Auth verwirft den falschen Grant anders als
+   `AddAccountAsync` (`:83`, `:99`, Helfer `:193-203`), ohne fachlichen Grund. Beide Fälle sind „frischer Grant, der
+   nicht bleiben darf“. Re-Auth ruft `SignOutAsync(signedInAddress, ct)` direkt auf:
+   (a) Eine `AuthenticationFailedException` des SignOut (seit A10 z. B. `credential_store_unavailable`) ersetzt die
+   eigentliche Meldung „anderes Konto angemeldet“ (AccessDenied); die Meldung passt dann nicht mehr zum Vorgang.
+   (b) Bricht der Aufrufer nach erfolgreicher Anmeldung ab, bleibt der falsche Grant liegen. `SignOutBestEffortAsync`
+   verwendet genau deshalb `CancellationToken.None`.
+   Vorschlag: In `:153` `SignOutBestEffortAsync(tokenProvider, signedInAddress)` verwenden; Doku `:122-126` bleibt.
+   Testfälle 25/25a sind davon nicht betroffen.
+
+**NIT**
+
+2. `AccountService.cs:74` und `:150` – `FindByAddressAsync(…, ct)` liegt zwischen Anmeldung und Aufräumen. Ein
+   Abbruch oder Store-Fehler genau dort lässt den frischen Grant einer neuen Adresse liegen. A13 deckt nur das Speichern
+   ab. Das ist ein Randfall und gehört zum TODO „verwaiste Grants beim Start aufräumen“ (A18).
+3. `AccountService.cs:184` – Der Kommentar „a grant left behind is unusable without it“ stimmt nur für MailWarden. Durch
+   A10 × A11 bleibt bei einem IO-Fehler (Virenscanner/Backup hält die Datei) der verschlüsselte Refresh-Token auf der
+   Platte (Google `google.<hash>.bin`, Microsoft `msal.cache` nach `RemoveAsync` ohne Speichern) und ist serverseitig
+   weiter gültig. Vorschlag: Kommentar entsprechend formulieren und diesen Weg im A18-TODO „verwaiste Grants“
+   ausdrücklich nennen. Ebenso `:191-192`: Geschluckt wird nur `AuthenticationFailedException`, andere Fehler ersetzen
+   den Ausgangsfehler weiterhin. Mit den echten Providern ist das unkritisch, der Kommentar sagt aber mehr zu.
+4. `DpapiCredentialStore.cs:15-18` – „Genau eine Instanz je Ordner“ ist jetzt eine harte Bedingung für die
+   Composition Root (AP-04): Beide Token-Provider müssen **dieselbe** Store-Instanz bekommen. Gehört zusammen mit
+   A17 (MS-Provider als Singleton) in den AP-04-Hinweis bzw. ins TODO.
+5. A18: `TODO.md` @ `9600019` enthält die A18-Punkte noch nicht (Builder-Notiz sagt, dass der Planer sie nachträgt).
+   Das ist eine Aufgabe für den Planer, kein Builder-Fehler.
+
+### Getestet / ungetestet (Reviewer)
+- Getestet: nichts ausgeführt (reines Code-Review am eingefrorenen Stand `9600019`).
+- Ungetestet/vermutlich korrekt: ob MSAL Ausnahmen aus dem AfterAccess-Callback unverändert durchreicht (Builder hat
+  nur Load beobachtet); der State-Roundtrip mit dem echten Google-Redirect (Fall 28/30).

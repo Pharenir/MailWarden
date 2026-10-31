@@ -115,3 +115,55 @@ keine
 | `auth-config.json` / Umgebungsvariablen | lokal, Benutzerrechte | ja |
 | AuthProbe-Konsole (`_scratch\`, nicht ausgeliefert) | lokal, nur Dennis | ja |
 | Öffentliche Netzwerk-Einstiegspunkte | keine | – |
+
+## secure.2 (2026-10-31)
+
+Grundlage: `git diff 2e2e8a7 9600019 -- src .gitignore`, `git show a3cf2e0`, `requirement.md` (A9–A18), `impl-notes.md`
+(fix.2), vollständige Dateien bei `9600019`. `tests\`, `test-plan.md`, `test-result.md` nicht gelesen; nichts gestartet.
+(Vom Planer aus der Rückmeldung des Security-Reviewers übernommen; die Rolle hat kein Schreibwerkzeug.)
+
+**Ergebnis: 0 Kritisch · 0 Hoch · 0 Mittel · 1 Niedrig (neu: N7)** → kein Hinderungsgrund für Abschluss und Merge.
+Pflichtpunkt Planer: A18-Einträge in `TODO.md` vor dem Merge.
+
+### Niedrig
+**N7 – Liegengebliebene `.tmp`-Dateien enthalten einen verschlüsselten Grant, den Abmelden/Entfernen nicht löschen**
+- Ort: `src\MailWarden.Infrastructure\Security\DpapiCredentialStore.cs:102, 122-126, 205-219` (best-effort-Aufräumen),
+  `:131-147` (`DeleteAsync` löscht nur `<key>.bin`).
+- Szenario: Virenscanner/Indexer hält die Temp-Datei offen, während `WriteAsync` scheitert (seit A9 still ignoriert),
+  oder Abbruch zwischen Schreiben und `File.Move` → `<key>.<guid>.tmp` mit DPAPI-Chiffrat bleibt unbefristet liegen,
+  unsichtbar für `ListKeysAsync`. Datensparsamkeit; selten, nur mit dem Windows-Konto nutzbar.
+- Empfehlung: A18-Aufräumen beim Start ausdrücklich auf `*.tmp` im Credentials-Ordner erweitern. Optional:
+  `DeleteAsync` löscht zusätzlich exakt `<key>.<32 Hex>.tmp` (nicht `<key>.*.tmp` – träfe bei `a` auch `a.b`).
+
+### Status der secure.1-Befunde
+| Befund | Status | Rest |
+|---|---|---|
+| N1 innere Ausnahmen / Adresse | teilweise erledigt (A15), Logging-Regel vertagt (A18) | zusätzlich: innere `IOException` bei `credential_store_unavailable` enthält den vollen Pfad (Benutzername im Profilpfad) |
+| N2 Google `state` / `error` | erledigt (A14) | Browser-Rundlauf ungetestet; Abbruch durch Fremdaufruf mit falschem `state` bleibt möglich (DoS, akzeptiert) |
+| N3 Rechte Credentials-Ordner | vertagt (A18 → AP-13) | – |
+| N4 Adressabgleich ohne Anbieter | erledigt (A12) | – |
+| N5 verwaiste Grants | weitgehend erledigt (A13) | Restfenster (Fehler vor Erkennung der neuen Adresse, Re-Auth mit Caller-`ct`, Absturz) → A18-Aufräumen |
+| N6 kein Widerruf beim Server | vertagt (A18) | – |
+
+### Hinweise ohne Befund
+- `DpapiCredentialStore.cs:198`: `checked((int)stream.Length)` → eingeschleuste Datei > 2 GB löst `OverflowException`
+  aus, die die Token-Provider nicht abbilden; Dateien < 2 GB werden ganz geladen. Setzt Schreibrecht im Ordner voraus
+  (N3); bei AP-13 Obergrenze (z. B. 1 MB) mitdenken.
+- A9: prozessinterne Sperre schützt nicht prozessübergreifend (AuthProbe + App auf demselben Datenordner) – nur
+  Verfügbarkeit betroffen; Mechanismus aus Security-Sicht in Ordnung.
+- A10, MSAL-Speicher-Callback: Durchreichen/Einpacken nicht beobachtet; in beiden Fällen kein Fremdtext.
+- A14, manuell bei Fall 30: Abbruch/Ablehnung auf der Google-Seite muss `UserCancelled`/`AccessDenied` liefern, nicht
+  `state_mismatch` (RFC 6749 4.1.2.1 verlangt `state` im Fehler-Redirect).
+- `.gitignore` (`a3cf2e0`): Einträge ohne führenden Schrägstrich, greifen überall; Historie ohne Credentials-Dateien.
+
+### Geprüft und in Ordnung
+- A14: CSPRNG, 256 Bit, Base64Url; je Anmeldung neu; `FixedTimeEquals`; Prüfung vor `error`/`code`; fester Satz
+  `state_mismatch`; `SanitizeRedirectErrorCode` nur `[a-z_]{1,64}`.
+- A13/A12: `SignOutBestEffortAsync` mit `CancellationToken.None`, schluckt nur `AuthenticationFailedException`,
+  auslösende Ausnahme bleibt; kein fremder legitimer Grant wird gelöscht (eine Adresse = ein Konto laut Schema).
+- A11: Entfernen schluckt nur `AuthenticationFailedException`.
+- A10: fester Satz ohne Pfad/Schlüssel/Serverdaten, Code als Konstante, innere Ausnahme erhalten.
+- A9: Lesen `Read|Delete`, Temp `CreateNew`/`None`/`WriteThrough`, `ZeroMemory` vor der Sperre, atomares Move,
+  Freigabe im `finally`, Aufräumen verdeckt nichts (Rest N7).
+- A15/A10: keine Adresse, kein Pfad, kein Token in neuen Meldungen (`git grep`).
+- A16: Trennfehler nach erfolgreichem Login still ignoriert, Caller-Abbruch bleibt Abbruch.

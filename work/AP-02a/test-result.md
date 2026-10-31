@@ -11,3 +11,9 @@
   A1 ListKeys: empty prefix = all, null -> ArgumentNullException, `../` / `a/b` / `a:b` / 129 chars -> ArgumentException.
 - A7 (`OUTBOX`) already covered by case 10.
 - No browser, no network login in tests. Cases 28-30 remain manual (Dennis).
+
+## verify.2 (2026-10-31)
+- Merge `test/ap-02a-accounts-auth` (49d44ff: 22a/22b/25b/26a) in `feat/ap-02a-accounts-auth`: conflict-free.
+- Build `dotnet build MailWarden.sln -warnaserror`: 0 warnings, 0 errors.
+- S3 (full suite via watchdog): **PASS** - 242 total, 242 passed, 0 failed, 0 skipped (verify.1: 237, +5 new). Duration ~3.4 s.
+- Failures: none. Cases 28-30 remain manual (Dennis).
