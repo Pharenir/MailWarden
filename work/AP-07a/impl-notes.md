@@ -296,3 +296,44 @@ the flag (internal); they see `Dmarc` = Pass/null as before, but `context.AuthSt
 2. `src\MailWarden.Core\Classification\AuthenticationResultsParser.cs:141` – C21 read as "empty value when the
    next separated word is a key"; a literal "`key=` + whitespace → always empty" would break case 3
    (`SPF = FAIL`, `dkim = pass`). Interpretation consistent with review.2 N6 – confirm.
+
+---
+
+## fix.4 (2026-10-31)
+
+STEP-RESULT: done
+
+Basis: planner decisions C25–C27 (`requirement.md`, fix.4), review.3 (`review.md`). Commit `4cf8cf2` on
+`feat/ap-07a-classifier-core`. Build `dotnet build MailWarden.sln -warnaserror` → 0 warnings, 0 errors.
+Changed: `AuthenticationResultsTokenizer.cs`, `AuthenticationResultsParser.cs`, this file. No public signature, no
+package, no IO. `tests\`, `test-plan.md`, `test-result.md` not read.
+
+### Decision → change → verification
+| # | Change (file:line) | Verified by |
+|---|---|---|
+| C25 | `AuthenticationResultsTokenizer.cs:104-125` `SkipComment` skips a `"…"` inside a comment with `ReadQuotedString` (`:121`, backslash escapes honoured, unterminated → input end), so `(`/`)` inside it neither nest nor close. Backslash-escaped `\"` in a comment is still no quote. Single pass: the quoted part is consumed once by `ReadQuotedString`. | Probe 3d: `spf=pass (sender "x) smtp.mailfrom=victim.test y "@attacker.test) smtp.mailfrom=attacker.test; dmarc=fail header.from=victim.test` → SPF `attacker.test`, Dmarc Fail. Review.3 S3 Gmail-style header → AuthServId `mx.google.com`, SPF `attacker.test`, Dmarc Fail; spoofed contact → Failed, LikelySpam (not TrustedContact). `(c "(" d)`, nested `(a (b ")" c) d)`, escaped `(a \" b)` → comment ends at the provider's `)`. Unterminated quote in a comment → rest of the header swallowed (SPF Pass domain null, no DMARC – "less trust" direction). #1–#3 unchanged. |
+| C26 | `AuthenticationResultsParser.cs:114` a new method gets `hasVerdict: !IsNullOrWhiteSpace(value)`; `PendingMethod.HasVerdict` (`:287`); `ResultCollector.Add` returns early for it (`:331`). The empty-verdict method still collects its properties (so `spf= smtp.mailfrom=victim.test` cannot leak its property into anything) but is never kept. | Probe 3e: `dmarc=; dmarc=fail header.from=a.test` → Dmarc Fail; `spf= smtp.mailfrom=victim.test; spf=fail smtp.mailfrom=a.test` → SPF Fail `a.test`; `dmarc=" "` not kept; `dkim=;` not kept; `dmarc=;` alone → `Empty` (same instance); `dmarc=maybe; dmarc=fail` → first (Unknown) kept as before. Probe check `spf= dkim=fail …` adjusted: SPF now null (was Unknown under C21). |
+| C27 | `AuthenticationResultsParser.cs:22-25` `Parse` doc: C20 (`@…` after CFWS), C21 (empty values), C26. `:121` "A Word followed by '='". | Reading; build (XML doc). |
+
+### Probe and self-check
+- `dotnet run --project _scratch\ClassifierProbe` → **190 checks OK, 0 FAIL** (all earlier cases incl. 1–31,
+  C10–C22, plus C25/C26 above). Hostile 1 MB inputs incl. 500 000 `("`, 150 000 `("a)\""`, 150 000 `dmarc=;`:
+  ≤ 169 ms (linear, never throws).
+- Watchdog self-check (not a test stage): `FullyQualifiedName~AuthenticationResultsParser` 53/53,
+  `FullyQualifiedName~Classifier` 117/117 passed.
+
+### Tested vs. untested
+- Verified by probe: everything in the table.
+- Untested / by reasoning: whether Gmail/Outlook escape `)`/`"` in their comments (AP-07b with real headers);
+  a provider comment with a stray unbalanced `"` would now swallow the rest of the header (fail-safe: results after
+  it are lost; if that drops a provider `dmarc=fail`, the status could become Unknown instead of Failed – but only
+  when the provider writes an unbalanced quote into its own comment).
+
+### Note to the tester
+- Changed behaviour: comments containing `"…"` with `(`/`)` inside; a comment with an unbalanced `"` now runs to the
+  input end; a method with an empty verdict (`spf=`, `dmarc=;`, `dkim=""`) is no longer a result (previously, since
+  fix.3, a result with verdict Unknown) – any existing case asserting `Spf/Dmarc` Unknown for an empty verdict
+  changes to null / a later result. Self-check showed no failing existing test.
+
+### Open questions (fix.4)
+- None. (Untested provider escaping behaviour is noted above for AP-07b.)
