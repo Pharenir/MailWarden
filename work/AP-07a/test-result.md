@@ -18,3 +18,13 @@
 ## Notes
 - Test counter in `TODO.md` not reset (outside tester write scope; planner to handle). `.test-logs/durations.jsonl` updated.
 - Unit tests of AP-01 storage not run (not in this solution state).
+
+## verify.2 (2026-10-31)
+- Result: PASS (S3, full suite via watchdog, exit 0)
+- Build `dotnet build MailWarden.sln -warnaserror`: 0 warnings, 0 errors
+- Tests: 290 total, 290 passed, 0 failed (verify.1: 272)
+- Merge test/ap-07a-classifier-core into feat: clean, no conflict
+- Test branch commits: c928d32 (cases 3a/21a/22a/28a/30a), db1ad80 (C17/C19)
+- New/changed tests (db1ad80): `Parse_spf_domain_is_taken_after_the_last_at_sign` +2 rows (C17 `x@attacker.test"@victim.test"` -> attacker.test; C19 `"Bounce@Example.TEST"` -> example.test), new `Parse_dkim_domain_from_quoted_header_i` (C19 -> victim.test)
+- Failures: none
+- Test counter in TODO.md not reset (outside tester scope; planner to do). durations.jsonl updated.
