@@ -4,6 +4,7 @@ using MailWarden.Core.Model;
 using MailWarden.Core.Storage;
 using MailWarden.Core.Sync;
 using MailWarden.Infrastructure.Mime;
+using MailWarden.Infrastructure.Storage;
 using MimeKit;
 
 namespace MailWarden.Infrastructure.Sync;
@@ -263,7 +264,9 @@ public sealed class SyncEngine
             IReadOnlyDictionary<uint, string?> emlPaths = await messages
                 .GetUidEmlPathsAsync(storedFolder.Id, ct)
                 .ConfigureAwait(false);
-            await DeleteEmlFilesSkippingFailuresAsync(emlPaths.Values, ct).ConfigureAwait(false);
+
+            // A file that cannot be deleted is skipped so that the folder row still goes (orphan left for a cleanup).
+            await EmlFiles.DeleteSkippingFailuresAsync(emlStore, emlPaths.Values, ct).ConfigureAwait(false);
 
             // Cascades to rows, full-text entries and sync state.
             await folders.DeleteAsync(storedFolder.Id, ct).ConfigureAwait(false);
@@ -582,28 +585,6 @@ public sealed class SyncEngine
             if (emlPaths.TryGetValue(uid, out string? emlPath) && emlPath is not null)
             {
                 await emlStore.DeleteAsync(emlPath, ct).ConfigureAwait(false);
-            }
-        }
-    }
-
-    // R1 (folder removal): a file that cannot be deleted is skipped so that the folder row still goes; the orphan file
-    // is left for a later cleanup. Cancellation still propagates.
-    private async Task DeleteEmlFilesSkippingFailuresAsync(IEnumerable<string?> emlPaths, CancellationToken ct)
-    {
-        foreach (string? emlPath in emlPaths)
-        {
-            if (emlPath is null)
-            {
-                continue;
-            }
-
-            try
-            {
-                await emlStore.DeleteAsync(emlPath, ct).ConfigureAwait(false);
-            }
-            catch (Exception exception) when (exception is not OperationCanceledException)
-            {
-                // Skipped on purpose, see method comment.
             }
         }
     }

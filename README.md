@@ -15,8 +15,32 @@ server to the local store (folders, messages, flags, deletions; read-only toward
 window. The sync is a library only: it has no user interface, no schedule and no IDLE yet, and it never changes anything
 on the server. It fetches missing messages in batches (50 by default), reports progress per folder (number, role,
 processed/missing; no names), reconnects within a pass if the connection was lost (at most 3 times) and does not sync
-the Gmail folder "Important". Account setup in the app comes with AP-04; there is no inbox view yet, and the classifier does not sort
-or move any mail yet.
+the Gmail folder "Important". A command queue (local to server: flags, move, trash, delete, empty folder; see
+"Command queue") is implemented as a library as well. Account setup in the app comes with AP-04; there is no inbox view
+yet, and the classifier does not sort or move any mail yet.
+
+## Command queue
+Actions that change the server (flags, move, move to Trash, permanent delete, empty folder) are never executed
+directly. They are stored as commands and executed later; the local store changes only after the server has confirmed.
+Invalid commands are rejected when queued.
+
+Deleting works like in Outlook:
+- Del moves a message to Trash.
+- Shift+Del deletes it permanently (inside Trash and Junk, Del is permanent already).
+- "Empty folder" is available for Trash and Junk only and removes permanently just the messages known locally at that
+  moment; mail that arrives later stays.
+
+Safety rules:
+- There is never an untargeted expunge: only the exact messages of a command are deleted permanently.
+- Every command remembers the folder's UIDVALIDITY. If it changed on the server, the command fails without touching
+  the server.
+
+Errors: after a network failure the command is tried again later. If the server rejects it, it is retried with growing
+delay (1, 2, 4 ... at most 60 minutes) and marked "failed" after 5 attempts. A sign-in failure aborts the run without
+counting an attempt. The sync stays read-only towards the server.
+
+Not available yet: there is no user interface for this (AP-04) and nothing runs automatically (background service with
+schedule and IDLE: AP-03d).
 
 ## Requirements
 - Windows 11
@@ -50,7 +74,7 @@ Layout:
 
 | Entry | Content |
 |---|---|
-| `mailwarden.db` | SQLite database (schema version 3): accounts, folders, message metadata, full-text search index, sync state per folder (initial-window limit and change counter; every message missing locally is fetched on the next sync). An older database is upgraded automatically on start. |
+| `mailwarden.db` | SQLite database (schema version 4): accounts, folders, message metadata, full-text search index, sync state per folder (initial-window limit and change counter; every message missing locally is fetched on the next sync), command queue. An older database is upgraded automatically on start. |
 | `mail\` | one `.eml` file per message, stored per account and folder |
 | `credentials\` | DPAPI-encrypted sign-in tokens, one `.bin` file per entry |
 | `auth-config.json` | optional OAuth client configuration (see Environment variables) |

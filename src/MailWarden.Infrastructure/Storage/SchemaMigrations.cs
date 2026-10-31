@@ -91,11 +91,40 @@ internal static class SchemaMigrations
         UPDATE folder_sync_state SET skipped_up_to_uid = 0;
         """;
 
+    /// <summary>
+    /// Version 4: command queue local → server (AP-03c). A command disappears with its account, its source folder and
+    /// its target folder. Completed commands are deleted, so the table only holds pending and failed ones.
+    /// </summary>
+    private const string Version4 = """
+        CREATE TABLE mail_commands (
+            id                  INTEGER PRIMARY KEY AUTOINCREMENT,
+            account_id          TEXT    NOT NULL REFERENCES accounts (id) ON DELETE CASCADE,
+            kind                INTEGER NOT NULL,
+            folder_id           INTEGER NOT NULL REFERENCES folders (id) ON DELETE CASCADE,
+            folder_uid_validity INTEGER NOT NULL,
+            uids                TEXT    NOT NULL, -- ascending, comma-separated
+            target_folder_id    INTEGER NULL REFERENCES folders (id) ON DELETE CASCADE,
+            flags_add           INTEGER NOT NULL,
+            flags_remove        INTEGER NOT NULL,
+            status              INTEGER NOT NULL,
+            attempts            INTEGER NOT NULL,
+            created_at          TEXT    NOT NULL, -- ISO 8601 round-trip ("O")
+            next_attempt_at     TEXT    NULL,     -- ISO 8601 round-trip ("O")
+            last_error          TEXT    NULL
+        );
+
+        -- Queue order per account; child-key indexes keep the folder cascades cheap.
+        CREATE INDEX ix_mail_commands_account ON mail_commands (account_id, id);
+        CREATE INDEX ix_mail_commands_folder ON mail_commands (folder_id);
+        CREATE INDEX ix_mail_commands_target_folder ON mail_commands (target_folder_id);
+        """;
+
     /// <summary>All migrations in ascending order; versions are contiguous starting at 1.</summary>
     internal static readonly IReadOnlyList<(int Version, string Sql)> Ordered =
     [
         (1, Version1),
         (2, Version2),
         (3, Version3),
+        (4, Version4),
     ];
 }
