@@ -255,7 +255,8 @@ public sealed class CompAuthAndVerdictTokenTests
     [Fact]
     public void Dmarc_pass_with_compauth_pass_is_authenticated_as_before()
     {
-        ClassificationResult result = Classify(AuthHeaders.Outlook);
+        ClassificationResult result = Classify(
+            $"mx.test; spf=pass smtp.mailfrom={Domain}; dkim=pass header.d={Domain}; dmarc=pass action=none header.from={Domain}; compauth=pass reason=100");
 
         Assert.Equal(AuthStatus.Authenticated, result.AuthStatus);
         Assert.Equal(-20, TestInputs.Find(result, "authentication")?.Points);
