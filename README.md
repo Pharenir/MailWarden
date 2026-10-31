@@ -48,7 +48,7 @@ Layout:
 
 | Entry | Content |
 |---|---|
-| `mailwarden.db` | SQLite database (schema version 2): accounts, folders, message metadata, full-text search index, sync state per folder (how far each folder has been synced). An older database is upgraded automatically on start. |
+| `mailwarden.db` | SQLite database (schema version 3): accounts, folders, message metadata, full-text search index, sync state per folder (initial-window limit and change counter; every message missing locally is fetched on the next sync). An older database is upgraded automatically on start. |
 | `mail\` | one `.eml` file per message, stored per account and folder |
 | `credentials\` | DPAPI-encrypted sign-in tokens, one `.bin` file per entry |
 | `auth-config.json` | optional OAuth client configuration (see Environment variables) |

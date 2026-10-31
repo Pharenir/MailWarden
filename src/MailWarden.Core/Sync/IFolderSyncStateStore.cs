@@ -3,7 +3,7 @@ using MailWarden.Core.Storage;
 namespace MailWarden.Core.Sync;
 
 /// <summary>
-/// Persists the sync progress per folder. Deleting a folder removes its state as well.
+/// Persists the sync state per folder. Deleting a folder removes its state as well.
 /// </summary>
 public interface IFolderSyncStateStore
 {

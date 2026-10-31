@@ -35,6 +35,6 @@ public interface IMailTransport : IAsyncDisposable
     /// <summary>Fetches the complete message without setting <c>\Seen</c> (BODY.PEEK[]).</summary>
     /// <param name="uid">UID in the open folder.</param>
     /// <param name="ct">Cancellation token.</param>
-    /// <returns>The message (the caller disposes its content), or null when the UID no longer exists.</returns>
+    /// <returns>The message (the caller disposes its content), or null when the server returns nothing for the UID (gone or not delivered).</returns>
     Task<RemoteMessage?> FetchMessageAsync(uint uid, CancellationToken ct = default);
 }

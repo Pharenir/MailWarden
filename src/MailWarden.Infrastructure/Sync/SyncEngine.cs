@@ -53,7 +53,7 @@ public sealed class SyncEngine
     /// <param name="folders">Folder store.</param>
     /// <param name="messages">Message store including the full-text index.</param>
     /// <param name="emlStore">Store of the raw messages.</param>
-    /// <param name="syncStates">Sync progress per folder.</param>
+    /// <param name="syncStates">Sync state per folder (initial-window floor, CONDSTORE value).</param>
     /// <param name="options">Sync settings.</param>
     /// <param name="timeProvider">Clock for the initial window (local calendar day) and the sync timestamp.</param>
     /// <exception cref="ArgumentNullException">A parameter is null.</exception>
@@ -344,7 +344,7 @@ public sealed class SyncEngine
         await syncStates.SaveAsync(completedState, ct).ConfigureAwait(false);
     }
 
-    // R5/R6/R11: fetch → EML file → parse the stored bytes → row with full-text body. False when the UID vanished.
+    // R5/R6/R11: fetch → EML file → parse the stored bytes → row with full-text body. False when the server returned nothing for the UID (retried next run).
     private async Task<bool> FetchAndStoreAsync(
         Account account,
         IMailTransport transport,
