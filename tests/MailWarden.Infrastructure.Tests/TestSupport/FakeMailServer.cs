@@ -50,6 +50,9 @@ internal sealed class FakeMailFolder
     /// <summary>UIDs for which FetchMessageAsync returns null (message vanished between search and fetch).</summary>
     public HashSet<uint> NullFetchUids { get; } = [];
 
+    /// <summary>UIDs that SearchUidsAsync leaves out of its result (incomplete SEARCH), although the message exists.</summary>
+    public HashSet<uint> SearchHiddenUids { get; } = [];
+
     public string FullName => Info.FullName;
 
     public RemoteFolderState State => new(UidValidity, nextUid, HighestModSeq, Messages.Count);
@@ -242,7 +245,8 @@ internal sealed class FakeMailTransport(FakeMailServer server) : IMailTransport
             throw failure;
         }
 
-        IEnumerable<FakeMailMessage> matches = folder.Messages.Values;
+        IEnumerable<FakeMailMessage> matches =
+            folder.Messages.Values.Where(message => !folder.SearchHiddenUids.Contains(message.Uid));
         if (since is not null)
         {
             DateTime sinceDay = since.Value.Date;

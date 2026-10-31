@@ -92,20 +92,20 @@ public sealed class SchemaV2Tests
     }
 
     [Fact]
-    public void Current_schema_version_is_two()
+    public void Current_schema_version_is_three()
     {
-        Assert.Equal(2, SqliteDatabase.CurrentSchemaVersion);
+        Assert.Equal(3, SqliteDatabase.CurrentSchemaVersion);
     }
 
     // Smoke: a fresh database has the v2 table
     [Fact(Timeout = TestTimeouts.PerTestMilliseconds)]
     [Trait("Category", "smoke")]
-    public async Task Fresh_database_has_version_two_and_the_sync_state_table()
+    public async Task Fresh_database_has_version_three_and_the_sync_state_table()
     {
         await using SqliteDatabase database = SqliteDatabase.InMemory();
         await database.InitializeAsync();
 
-        Assert.Equal(2, database.SchemaVersion);
+        Assert.Equal(3, database.SchemaVersion);
         HashSet<string> tables = await ReadNamesAsync(database, "SELECT name FROM sqlite_master WHERE type = 'table'");
         Assert.Contains("folder_sync_state", tables);
         await using SqliteCommand command = database.Connection.CreateCommand();
@@ -113,7 +113,7 @@ public sealed class SchemaV2Tests
         await using SqliteDataReader reader = await command.ExecuteReaderAsync();
         Assert.True(await reader.ReadAsync());
         Assert.Equal(1, reader.GetInt32(0));
-        Assert.Equal(2, reader.GetInt32(1));
+        Assert.Equal(3, reader.GetInt32(1));
     }
 
     // Schema v2: column names of the contract
@@ -126,7 +126,7 @@ public sealed class SchemaV2Tests
         HashSet<string> columns = await ReadNamesAsync(database, "SELECT name FROM pragma_table_info('folder_sync_state')");
 
         Assert.Equal(
-            new HashSet<string> { "folder_id", "highest_synced_uid", "highest_mod_seq", "last_synced_at" },
+            new HashSet<string> { "folder_id", "skipped_up_to_uid", "highest_mod_seq", "last_synced_at" },
             columns);
     }
 
@@ -142,7 +142,7 @@ public sealed class SchemaV2Tests
         await using SqliteDatabase database = SqliteDatabase.ForFile(databasePath);
         await database.InitializeAsync();
 
-        Assert.Equal(2, database.SchemaVersion);
+        Assert.Equal(3, database.SchemaVersion);
         Assert.Contains("folder_sync_state", await ReadNamesAsync(database, "SELECT name FROM sqlite_master WHERE type = 'table'"));
         await using (SqliteCommand versionCommand = database.Connection.CreateCommand())
         {
@@ -150,7 +150,7 @@ public sealed class SchemaV2Tests
             await using SqliteDataReader reader = await versionCommand.ExecuteReaderAsync();
             Assert.True(await reader.ReadAsync());
             Assert.Equal(1, reader.GetInt32(0));
-            Assert.Equal(2, reader.GetInt32(1));
+            Assert.Equal(3, reader.GetInt32(1));
         }
 
         var accounts = new SqliteAccountStore(database);
@@ -184,7 +184,7 @@ public sealed class SchemaV2Tests
         var states = new SqliteFolderSyncStateStore(database);
 
         await states.SaveAsync(new FolderSyncState(7, 11, 0, null));
-        Assert.Equal(11u, (await states.GetAsync(7))!.HighestSyncedUid);
+        Assert.Equal(11u, (await states.GetAsync(7))!.SkippedUpToUid);
         await new SqliteFolderStore(database).DeleteAsync(7);
 
         Assert.Null(await states.GetAsync(7));
@@ -192,7 +192,7 @@ public sealed class SchemaV2Tests
 
     // Case 22 (supporting): a second start on the migrated file does not migrate again or lose data
     [Fact(Timeout = TestTimeouts.PerTestMilliseconds)]
-    public async Task Reopening_a_migrated_file_keeps_version_two_and_the_data()
+    public async Task Reopening_a_migrated_file_keeps_version_three_and_the_data()
     {
         using var temp = new TempDirectory();
         string databasePath = Path.Combine(temp.RootPath, "v1_twice.db");
@@ -208,9 +208,9 @@ public sealed class SchemaV2Tests
         await using SqliteDatabase second = SqliteDatabase.ForFile(databasePath);
         await second.InitializeAsync();
 
-        Assert.Equal(2, second.SchemaVersion);
+        Assert.Equal(3, second.SchemaVersion);
         Assert.Single(await new SqliteAccountStore(second).ListAsync());
-        Assert.Equal(3u, (await new SqliteFolderSyncStateStore(second).GetAsync(7))!.HighestSyncedUid);
+        Assert.Equal(3u, (await new SqliteFolderSyncStateStore(second).GetAsync(7))!.SkippedUpToUid);
     }
 
     // Case 22 (D3 sanity of the seed): the seeded v1 file is really version 1 for a v1 reader

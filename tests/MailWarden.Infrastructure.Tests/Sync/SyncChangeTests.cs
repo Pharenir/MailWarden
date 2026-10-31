@@ -237,7 +237,7 @@ public sealed class SyncChangeTests
         Assert.Single(await harness.Storage.Messages.SearchAsync("newwordone"));
         Assert.Equal(200u, (await harness.GetFolderAsync(Inbox)).UidValidity);
         FolderSyncState? state = await harness.StateOfAsync(Inbox);
-        Assert.Equal(2u, state!.HighestSyncedUid);
+        Assert.Equal(0u, state!.SkippedUpToUid);
     }
 
     // Case 11 (R3): the sync after the reset sees a stable validity again
