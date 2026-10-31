@@ -135,7 +135,7 @@ public sealed record MessageQuery(
 
 public interface IMessageStore
 {
-    /// Insert or update by key (AccountId, FolderId, Uid). bodyText feeds full-text search only (null = keep existing
+    /// Insert or update by key (FolderId, Uid) – per D3; AccountId must equal the folder's account. bodyText feeds full-text search only (null = keep existing
     /// indexed text on update, empty on insert). Returns the stored copy with Id.
     Task<MailMessage> UpsertAsync(MailMessage message, string? bodyText, CancellationToken ct = default);
     Task<MailMessage?> GetAsync(long id, CancellationToken ct = default);
@@ -197,7 +197,8 @@ public sealed class FileEmlStore(DataPaths paths) : IEmlStore
 - `schema_version(version INTEGER NOT NULL)` – exactly one row. Missing table = version 0 (fresh database).
 - `accounts(id TEXT PK, display_name TEXT NOT NULL, email_address TEXT NOT NULL UNIQUE COLLATE NOCASE, provider INTEGER NOT NULL)`
 - `folders(id INTEGER PK AUTOINCREMENT, account_id TEXT NOT NULL REFERENCES accounts(id) ON DELETE CASCADE, full_name TEXT NOT NULL, role INTEGER NOT NULL, uid_validity INTEGER NOT NULL, UNIQUE(account_id, full_name))`
-- `messages(id INTEGER PK AUTOINCREMENT, account_id TEXT NOT NULL REFERENCES accounts(id) ON DELETE CASCADE, folder_id INTEGER NOT NULL REFERENCES folders(id) ON DELETE CASCADE, uid INTEGER NOT NULL, message_id TEXT NULL, subject TEXT NOT NULL, from_address TEXT NOT NULL, from_name TEXT NOT NULL, date TEXT NOT NULL /* ISO 8601 with offset, round-trips DateTimeOffset exactly */, flags INTEGER NOT NULL, has_attachments INTEGER NOT NULL, size INTEGER NOT NULL, eml_path TEXT NULL, text_preview TEXT NOT NULL, UNIQUE(account_id, folder_id, uid))` + index `(folder_id, date DESC)` + index `(date DESC)` – **superseded by D3/D4 below**
+- `folders` additionally `UNIQUE(id, account_id)` (D3).
+- `messages(id INTEGER PK AUTOINCREMENT, account_id TEXT NOT NULL REFERENCES accounts(id) ON DELETE CASCADE, folder_id INTEGER NOT NULL, uid INTEGER NOT NULL, message_id TEXT NULL, subject TEXT NOT NULL, from_address TEXT NOT NULL, from_name TEXT NOT NULL, date TEXT NOT NULL /* ISO 8601 with offset, round-trips DateTimeOffset exactly */, flags INTEGER NOT NULL, has_attachments INTEGER NOT NULL, size INTEGER NOT NULL, eml_path TEXT NULL, text_preview TEXT NOT NULL, FOREIGN KEY (folder_id, account_id) REFERENCES folders (id, account_id) ON DELETE CASCADE, UNIQUE(folder_id, uid))` + expression indexes `(folder_id, julianday(date) DESC, id DESC)` and `(julianday(date) DESC, id DESC)` (D3/D4; contract text updated 2026-10-31)
 - `messages_fts` – FTS5 virtual table `(subject, from_address, from_name, body_text)` with `rowid` = `messages.id`, maintained by `SqliteMessageStore` (insert/update/delete in the same transaction as the row). Query with `MATCH` on a sanitised term list (each whitespace-separated token quoted as `"token"*`), so user input can never break the FTS syntax.
 - `contacts(id INTEGER PK AUTOINCREMENT, email_address TEXT NOT NULL UNIQUE COLLATE NOCASE, display_name TEXT NOT NULL, source INTEGER NOT NULL)` – table only, no store in AP-01.
 - Migrations: ordered list `(int version, string sql)` in one class `SchemaMigrations`; each runs in a transaction and writes `schema_version` at the end.
@@ -270,6 +271,14 @@ Source: tester ambiguities (author.0), builder open questions (`impl-notes.md`),
 | D10 | Overwriting an EML file while a reader is open fails with `StorageException` – accepted for AP-01; fix the comment and the `IEmlStore.WriteAsync` XML doc. AP-03/AP-04 read EML into memory and retry. (review SHOULD 3) | doc | none |
 | D11 | FTS deletion only via `MessageSearchIndex` (review SHOULD 5). Remaining NITs 1, 2, 4, 5, 7 at the builder's discretion. | fix | none |
 | D12 | Out of scope, recorded in `TODO.md`: WindowsAppSDK metapackage size → AP-13; invalid `MAILWARDEN_DATA_DIR` at start → logger + message box in AP-04. | – | – |
+
+## Planner decisions 2026-10-31 (verify.2) – binding
+| # | Decision | Builder | Tester |
+|---|---|---|---|
+| D13 | Contract text above updated to D3/D4 (message key `(FolderId, Uid)`, composite folder FK, expression indexes). | – | – |
+| D14 | D5 as implemented is accepted: superscript `COM¹–³`/`LPT¹–³` and device names with trailing spaces before the extension (`CON .eml`) are rejected too (Windows treats them as devices). | keep | optional: add `COM¹` and `CON .eml` to case 27 |
+| D15 | Case 11a also covers the **update** path: an existing message (account A, folder of A) upserted again with AccountId B → `StorageException`, stored row unchanged (`GetByUidAsync` still returns account A). | keep | extend 11a |
+| D16 | Cascades leave no full-text rows: after `IAccountStore.DeleteAsync` / `IFolderStore.DeleteAsync`, `SearchAsync` for a word that only the deleted messages contained returns empty (extends cases 22/23). | keep | extend 22/23 |
 
 ## Done criteria
 - Builder: `dotnet build MailWarden.sln -warnaserror` green on the feature branch (without the test projects);
