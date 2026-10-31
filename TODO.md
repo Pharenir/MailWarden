@@ -1,17 +1,16 @@
 # TODO – MailWarden
 
 ## Offen
-- [ ] **CPM Dennis:** Merge nach `main` + Push für `chore/app-icon`, AP-01, AP-07a, AP-02a (Reihenfolge unter „Übergabe“)
 - [ ] Dennis: AP-01 Fall 30 – WinUI-App starten (Pfad unten unter „Übergabe“)
 - [ ] AP-13: `.ico` aus `assets\mailwarden-512.png` erzeugen (Exe-Icon, Installer)
 - [ ] AP-13: WindowsAppSDK-Metapaket zieht ~38 MB KI-Komponenten (onnxruntime/DirectML) → nur benötigte Teilpakete? (Paketentscheidung Dennis)
 - [ ] AP-04: ungültiges `MAILWARDEN_DATA_DIR` beendet die App beim Start stumm → Logger + Meldungsfenster
 - [ ] AP-03/AP-04: EML überschreiben scheitert bei offenem Leser → Lesebereich lädt EML in den Speicher, Befehlswarteschlange wiederholt
-- [ ] Dennis: AP-02a Fälle 28–30 mit der AuthProbe (Anleitung `.worktrees\feat-ap-02a\work\AP-02a\impl-notes.md`,
-  „AuthProbe usage for Dennis“); dabei prüfen: `%APPDATA%\Google.Apis.Auth` entsteht **nicht**; Abbruch auf der
+- [ ] Dennis: AP-02a Fälle 28–30 mit der AuthProbe (Anleitung `work\AP-02a\impl-notes.md`, „AuthProbe usage for
+  Dennis“ – Worktree ist entfernt: statt `cd .worktrees\feat-ap-02a` aus dem Projektordner starten, die Probe liegt
+  jetzt unter `_scratch\auth-probe`); dabei prüfen: `%APPDATA%\Google.Apis.Auth` entsteht **nicht**; Abbruch auf der
   Google-Seite meldet UserCancelled/AccessDenied, nicht `state_mismatch`
-- [ ] Dennis: AP-07a Begründungstexte der Probe ansehen (`.worktrees\feat-ap-07a\_scratch\ClassifierProbe`)
-- [ ] Probe-Datenbanken aus `_scratch\` mit altem Schema-v1-Layout (vor D3) vor weiterer Nutzung löschen (Freigabe Dennis)
+- [ ] Dennis: AP-07a Begründungstexte ansehen (`docs\classifier.md`; Probe `_scratch\ClassifierProbe`)
 
 ### Vertagt aus AP-02a (A18, secure.1/2, review.2)
 - [ ] Gemeinsamer Atomic-Write-Helfer für `FileEmlStore`/`DpapiCredentialStore` (berührt AP-01-Code)
@@ -33,6 +32,30 @@
 - [ ] authserv-id gegen Provider-Profil prüfen; vollständige Public Suffix List statt eingebauter Liste (C16)
 - [ ] Grenzfall `@`-Wort, das selbst `key=value` ist → fail-safe Domain null? (C24)
 
+### Befunde PstProbe 2026-10-31 (für AP-07b, anonymisiert)
+Werkzeug `_scratch\PstProbe` (XstReader.Api, Freigabe Dennis; nur lokal), Quelle `K:\Projekte\_private\MailWarden\backup.pst`,
+Ausgabe `K:\Projekte\_private\MailWarden\probe-out\`. 2.215 empfangene Mails (+68 gesendete), davon 345 mit
+Original-Headern (Outlook.com); 1.870 ohne Header (vermutlich IMAP-/Gmail-Ordner) → für AR-Auswertung unbrauchbar. Adressbuch simuliert aus
+43 Empfängern gesendeter Mails.
+- [ ] Outlook.com schreibt in 300 von 345 Headern **keine authserv-id** (Header beginnt mit `spf=…`), sonst
+  `mx.microsoft.com 1;` → Prüfung der authserv-id gegen das Provider-Profil (C16) taugt für Outlook nicht; Vertrauen
+  über „oberster Header“ beibehalten
+- [ ] `dmarc=bestguesspass` 5× (immer `dkim=none`, `compauth=pass reason=109`) → heute `Unknown`; durch SPF-Pass trotzdem
+  authentifiziert. Entscheidung: wie `none` behandeln? (C1)
+- [ ] `compauth` (Microsoft Composite Auth) wird nicht ausgewertet: 1 Kontakt-Mail mit `dmarc=fail`, `compauth=pass
+  reason=105` landet als LikelySpam (Fehlalarm). `compauth`/`reason` als Signal oder Gegengewicht prüfen
+- [ ] `dkim=timeout` (3×) → `Unknown`; ggf. wie `temperror`
+- [ ] `link-domain-mismatch` feuert bei fast allen legitimen Newslettern (z. B. 165/165, 26/27 in zwei Ordnern;
+  Tracking-Links) → Punkte/Bedingung kalibrieren
+- [ ] `random-domain`: Abkürzungs-Domains aus 5 Konsonanten (Score 0,78, knapp unter 0,8) treffen legitime Kontakte
+  (+15) → Abkürzungen berücksichtigen
+- [ ] Spam im Junk-Ordner: 6 Mails → 1 CertainSpam, 3 LikelySpam, 2 LikelyLegit. Gefälschte `header.from`-Werte wie
+  `--xxxx.yyyy.site` oder `AAA.comXXXX…` → künstliche Fixtures daraus bauen
+- [ ] `display-name-mismatch` hat in diesen Daten nie gefeuert (C4 hier nicht belegt)
+- [ ] Kein Parser-Ausfall: in keinem Header fehlte eine Methode, die im Rohtext stand
+- Freigabe Dennis 2026-10-31: zur Feinabstimmung der Filter darf die Probe auch Mail-Bodys auswerten, solange davon
+  nichts ins Repo gelangt (nur anonymisierte Kennzahlen bzw. daraus abgeleitete künstliche Fixtures).
+
 ## Entschieden (2026-10-31)
 - Name/Ablage `K:\Projekte\Windows-Tools\MailWarden`, Lizenz PolyForm Noncommercial 1.0.0
 - **Mit Git**: öffentliches GitHub-Repo `Pharenir/MailWarden` (Google verlangt Homepage-, Datenschutz- und
@@ -45,12 +68,14 @@
 - AP-07a und AP-02a parallel zu AP-01 vorgezogen (Dennis 2026-10-31)
 
 ## Testzähler
-Testzähler: 0/4 seit letztem S3 (zuletzt 2026-10-31: AP-01 verify.2 100/100, AP-07a verify.5 399/399 inkl. AP-01,
-AP-02a verify.3 243/243 inkl. AP-01 – je volle Suite im Feature-Branch)
+Testzähler: 0/4 seit letztem S3 (zuletzt 2026-10-31: S3 auf `main` @ `e45b892` nach allen vier Merges, 542/542 –
+Core.Tests 299, Infrastructure.Tests 243; Bericht `work\S3-main-2026-10-31.md`)
 
-## Stand 2026-10-31 (Session 2)
-Alle drei APs haben das Gate erreicht (PASS + APPROVE, AP-02a + Security ohne Kritisch/Hoch) und sind dokumentiert.
-**Warten auf CPM von Dennis** für Merge nach `main` + Push. Nichts ist gepusht.
+## Stand 2026-10-31 (Session 2, Ende)
+**CPM erledigt:** `chore/app-icon`, AP-01, AP-07a, AP-02a per `--no-ff` nach `main` gemergt, Build grün
+(`-warnaserror`), S3 542/542 grün, `main` @ `e45b892` gepusht. Konflikte wie erwartet: beide `requirement.md` →
+Fassung des Feature-Branches; `README.md` → Status, Projektstruktur und Testbeschreibung von AP-07a und AP-02a
+zusammengeführt. „Fertig“ im Sinne von Dennis erst nach seinen manuellen Prüfungen (siehe „Offen“).
 - **AP-01** `feat/ap-01-skeleton-storage` @ `cf788ec`: verify.2 100/100, review.2 APPROVE (NIT 1/3 vom Planer als
   Kommentar behoben, NIT 2 Index `messages.account_id` bewusst nicht – bei Bedarf Migration v2), README, `.env.example`
   korrigiert, PLAN-Spalten gefüllt. Offen nur Fall 30 (Dennis, App starten).
@@ -62,27 +87,60 @@ Alle drei APs haben das Gate erreicht (PASS + APPROVE, AP-02a + Security ohne Kr
   `.env.example` um Google-Variablen ergänzt. Offen: Dennis Fälle 28–30 mit AuthProbe.
 
 ## Übergabe – so geht es weiter
-1. **CPM Dennis** (eine Freigabe für alles oder je Branch). Danach Merge-Reihenfolge nach `main` (alles `--no-ff`):
-   `chore/app-icon` → `feat/ap-01-skeleton-storage` → `feat/ap-07a-classifier-core` → `feat/ap-02a-accounts-auth`.
-   Erwartete Konflikte (Probe-Merge 2026-10-31): `work/AP-07a/requirement.md` und `work/AP-02a/requirement.md`
-   (add/add mit dem älteren Stand aus `chore/app-icon` → Fassung des Feature-Branches nehmen); `README.md` zwischen
-   AP-07a und AP-02a (beide Documenter-Ergänzungen zusammenführen). Nach dem letzten Merge: Build + S3 auf `main`
-   (Tester), dann Push. `MailWarden.sln` ohne BOM halten (`dotnet sln` fügt es wieder ein).
-2. Danach Worktrees/Branches der drei APs aufräumen (Löschen nur nach Freigabe).
+1. Dieser Handover liegt auf `chore/session-handover` (lokal, nicht gepusht) → beim nächsten CPM mit nach `main`.
+2. Aufgeräumt 2026-10-31 (Freigabe Dennis): alle sechs AP-Worktrees und sieben Branches (inkl. `chore/app-icon`)
+   entfernt, leere Datei `AuthenticationResultsParser.cs` gelöscht; Probe-DBs gab es keine mehr. AuthProbe und
+   ClassifierProbe vorher nach `_scratch\auth-probe` bzw. `_scratch\ClassifierProbe` im Hauptordner gerettet.
+   `MailWarden.sln` ohne BOM halten (`dotnet sln` fügt es wieder ein).
 3. Nächste APs laut PLAN: AP-03 (Sync-Engine) und AP-07b (Klassifizierer an Mails/Ordner, Punkte oben), AP-04 (UI
    inkl. AP-02b Konten-UI). Vor Start: Anforderung je AP schreiben (Planer), Modellwahl wie bisher.
 
 ## Worktrees (alle unter `.worktrees\`, git-ignoriert)
+Abgezweigt von `chore/session-handover` @ `d39915b` (enthält Anforderungen AP-03a/AP-07b):
 | Worktree | Branch |
 |---|---|
-| `feat-ap-01` | `feat/ap-01-skeleton-storage` |
-| `test-ap-01` | `test/ap-01-skeleton-storage` |
-| `feat-ap-07a` | `feat/ap-07a-classifier-core` |
-| `test-ap-07a` | `test/ap-07a-classifier-core` |
-| `feat-ap-02a` | `feat/ap-02a-accounts-auth` |
-| `test-ap-02a` | `test/ap-02a-accounts-auth` |
+| `feat-ap-03a` | `feat/ap-03a-sync-down` |
+| `test-ap-03a` | `test/ap-03a-sync-down` |
+| `feat-ap-07b` | `feat/ap-07b-classifier-calibration` |
+| `test-ap-07b` | `test/ap-07b-classifier-calibration` |
 
-WinUI-App für Fall 30: in `.worktrees\feat-ap-01` `dotnet build MailWarden.sln`, dann
+## Session 3 (2026-10-31)
+- AP-03 geteilt in AP-03a (Abgleich Server → lokal, Schema v2) und AP-03b (Befehlswarteschlange, IDLE); AP-07 in
+  AP-07b (Kalibrierung aus PstProbe + `classifier-settings.json`) und AP-07c (Anbindung an Mails/Ordner, nach AP-03b).
+  Grund: AP-07b ist unabhängig vom Sync und läuft parallel; AP-07c braucht die Befehlswarteschlange.
+- Planer-Entscheidungen AP-07b aus PstProbe-Daten (E1–E4 in `work\AP-07b\requirement.md`): `compauth=pass` neutralisiert
+  DMARC fail zu „nicht verifiziert“ (0 Punkte); Inhalts-Signale ohne Punkte bei authentifizierten Mails.
+- AP-03a: Erstabgleich Standard 90 Tage (`InitialSyncDays`, 0 = alles) – Ich bin mir unsicher, ob Dennis mehr will.
+- implement.1 + author.0 für beide APs gestartet.
+- **AP-07b Gate erreicht** (`feat/ap-07b-classifier-calibration`): verify.2 395/395 (S2), review.1 APPROVE, fix.2
+  (SHOULD 1 + NITs) erledigt, PstProbe: Fehlalarm weg, Junk unverändert; Doku (README, `docs\classifier.md` lokal).
+  Wartet auf CPM (zusammen mit AP-03a, ein S3).
+
+- **AP-03a Gate erreicht** (verify.1 S3 646/646, review.1 APPROVE, secure.1 0/0/2/4); fix.2 (F1–F7) läuft.
+
+### Vertagt aus AP-03a (review.1/secure.1, Details `work\AP-03a\requirement.md` „Decisions fix.2“)
+- [ ] **Entscheidung Dennis (secure M2):** Mails liegen im Klartext im Datenordner; `K:\` vererbt Lesezugriff für alle
+  angemeldeten Benutzer. Optionen: ACL ohne Vererbung (nur Dennis + SYSTEM) beim Anlegen des Datenordners, oder
+  Standard `%LOCALAPPDATA%\MailWarden`. Vor dem ersten echten Einsatz entscheiden.
+- [ ] AP-03b: gemeinsamer IMAP-Verbindungs-/Ordnerlisten-Code für `MailKitTransport` und `ConnectionProbe` (review SHOULD 2)
+- [ ] AP-03b: nach `ImapProtocolException` neu verbinden und mit dem nächsten Ordner weitermachen (Q4)
+- [ ] AP-03b/AP-05: rein lokale Rollen (Postausgang) von R1 ausnehmen (Q2)
+- [ ] AP-03b: `IEmlStore.DeleteFolderAsync`, Aufräumen verwaister EML/`*.tmp` beim Start; `secure_delete`/`VACUUM` erwägen (Q3, secure N4)
+- [ ] AP-03b: Metadaten aller Kandidaten in einem FETCH; ohne CONDSTORE holt jeder Lauf alle Flags; vorübergehendes
+  FETCH-null vs. `HighestSyncedUid` (review NITs)
+- [ ] AP-03b: Einzelmail-Fehler beim **ersten** Abgleich speichert einen Stand → nächster Lauf ohne Startfenster lädt
+  ältere UIDs über der fehlgeschlagenen einmalig nach (review.2 NIT; z. B. beim Erstabgleich mit Fehlern keinen Stand speichern)
+- [ ] AP-03b: Mail, die jedes Mal `ImapProtocolException` auslöst, blockiert weiter das Konto (MailKit trennt) → mit Reconnect lösen
+- [ ] AP-04: Logging-Regel `SyncReport` – nur Typ, Rolle, Ordner-ID; nie `Error`-Text oder Ordnername (secure N1)
+- [ ] UI-AP: Steuer-/Bidi-Zeichen (RTLO) in Betreff/Absendername/Ordnernamen beim Anzeigen entschärfen
+
+### Vertagt aus AP-07b
+- [ ] Eine Regel für alle Dateilader (AuthConfiguration, ClassifierSettingsFile, FileEmlStore): IO-Fehler mit
+  Dateiname einpacken, im Log nur Typ + eigene Meldung; `File.Exists` bei unlesbarer Datei (stiller Default) mitentscheiden
+  (AP-07c/AP-04)
+- [ ] Härtung: widersprüchliche `compauth`-Ergebnisse im obersten Header → None (review.1 P2)
+
+WinUI-App für Fall 30: im Projektordner `dotnet build MailWarden.sln`, dann
 `src\MailWarden.App\bin\x64\Debug\net9.0-windows10.0.19041.0\win-x64\MailWarden.App.exe` starten.
 
 ## Kosten (Agenten)
@@ -90,3 +148,10 @@ WinUI-App für Fall 30: in `.worktrees\feat-ap-01` `dotnet build MailWarden.sln`
   AP-02a ×1 · Reviewer AP-01 ×1
 - Sitzung 2 (2026-10-31): Builder AP-07a ×1 (+5 Fortsetzungen), AP-02a ×1 (+2 Fortsetzungen) · Tester AP-01 ×1,
   AP-07a ×6, AP-02a ×4 · Reviewer AP-01 ×1, AP-07a ×4, AP-02a ×3 · Security AP-02a ×2 · Documenter ×3
+- Sitzung 3 (2026-10-31): Tester S3 main ×1 · AP-07b: Builder ×1 (+1 Fortsetzung), Tester ×2 (+1), Reviewer ×1,
+  Documenter ×1 · AP-03a: Builder ×1 (+2 Fortsetzungen), Tester ×2 (+2), Reviewer ×2, Security ×1, Documenter ×1
+
+**CPM-Reihenfolge (wenn Dennis freigibt):** `chore/session-handover` → `feat/ap-07b-classifier-calibration` →
+`feat/ap-03a-sync-down` (alles `--no-ff`). Probe-Merge: nur `README.md` kollidiert zwischen AP-07b und AP-03a (beide
+Documenter-Ergänzungen zusammenführen). Danach Build + S3 auf `main`, dann Push; SyncProbe aus
+`.worktrees\feat-ap-03a\_scratch\sync-probe` nach `_scratch\sync-probe` im Hauptordner retten.
