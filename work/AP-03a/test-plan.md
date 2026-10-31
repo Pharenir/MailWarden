@@ -30,8 +30,8 @@ Project: `tests\MailWarden.Infrastructure.Tests\`. Traits: `feature:sync` (Sync,
 | 21 | `SyncFolderTests.Unknown_account_id_throws_ArgumentException` |
 | 22 | `SchemaV2Tests.V1_database_migrates_in_place_and_keeps_its_rows`, `Migrated_database_stores_sync_state_for_existing_folders_and_cascades`, `Reopening_a_migrated_file_keeps_version_two_and_the_data`, `Seeded_file_is_version_one_before_the_migration`; also `Current_schema_version_is_two`, `Fresh_database_has_version_two_and_the_sync_state_table` (smoke), `Sync_state_table_has_the_contract_columns` |
 | 23 | `SqliteFolderSyncStateStoreTests` (10 tests: save/get, null timestamp, overwrite, unknown get/save, delete, independence, cascade folder, cascade account, large values) |
-| 24 | `SqliteMessageStoreSyncApiTests` (8 tests) |
-| 25 | `MimeBodyTextTests` (14 test cases incl. Theory) |
+| 24 | `SqliteMessageStoreSyncApiTests` (9 tests) |
+| 25 | `MimeBodyTextTests` (13 test methods incl. one Theory) |
 | 26 | `SyncFolderTests.Negative_initial_sync_days_throw_ArgumentOutOfRangeException`, `Zero_and_default_initial_sync_days_are_valid` |
 | 27 | `SyncReportTests.Full_pass_over_two_folders_with_mixed_changes_reports_exactly_what_changed`, `Run_without_changes_reports_only_zeros` |
 | 28 | manual (Dennis, SyncProbe) – not automated, requires real accounts |
