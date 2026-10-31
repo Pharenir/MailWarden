@@ -43,7 +43,7 @@ public sealed class CommandEnqueueTests
         Assert.Equal(new uint[] { 2, 5 }, listed.Uids);
         IReadOnlyDictionary<uint, MessageFlags> flags = await fixture.Storage.Messages.GetUidFlagsAsync(fixture.Inbox.Id);
         Assert.All(flags.Values, value => Assert.Equal(MessageFlags.None, value));
-        Assert.Equal(2, flags.Count);
+        Assert.Equal(9, flags.Count);
     }
 
     [Fact(Timeout = TestTimeouts.PerTestMilliseconds)]
