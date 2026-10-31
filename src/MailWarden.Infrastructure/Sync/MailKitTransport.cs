@@ -182,7 +182,7 @@ internal sealed class MailKitTransport : IMailTransport
             "message fetch",
             async () =>
             {
-                // Metadata first: an empty answer means the UID no longer exists.
+                // Metadata first: an empty answer means the server returned nothing for the UID (gone or not delivered).
                 var uniqueId = new UniqueId(folder.UidValidity, uid);
                 var request = new FetchRequest(
                     MessageSummaryItems.UniqueId | MessageSummaryItems.Flags | MessageSummaryItems.InternalDate

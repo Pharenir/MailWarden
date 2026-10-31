@@ -12,7 +12,7 @@ namespace MailWarden.Infrastructure.Storage;
 public sealed class SqliteDatabase : IAsyncDisposable
 {
     /// <summary>Schema version this build creates and understands.</summary>
-    public const int CurrentSchemaVersion = 2;
+    public const int CurrentSchemaVersion = 3;
 
     private readonly string connectionString;
     private readonly string? databaseFilePath;

@@ -27,7 +27,7 @@ public sealed class SyncMessageTests
         await using SyncHarness _ = harness;
         server.AddMessage(SyncTestEml.Plain("first_subject", "alpha quokkaword omega", "<msg_1@example.test>"));
         server.AddMessage(SyncTestEml.Plain("second_subject", "wombatword", "<msg_2@example.test>"));
-        uint lastUid = server.AddMessage(SyncTestEml.Plain("third_subject", "zebraword", "<msg_3@example.test>"));
+        server.AddMessage(SyncTestEml.Plain("third_subject", "zebraword", "<msg_3@example.test>"));
 
         SyncReport report = await harness.SyncAsync();
 
@@ -40,7 +40,7 @@ public sealed class SyncMessageTests
         Assert.Equal(1u, found.Uid);
         FolderSyncState? state = await harness.StateOfAsync(Inbox);
         Assert.NotNull(state);
-        Assert.Equal(lastUid, state.HighestSyncedUid);
+        Assert.Equal(0u, state.SkippedUpToUid);
         Assert.Equal(server.HighestModSeq, state.HighestModSeq);
         Assert.Equal(SyncHarness.FixedNow, state.LastSyncedAt!.Value);
         FolderSyncResult result = Assert.Single(report.Folders);
@@ -154,8 +154,8 @@ public sealed class SyncMessageTests
         Assert.Equal(new[] { (Inbox, recentUid) }, harness.Server.Fetches.ToArray());
         Assert.Equal(1, Assert.Single(first.Folders).Added);
         FolderSyncState? state = await harness.StateOfAsync(Inbox);
-        Assert.Equal(recentUid, state!.HighestSyncedUid);
-        Assert.True(oldUid < state.HighestSyncedUid);
+        Assert.Equal(oldUid, state!.SkippedUpToUid);
+        Assert.True(oldUid < recentUid);
 
         harness.Server.ClearLog();
         SyncReport second = await harness.SyncAsync();
@@ -224,7 +224,7 @@ public sealed class SyncMessageTests
         Assert.Equal(new[] { (Inbox, newUid) }, harness.Server.Fetches.ToArray());
         Assert.Equal(new uint[] { 1, 2, newUid }, await harness.StoredUidsAsync(Inbox));
         Assert.Equal(1, Assert.Single(report.Folders).Added);
-        Assert.Equal(newUid, (await harness.StateOfAsync(Inbox))!.HighestSyncedUid);
+        Assert.Equal(0u, (await harness.StateOfAsync(Inbox))!.SkippedUpToUid);
         Assert.Single(await harness.Storage.Messages.SearchAsync("newbodyword"));
     }
 
@@ -266,6 +266,14 @@ public sealed class SyncMessageTests
         Assert.Null(result.Error);
         Assert.Equal(2, result.Added);
         Assert.Equal(2, harness.EmlFileCount());
+
+        // fix.3 G1: the skipped UID is retried on the next run and exactly that UID is fetched
+        server.NullFetchUids.Clear();
+        SyncReport retry = await harness.SyncWithFreshLogAsync();
+
+        Assert.Null(Assert.Single(retry.Folders).Error);
+        Assert.Equal(new[] { (Inbox, vanishedUid) }, harness.Server.Fetches.ToArray());
+        Assert.Equal(new uint[] { 1, 2, 3 }, await harness.StoredUidsAsync(Inbox));
     }
 
     // Case 13
@@ -363,8 +371,8 @@ public sealed class SyncMessageTests
 
         Assert.Equal(new uint[] { 1, 2 }, await harness.StoredUidsAsync(Inbox));
         Assert.Equal(new uint[] { 1 }, await harness.StoredUidsAsync("Junk"));
-        Assert.Equal(2u, (await harness.StateOfAsync(Inbox))!.HighestSyncedUid);
-        Assert.Equal(1u, (await harness.StateOfAsync("Junk"))!.HighestSyncedUid);
+        Assert.Equal(0u, (await harness.StateOfAsync(Inbox))!.SkippedUpToUid);
+        Assert.Equal(0u, (await harness.StateOfAsync("Junk"))!.SkippedUpToUid);
         Assert.Equal(3, harness.EmlFileCount());
     }
 

@@ -4,7 +4,7 @@ using MailWarden.Infrastructure.Sync;
 
 namespace MailWarden.Infrastructure.Tests.Sync;
 
-/// <summary>AP-03a fix.2 decisions F1-F4 and cases 29-33.</summary>
+/// <summary>AP-03a fix.2 decisions F1-F4 and cases 29-33 (state rule changed by fix.3 G2: SkippedUpToUid stays 0).</summary>
 [Trait("Category", "feature:sync")]
 public sealed class SyncResilienceTests
 {
@@ -29,7 +29,7 @@ public sealed class SyncResilienceTests
         Assert.Equal("1 message(s) failed (first: MailTransportException)", result.Error);
         Assert.Equal(2, result.Added);
         Assert.Equal(new uint[] { 1, 3 }, await harness.StoredUidsAsync(Inbox));
-        Assert.Equal(1u, (await harness.StateOfAsync(Inbox))!.HighestSyncedUid);
+        Assert.Equal(0u, (await harness.StateOfAsync(Inbox))!.SkippedUpToUid);
 
         harness.Server.FetchFailures.Clear();
         SyncReport retry = await harness.SyncWithFreshLogAsync();
@@ -37,12 +37,12 @@ public sealed class SyncResilienceTests
         Assert.Null(Assert.Single(retry.Folders).Error);
         Assert.Equal(new[] { (Inbox, 2u) }, harness.Server.Fetches.ToArray());
         Assert.Equal(new uint[] { 1, 2, 3 }, await harness.StoredUidsAsync(Inbox));
-        Assert.Equal(3u, (await harness.StateOfAsync(Inbox))!.HighestSyncedUid);
+        Assert.Equal(0u, (await harness.StateOfAsync(Inbox))!.SkippedUpToUid);
     }
 
-    // Case 29: the first UID fails -> state stays at 0
+    // Case 29 (fix.3): the first UID fails -> floor stays 0, next run fetches only it
     [Fact(Timeout = TestTimeouts.PerTestMilliseconds)]
-    public async Task Failure_of_the_first_uid_keeps_the_synced_uid_at_zero()
+    public async Task Failure_of_the_first_uid_keeps_the_skipped_floor_at_zero()
     {
         await using SyncHarness harness = await SyncHarness.CreateAsync();
         FakeMailFolder inbox = harness.Server.AddFolder(Inbox, ServerFolderFlags.Inbox);
@@ -54,7 +54,7 @@ public sealed class SyncResilienceTests
 
         Assert.Equal("1 message(s) failed (first: MailTransportException)", Assert.Single(report.Folders).Error);
         Assert.Equal(new uint[] { 2 }, await harness.StoredUidsAsync(Inbox));
-        Assert.Equal(0u, (await harness.StateOfAsync(Inbox))!.HighestSyncedUid);
+        Assert.Equal(0u, (await harness.StateOfAsync(Inbox))!.SkippedUpToUid);
 
         harness.Server.FetchFailures.Clear();
         await harness.SyncWithFreshLogAsync();
@@ -63,9 +63,9 @@ public sealed class SyncResilienceTests
         Assert.Equal(new uint[] { 1, 2 }, await harness.StoredUidsAsync(Inbox));
     }
 
-    // Case 29: two failures are counted, the lowest failed UID decides the state
+    // Case 29 (fix.3): two failures are counted; they no longer influence the state (floor 0)
     [Fact(Timeout = TestTimeouts.PerTestMilliseconds)]
-    public async Task Several_failures_are_counted_and_the_lowest_failed_uid_decides_the_state()
+    public async Task Several_failures_are_counted_and_do_not_change_the_state()
     {
         await using SyncHarness harness = await SyncHarness.CreateAsync();
         FakeMailFolder inbox = harness.Server.AddFolder(Inbox, ServerFolderFlags.Inbox);
@@ -81,7 +81,7 @@ public sealed class SyncResilienceTests
 
         Assert.Equal("2 message(s) failed (first: MailTransportException)", Assert.Single(report.Folders).Error);
         Assert.Equal(new uint[] { 1, 3, 5 }, await harness.StoredUidsAsync(Inbox));
-        Assert.Equal(1u, (await harness.StateOfAsync(Inbox))!.HighestSyncedUid);
+        Assert.Equal(0u, (await harness.StateOfAsync(Inbox))!.SkippedUpToUid);
     }
 
     // Case 29 / R7: flag sync still runs when a message failed
@@ -131,7 +131,7 @@ public sealed class SyncResilienceTests
         FolderSyncResult result = Assert.Single(report.Folders);
         Assert.Equal("1 message(s) failed (first: StorageException)", result.Error);
         Assert.Equal(new uint[] { 1, 3 }, await harness.StoredUidsAsync(Inbox));
-        Assert.Equal(1u, (await harness.StateOfAsync(Inbox))!.HighestSyncedUid);
+        Assert.Equal(0u, (await harness.StateOfAsync(Inbox))!.SkippedUpToUid);
         Assert.Equal(2, harness.EmlFileCount());
 
         harness.FaultyEml.FailWriteWhen = null;

@@ -82,10 +82,20 @@ internal static class SchemaMigrations
         );
         """;
 
+    /// <summary>
+    /// Version 3: the sync state stores a fixed floor instead of a high-water mark. Old values are high-water marks
+    /// that hide messages the server did not deliver, so they are reset to 0 (nothing skipped).
+    /// </summary>
+    private const string Version3 = """
+        ALTER TABLE folder_sync_state RENAME COLUMN highest_synced_uid TO skipped_up_to_uid;
+        UPDATE folder_sync_state SET skipped_up_to_uid = 0;
+        """;
+
     /// <summary>All migrations in ascending order; versions are contiguous starting at 1.</summary>
     internal static readonly IReadOnlyList<(int Version, string Sql)> Ordered =
     [
         (1, Version1),
         (2, Version2),
+        (3, Version3),
     ];
 }

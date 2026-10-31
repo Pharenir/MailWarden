@@ -286,3 +286,77 @@ updated, deleted, error type) and the duration – never subjects, addresses or 
 | 32 | Fake returns UidValidity 0 for one folder | that folder Error starts with "MailTransportException"; no rows stored for it; other folders synced |
 | 33 | Folder list without Inbox | SyncAccountAsync throws MailTransportException(Protocol); stored folders untouched |
 | 34 | HTML with `<title>Secret title</title>` and body text | title text absent from Extract result, body present |
+
+## Decisions fix.3 (planner, 2026-10-31, after case 28 against real accounts – Dennis approved the fix)
+Branches `fix/ap-03a-missed-uids` (builder) and `test/ap-03a-missed-uids` (tester), both from `main` @ `e0481ef`.
+Supersedes R5, R8, the F1 state rule and the `FolderSyncState` doc above wherever they differ.
+
+### Finding (real data, anonymized)
+Case 28 with `_scratch\sync-check` (server STATUS vs. local store): in the Trash folder of both Outlook.com accounts the
+server holds 99 / 117 messages, the local store 15 / 10. The sync reported no error, and a second run fetched nothing.
+All missing UIDs lie below the stored `HighestSyncedUid`. In a copy of the probe data with the Trash state deleted, the
+next run fetched all 107 missing messages without any error. So at the first sync the server did not deliver these
+UIDs: either `SEARCH ALL` was incomplete, or `FETCH` returned no summary, which R5 treats as "vanished". Which of the
+two happened is unknown. In both cases R5 still moved the high-water mark past them, so they are never fetched again.
+This is the review.1 NIT "transient FETCH null vs. HighestSyncedUid" observed with real data. All other 46 folders
+(including 845 Sent messages) match exactly.
+
+### G1 – candidates are every missing UID (contract change R5)
+- The engine already reads the complete server UID list on every run (R4). Candidates on **every** run = server UIDs
+  that are not stored locally **and** > `SkippedUpToUid` of the state (0 without state). There is no high-water mark
+  any more. A UID the server did not deliver (absent from SEARCH, FETCH returned null, per-message failure) is therefore
+  retried automatically on the next run as long as it exists on the server.
+- `FetchMessageAsync` returns null → skip it, no error (unchanged). It is retried next run.
+- Initial window (first sync of a folder = no state, `InitialSyncDays > 0`): candidates are additionally limited to
+  `SearchUidsAsync(windowStart)` as before. The floor that is saved: window UIDs found → `min(window UIDs) − 1`; no
+  window UID found → highest server UID (everything was outside the window); empty folder → 0.
+  Without a window (`InitialSyncDays == 0`) the floor is 0 – nothing is ever skipped deliberately.
+- Accepted consequence (document in the XML doc): a message outside the window whose UID is above the floor (moved
+  into the folder later with an old date) is fetched from the second run on.
+- The floor is decided once, at the first completed sync of the folder, and never changes afterwards (until a
+  UIDVALIDITY reset deletes the state, R3). This also fixes the review.2 NIT (per-message failure on the first sync
+  dropped the window).
+
+### G2 – state record and schema v3 (contract change R8, `FolderSyncState`, schema)
+```csharp
+/// Sync state of one folder. SkippedUpToUid: UIDs ≤ this value were deliberately left out by the initial window of the
+/// first sync (0 = nothing left out). HighestModSeq: CONDSTORE value of the last completed flag sync (0 = none).
+public sealed record FolderSyncState(long FolderId, uint SkippedUpToUid, ulong HighestModSeq, DateTimeOffset? LastSyncedAt);
+```
+- R8: after a folder completed, save `FolderSyncState(folderId, floor, server HighestModSeq, now)` – floor from G1 on
+  the first sync, otherwise the stored value unchanged. Per-message failures no longer change the state (F1 state rule
+  removed); the folder `Error` text for per-message failures stays exactly as in F1. A failed folder keeps its
+  previous state (unchanged).
+- Schema v3 (append to `SchemaMigrations`, never edit v1/v2), one migration:
+  `ALTER TABLE folder_sync_state RENAME COLUMN highest_synced_uid TO skipped_up_to_uid;`
+  `UPDATE folder_sync_state SET skipped_up_to_uid = 0;`
+  Reason for the reset: old values are high-water marks, not floors; keeping them would keep the missing messages
+  hidden. The only existing databases are probe databases with `InitialSyncDays` 0. `CurrentSchemaVersion` = 3.
+- `SqliteFolderSyncStateStore` uses the new column; behaviour otherwise unchanged.
+
+### G3 – documentation in code
+- XML docs of `SyncEngine` (remarks), `FolderSyncState`, `SyncOptions` describe G1/G2 (floor, retry of missing UIDs,
+  accepted consequence). README needs no change unless it mentions the high-water mark (planner checks).
+
+### Non-goals fix.3
+- No FETCH batching, no progress reporting, no Gmail `Important` mapping (AP-03b / TODO).
+- No new report field for skipped (null) fetches.
+
+### Additional and changed test cases (fix.3)
+| # | Case | Expected |
+|---|---|---|
+| 4 (changed) | INBOX with 3 messages, InitialSyncDays 0 | as before, but state `SkippedUpToUid` = 0 |
+| 5 (unchanged) | InitialSyncDays 30, messages at 10 and 60 days | only the 10-day message stored; later syncs never fetch the 60-day one |
+| 12 (extended) | Fetch returns null for one UID | skipped, others stored, no error; next run (fake now delivers it) fetches and stores exactly that UID |
+| 22 (changed) | v1 database file with data → open with current code | schema_version 3, `folder_sync_state` has column `skipped_up_to_uid`, old rows intact |
+| 29 (changed) | Fetch of one UID (of 3) throws `MailTransportException(Protocol)` | other 2 stored; folder Error "1 message(s) failed (first: MailTransportException)"; state `SkippedUpToUid` = 0; next run fetches only the failed UID |
+| 35 | Reproduction of the finding, SEARCH variant: first run SEARCH returns only UIDs 5–7 of 1–7, second run all 1–7 | first run stores 5–7; second run fetches exactly 1–4; all 7 stored, no error |
+| 36 | Reproduction, FETCH variant: first run FETCH returns null for UIDs 1–4 of 1–7, second run delivers them | same as 35 |
+| 37 | Window floor: InitialSyncDays 30, UIDs 1–3 older, 4–6 inside the window; fetch of UID 4 fails on the first run | first run stores 5–6, floor 3; second run fetches only 4; 1–3 never fetched |
+| 38 | Window floor, no message inside the window (UIDs 1–3 all older) | nothing stored, floor 3; a new UID 4 arriving later is fetched |
+| 39 | v2 database with a `folder_sync_state` row (highest_synced_uid 50) → open with current code | schema_version 3, row keeps folder/modseq/date, `SkippedUpToUid` 0; next sync fetches every missing UID |
+| 40 | Positive control: second run without changes | 0 fetches (fake records no FetchMessage calls) |
+
+### Done when (fix.3)
+Build `-warnaserror` green; S3 green (schema + SyncEngine are central building blocks); review APPROVE; planner re-runs
+SyncProbe + `_scratch\sync-check` against the real accounts: 0 mismatched folders.
