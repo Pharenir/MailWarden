@@ -107,8 +107,9 @@ public static class DomainNames
             return null;
         }
 
+        // A domain part without any label ("a@...", "a@. .") counts as empty.
         var domain = Normalize(emailAddress[(atIndex + 1)..]);
-        return domain.Length == 0 ? null : domain;
+        return TrySplitLabels(domain) is null ? null : domain;
     }
 
     /// <summary>Non-throwing variant of <see cref="GetOrganizationalDomain"/> for untrusted values.</summary>
