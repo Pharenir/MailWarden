@@ -118,12 +118,41 @@ public sealed class SqliteMessageSearchTests
     [InlineData(" ")]
     [InlineData("  ")]
     [InlineData("\t \n")]
+    [InlineData("\0")] // D2: control characters count as separators
+    [InlineData("\t\0 ")]
     public async Task Search_with_blank_text_throws_ArgumentException(string blankText)
     {
         (StorageFixture storage, _) = await CreateAsync();
         await using (storage)
         {
             await Assert.ThrowsAnyAsync<ArgumentException>(() => storage.Messages.SearchAsync(blankText));
+        }
+    }
+
+    // Case 18 / D7: null text is an ArgumentNullException
+    [Fact(Timeout = TestTimeouts.PerTestMilliseconds)]
+    public async Task Search_with_null_text_throws_ArgumentNullException()
+    {
+        (StorageFixture storage, _) = await CreateAsync();
+        await using (storage)
+        {
+            await Assert.ThrowsAsync<ArgumentNullException>(() => storage.Messages.SearchAsync(null!));
+        }
+    }
+
+    // D2: a NUL character inside the text separates tokens like whitespace and must not throw
+    [Fact(Timeout = TestTimeouts.PerTestMilliseconds)]
+    public async Task Search_treats_control_character_between_words_as_separator()
+    {
+        (StorageFixture storage, MailFolder inbox) = await CreateAsync();
+        await using (storage)
+        {
+            MailMessage message = await storage.AddMessageAsync(inbox, 1, subject: "alpha xray");
+            await storage.AddMessageAsync(inbox, 2, subject: "unrelated_topic");
+
+            IReadOnlyList<MailMessage> found = await storage.Messages.SearchAsync("alpha\0x");
+
+            Assert.Equal(message.Id, Assert.Single(found).Id);
         }
     }
 
