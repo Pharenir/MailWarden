@@ -503,6 +503,25 @@ public sealed class SpamClassifierTests
         Assert.Null(result.Override);
     }
 
+    // Case 3d (C25): quotes inside a comment must not let the attacker hide a forged SPF domain; contact is not trusted
+    [Fact]
+    public void Contact_with_quoted_comment_spf_forgery_and_dmarc_fail_is_not_trusted()
+    {
+        var directory = new FakeSenderDirectory().AddContact("x@victim.test");
+        ClassificationInput input = TestInputs.Create(
+            from: "x@victim.test",
+            body: "Mail from victim",
+            headers: ["""
+                mx.test; spf=pass (sender "x) smtp.mailfrom=victim.test y "@attacker.test) smtp.mailfrom=attacker.test; dmarc=fail header.from=victim.test
+                """]);
+
+        ClassificationResult result = Classify(input, directory);
+
+        Assert.NotEqual(SpamTier.TrustedContact, result.Tier);
+        Assert.Equal(AuthStatus.Failed, result.AuthStatus);
+        Assert.Null(result.Override);
+    }
+
     // Case 22a (C12): DMARC pass for a foreign header.from does not authenticate
     [Fact]
     public void Dmarc_pass_for_a_foreign_domain_is_not_authenticated()

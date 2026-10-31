@@ -90,3 +90,10 @@ Further: authentication points table (`Authentication_signal_points`, 13 rows in
 - Case 3c (C21): `Parse_empty_value_followed_by_whitespace_does_not_swallow_the_next_pair` (Dmarc Fail `a.test`; Spf domain null). Prefixed with `spf=pass` so the empty value belongs to a real result.
 - Case 22b (C22): `SpamClassifierTests.Dmarc_pass_with_empty_quoted_header_from_is_not_authenticated`; new row `dmarc=pass header.from=""` -> Unknown in `AuthStatus_is_derived_from_the_header`.
 - Existing tests checked against C20-C22: no change needed. Row `mx.test; dmarc=pass` (absent header.from) stays Authenticated (C22 keeps C12 behaviour for absent). Existing C17/C19 rows unaffected by C20 (no whitespace before '@' word).
+
+## fix.4 additions (C25-C26, 2026-10-31; written, not yet compiled or run)
+- Case 3d (C25): `AuthenticationResultsParserTests.Parse_quoted_string_inside_a_comment_is_opaque` (SPF domain `attacker.test`, Dmarc Fail) and
+  `SpamClassifierTests.Contact_with_quoted_comment_spf_forgery_and_dmarc_fail_is_not_trusted` (From `x@victim.test`, not TrustedContact, AuthStatus Failed).
+- Case 3e (C26): `Parse_empty_verdict_does_not_shadow_a_later_result_of_the_same_method` (Dmarc Fail `a.test`).
+- Existing tests checked against C25/C26: no change needed (unterminated-comment/quote rows in the never-throws theory cover the unchanged end-of-input behaviour; `spf= ; dkim==; dmarc=pass=pass` only asserts no throw).
+- Assumptions: header from the requirement is prefixed with `mx.test; ` (authserv-id) like all other cases; C27 is doc-only, no test.

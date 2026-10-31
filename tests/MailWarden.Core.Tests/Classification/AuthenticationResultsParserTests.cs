@@ -121,6 +121,33 @@ public sealed class AuthenticationResultsParserTests
         Assert.Null(parsed.Spf?.Domain);
     }
 
+    // Case 3d (C25): a quoted string inside a comment is opaque; ')' and '"' in it do not end the comment
+    [Fact]
+    public void Parse_quoted_string_inside_a_comment_is_opaque()
+    {
+        const string header = """
+            mx.test; spf=pass (sender "x) smtp.mailfrom=victim.test y "@attacker.test) smtp.mailfrom=attacker.test; dmarc=fail header.from=victim.test
+            """;
+
+        AuthenticationResults parsed = AuthenticationResultsParser.Parse(header);
+
+        Assert.Equal(AuthVerdict.Pass, parsed.Spf?.Verdict);
+        Assert.Equal("attacker.test", parsed.Spf?.Domain);
+        Assert.NotNull(parsed.Dmarc);
+        Assert.Equal(AuthVerdict.Fail, parsed.Dmarc.Verdict);
+    }
+
+    // Case 3e (C26): a method key with an empty verdict is not kept, a later real result counts
+    [Fact]
+    public void Parse_empty_verdict_does_not_shadow_a_later_result_of_the_same_method()
+    {
+        AuthenticationResults parsed = AuthenticationResultsParser.Parse("mx.test; dmarc=; dmarc=fail header.from=a.test");
+
+        Assert.NotNull(parsed.Dmarc);
+        Assert.Equal(AuthVerdict.Fail, parsed.Dmarc.Verdict);
+        Assert.Equal("a.test", parsed.Dmarc.Domain);
+    }
+
     // Case 3a (C19): a quoted header.i value is unquoted before the domain is taken
     [Fact]
     public void Parse_dkim_domain_from_quoted_header_i()
