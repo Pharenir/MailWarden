@@ -41,3 +41,13 @@ Ergebnis: **PASS**
 - Merge test/ap-07a-classifier-core (4c0717b, 3d/3e) in feat-Branch: sauber, Build -warnaserror 0/0.
 - S3 (volle Suite, Waechter): 299/299 bestanden (verify.3: 296, +3 neue Tests), 3,1 s, Ergebnis ok.
 - Keine Fehlschlaege.
+
+## verify.5 – integration with AP-01 (2026-10-31)
+
+Ergebnis: **PASS**
+- Stand: Merge-Commit 7a10099 (feat/ap-01-skeleton-storage in feat/ap-07a-classifier-core); Solution mit Core.Tests und Infrastructure.Tests.
+- Stufe S3 (volle Suite, Waechter, Auswahl voll): 399 gesamt, 399 bestanden, 0 fehlgeschlagen, 0 uebersprungen.
+  - MailWarden.Core.Tests: 299/299 (1,05 s)
+  - MailWarden.Infrastructure.Tests: 100/100 (2,74 s)
+- Waechter: ok, Exit 0, 6,2 s gesamt, weiche Grenze nicht ueberschritten, kein Abbruch.
+- Fehlschlaege: keine. durations.jsonl fortgeschrieben.
