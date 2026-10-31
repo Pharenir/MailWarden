@@ -1,0 +1,28 @@
+# Secrets and local config
+.env
+spike.env
+tokens/
+
+# Local-only files
+_scratch/
+CLAUDE.md
+docs/
+.test-logs/
+*.log
+
+# Runtime data (DB, EML store, settings) – never commit mail content
+data/
+
+# Build output
+bin/
+obj/
+dist/
+build/
+publish/
+*.user
+*.suo
+
+# IDE
+.vs/
+.idea/
+.vscode/
