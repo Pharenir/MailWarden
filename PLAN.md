@@ -81,7 +81,7 @@ Später: Naive Bayes aus Dennis’ Entscheidungen, Domain-Alter per RDAP.
 | AP-00 | **Spike Anmeldung:** MS-App-Registrierung (Kostenprüfung), MSAL-Login + MailKit-IMAP gegen hotmail.de; Google-Cloud-Projekt, OAuth-Login + IMAP gegen Gmail. Konsolenprogramm in `_scratch\`. | Go/No-Go, `docs\auth-setup.md` mit Schritt-für-Schritt-Anleitung |
 | AP-01 | Solution-Skelett (inkl. startfähiger WinUI-3-Leer-App als Tooling-Check), Core-Modell (Account, Folder, Message, Contact), SQLite-Schema + Migration, EML-Store, FTS5 | Build grün, Storage-Tests |
 | AP-02 | Kontenverwaltung + Zugangsdaten (DPAPI), Token-Cache, Provider-Profile. **AP-02a** ohne UI (Credential-Store, OAuth MS/Google, Provider-Profile, Ordnerrollen, Konto-Service, Verbindungstest); **AP-02b** = Konten-UI mit AP-04 | Konto anlegen/löschen/testen |
-| AP-03 | Sync-Engine: Ordnerliste, inkrementeller Sync (UIDVALIDITY, UIDNEXT, Flags), IDLE für Posteingang, Junk-Ordner immer mitsynchronisieren, Befehlswarteschlange (Move/Delete/Flag) mit Wiederholung | Mails aller Konten lokal, Änderungen beidseitig |
+| AP-03 | Sync-Engine: Ordnerliste, inkrementeller Sync (UIDVALIDITY, UIDNEXT, Flags), IDLE für Posteingang, Junk-Ordner immer mitsynchronisieren, Befehlswarteschlange (Move/Delete/Flag) mit Wiederholung. **AP-03a** = Transport + Abgleich Server → lokal (Ordner, Mails, Flags, Löschungen, UIDVALIDITY, Schema v2); **AP-03b** = Befehlswarteschlange lokal → Server, IDLE, Wiederverbindung/Zeitplan | Mails aller Konten lokal, Änderungen beidseitig |
 | AP-04 | WinUI-3-Oberfläche: Gruppenansichten Posteingang/Gesendet/Postausgang/Screener/Junk/Quarantäne über alle Konten, dieselben Ansichten je Konto, Ordnerbaum, Lesebereich (WebView2, bereinigt), Light/Dark/System | Lesen aller Konten in einer Ansicht |
 | AP-05 | Verfassen/Antworten/Weiterleiten, SMTP-Versand je Konto, Anhänge, Signatur je Konto, Gesendet-Ordner | Senden von allen Konten |
 
@@ -89,7 +89,7 @@ Später: Naive Bayes aus Dennis’ Entscheidungen, Domain-Alter per RDAP.
 | AP | Inhalt | Ergebnis |
 |---|---|---|
 | AP-06 | Adressbuch minimal: lokal, Import vCard/CSV, automatisches Sammeln aus gesendeten Mails, Allow-/Block-Listen | Grundlage für Stufe `TrustedContact` |
-| AP-07 | Klassifizierer: Signale v1, Schwellen, Entscheidungsprotokoll, Anlegen von `Screener`/`Quarantine` je Konto, Aufbewahrung Quarantäne, Rettung sicherer Absender aus Junk | Vier Stufen sichtbar, jede Entscheidung erklärbar |
+| AP-07 | Klassifizierer: Signale v1, Schwellen, Entscheidungsprotokoll, Anlegen von `Screener`/`Quarantine` je Konto, Aufbewahrung Quarantäne, Rettung sicherer Absender aus Junk. **AP-07a** = Kern (erledigt); **AP-07b** = Kalibrierung an echten Headern (PstProbe) + Einstellungsdatei; **AP-07c** = Anbindung an Mails/Ordner (nach AP-03b) | Vier Stufen sichtbar, jede Entscheidung erklärbar |
 | AP-08 | Regel-Engine + UI: eigene Regeln, „Warum?“-Ansicht je Mail, Rückmeldung „kein Junk“/„Junk“ pflegt Listen, Zuordnung Stufe → Aktion, Schalter „CertainSpam direkt löschen“ | Regeln ersetzen Outlook-Regeln |
 | AP-09 | Archivierung + Backup: Archiv-Ordner je Konto synchronisieren, Volltextsuche über alles, Export mbox/EML, Export/Import der Konto- und Regel-Einstellungen (verschlüsselt) | Datensicherung ohne Anbieter |
 
@@ -151,19 +151,44 @@ Vollständiger Schnittstellenvertrag: `work\AP-01\requirement.md`.
 
 Vollständiger Schnittstellenvertrag: `work\AP-02a\requirement.md`.
 
+### AP-03a Abgleich Server → lokal
+| # | Sollverhalten | Umgesetzt | Getestet |
+|---|---|---|---|
+| 1 | Ordnerliste: sichtbare Server-Ordner werden mit Rolle (`FolderRoleResolver`) lokal angelegt/aktualisiert; versteckte (z. B. `[Gmail]/All Mail`) nie; auf dem Server verschwundene Ordner samt Mails und EML-Dateien lokal entfernt | | |
+| 2 | Erster Abgleich lädt Mails der letzten `InitialSyncDays` (Standard 90, 0 = alle) als EML + Metadaten + Volltext; ältere werden auch später nicht nachgeladen | | |
+| 3 | Folgeabgleich lädt nur neue UIDs; Flags (gelesen, beantwortet, markiert, gelöscht, Entwurf) werden vom Server übernommen (mit CONDSTORE nur Änderungen); auf dem Server gelöschte Mails verschwinden lokal samt EML | | |
+| 4 | UIDVALIDITY geändert → alle lokalen Mails des Ordners verworfen und neu geladen; nie Mischbestand | | |
+| 5 | Abgleich verändert den Server nicht (Ordner nur lesend geöffnet, `\Seen` bleibt unverändert) | | |
+| 6 | Abbruch (Netz, Abbruch-Token) mitten im Ordner → nächster Lauf setzt fort, keine Dubletten, keine halben Datensätze; Fehler in einem Ordner stoppen die anderen nicht (außer Netz/Anmeldung) | | |
+| 7 | Schema v2 (Abgleichstand je Ordner) wird auf eine v1-Datenbank migriert, ohne Daten zu verlieren | | |
+| 8 | Echte Konten: Abgleich aller drei Konten mit der SyncProbe, Zahlen plausibel gegen Outlook/Gmail-Web | | manuell Dennis |
+
+Vollständiger Schnittstellenvertrag: `work\AP-03a\requirement.md`.
+
+### AP-07b Kalibrierung + Einstellungsdatei
+| # | Sollverhalten | Umgesetzt | Getestet |
+|---|---|---|---|
+| 1 | `dmarc=fail` mit `compauth=pass` (Microsoft) → Status „nicht verifiziert“ statt „fehlgeschlagen“, 0 Punkte mit Begründung; ohne `compauth=pass` bleibt DMARC fail unüberstimmbar | | |
+| 2 | `dmarc=bestguesspass` → wie kein DMARC-Ergebnis; `dkim=timeout` → TempError | | |
+| 3 | Bei authentifizierten Mails geben `link-domain-mismatch`, `domain-not-in-body` und die schwache Stufe von `random-domain` keine Punkte; bei nicht authentifizierten unverändert | | |
+| 4 | `classifier-settings.json`: fehlt → Standardwerte; einzelne Schlüssel überschreiben Standardwerte; unbekannter Schlüssel, falscher Typ oder ungültige Schwellen → Fehler beim Laden mit Schlüsselname | | |
+| 5 | PstProbe-Lauf nach der Änderung: Fehlalarm aus Befund `compauth` behoben, Junk-Erkennung nicht schlechter | | Planer (PstProbe) |
+
+Vollständiger Schnittstellenvertrag: `work\AP-07b\requirement.md`.
+
 ### AP-07 Klassifizierer (Kern des Projekts, deshalb vorab)
 | # | Sollverhalten | Umgesetzt | Getestet |
 |---|---|---|---|
-| 1 | Absender im Adressbuch + SPF/DKIM pass → `TrustedContact`, auch wenn Mail im Junk-Ordner lag → wird in Posteingang verschoben | AP-07a: Stufe (`SpamClassifier`, Kontakt + Authenticated; seit C11 verhindert DMARC fail das); Verschieben → AP-07b | `SpamClassifierTests` (15, 21a) |
+| 1 | Absender im Adressbuch + SPF/DKIM pass → `TrustedContact`, auch wenn Mail im Junk-Ordner lag → wird in Posteingang verschoben | AP-07a: Stufe (`SpamClassifier`, Kontakt + Authenticated; seit C11 verhindert DMARC fail das); Verschieben → AP-07c | `SpamClassifierTests` (15, 21a) |
 | 2 | Absender im Adressbuch, DKIM fail → **nicht** `TrustedContact`; Begründung nennt die fehlgeschlagene Prüfung | AP-07a `SpamClassifier`, `AuthenticationSignal` | `SpamClassifierTests` (16), `SignalReasonTests` (30) |
-| 3 | Domain `qzxkvb73.top`, nicht im Body, Auth fail → `CertainSpam` → Ordner `Quarantine`; Protokoll enthält jedes Signal mit Punkten | AP-07a: Stufe + Signale mit Begründung; Ordner `Quarantine` → AP-07b | `SpamClassifierTests` (14), `ClassifierSmokeTests` |
-| 4 | Unbekannter Absender, Auth pass, Domain plausibel → `LikelyLegit` → Ordner `Screener` | AP-07a: Stufe; Ordner → AP-07b | `SpamClassifierTests` (13) |
+| 3 | Domain `qzxkvb73.top`, nicht im Body, Auth fail → `CertainSpam` → Ordner `Quarantine`; Protokoll enthält jedes Signal mit Punkten | AP-07a: Stufe + Signale mit Begründung; Ordner `Quarantine` → AP-07c | `SpamClassifierTests` (14), `ClassifierSmokeTests` |
+| 4 | Unbekannter Absender, Auth pass, Domain plausibel → `LikelyLegit` → Ordner `Screener` | AP-07a: Stufe; Ordner → AP-07c | `SpamClassifierTests` (13) |
 | 4a | Dennis bestätigt Screener-Mail („kein Junk“) → Absender ins Adressbuch, Mail in Posteingang, künftige Mails `TrustedContact` | → AP-08 | |
-| 4b | Fehlt `Screener` oder `Quarantine` auf dem Server, legt die App den Ordner an; schlägt das fehl → Mail bleibt liegen, Fehler im Log, kein Verlust | → AP-07b | |
+| 4b | Fehlt `Screener` oder `Quarantine` auf dem Server, legt die App den Ordner an; schlägt das fehl → Mail bleibt liegen, Fehler im Log, kein Verlust | → AP-07c | |
 | 5 | Mail ohne `Authentication-Results`-Header → neutral (keine Punkte), nie Absturz | AP-07a `AuthStatusEvaluator`, Parser wirft nie | `SpamClassifierTests` (18), `AuthenticationResultsParserTests` (5) |
 | 6 | Block-Liste schlägt alles, Allow-Liste schlägt alles außer Auth-fail | AP-07a `SpamClassifier` (Entscheidungsreihenfolge) | `SpamClassifierTests` (19, 20) |
-| 7 | Quarantäne: Mails älter als X Tage werden gelöscht; X=0 bedeutet nie automatisch löschen | → AP-07b | |
-| 8 | Schwellen aus Einstellungen; ungültige Schwellen (Schwelle 2 ≤ Schwelle 1) → Fehler beim Laden | AP-07a `ClassifierSettings.Validate()` (Laden aus Datei → AP-07b) | `ClassifierSettingsTests` (27) |
+| 7 | Quarantäne: Mails älter als X Tage werden gelöscht; X=0 bedeutet nie automatisch löschen | → AP-07c | |
+| 8 | Schwellen aus Einstellungen; ungültige Schwellen (Schwelle 2 ≤ Schwelle 1) → Fehler beim Laden | AP-07a `ClassifierSettings.Validate()` (Laden aus Datei → AP-07c) | `ClassifierSettingsTests` (27) |
 
 ## Risiken und offene Annahmen
 - **Microsoft App-Registrierung:** evtl. nur mit (kostenlosem) Azure-Konto, dafür ggf. Kreditkarte zur Verifizierung.
