@@ -30,11 +30,28 @@ Testzähler: 0/4 seit letztem S3 (zuletzt: AP-01 verify.1, 2026-10-31 – 72/72 
   Kosten 0 €. Erkenntnisse in `docs\auth-setup.md` (lokal).
 - **AP-01** (Skelett, Storage, WinUI-Leer-App): verify.1 72/72 grün; review.1 BLOCK → Planer-Entscheidungen D1–D12 in
   `work\AP-01\requirement.md`. fix.2: Tester-Tests fertig (Branch `test/ap-01-skeleton-storage`, `0e07d24`),
-  Builder fix.2 bei Sessionende zum Abschluss aufgefordert (Ergebnis in `work\AP-01\impl-notes.md`, Abschnitt `## fix.2`).
-- **AP-07a** (Klassifizierer-Kern): Tests fertig (`test/ap-07a-classifier-core`, `69252a9`), Builder bei Sessionende
-  zum Abschluss aufgefordert (`work\AP-07a\impl-notes.md` auf `feat/ap-07a-classifier-core`).
-- **AP-02a** (Konten/Auth): Tests fertig (`test/ap-02a-accounts-auth`, `0e6260d`), Builder bei Sessionende zum
-  Abschluss aufgefordert (`work\AP-02a\impl-notes.md` auf `feat/ap-02a-accounts-auth`).
+  Builder fix.2 **done** (`a43a00b`, Worktree sauber): D2–D11 umgesetzt, Probe 81/81, Selbstcheck der alten Suite
+  72/72 (kein Nachweis). Bereit für verify.2 + review.2. Planer-Punkte:
+  - Vertragstext in `requirement.md` nachziehen: Mail-Schlüssel jetzt `(FolderId, Uid)`, Indizes nach D4
+  - D5 strenger als entschieden (`COM¹–³`, `CON .eml`) → annehmen (Windows behandelt sie als Geräte)
+  - Tester: Fall 11a zusätzlich mit Update einer bestehenden Mail auf falsches Konto; Cascade lässt keine FTS-Zeilen zurück
+- **AP-07a** (Klassifizierer-Kern): Tests fertig (`test/ap-07a-classifier-core`, `69252a9`). Builder **done**
+  (`0adc48d`): Vertrag vollständig, Build grün, Probe ok (Zufallsdomains ≥ 0.888, echte ≤ 0.293). Bereit für verify.1
+  (S3, weil zentrale Bausteine). Offene Fragen in `work\AP-07a\impl-notes.md`, Planer-Tendenz:
+  - Outlook `dmarc=bestguesspass` → vorerst `Unknown`, in AP-07b an echten Headern prüfen
+  - `hardfail` → `Fail` beibehalten (RFC-Synonym), Vertrag ergänzen
+  - Anzeigename `J.Doe`/`Mr.Smith` gibt fälschlich +20 → Regel schärfen (TLD-Liste statt „2–24 Buchstaben“?)
+  - doppelte Signal-Ids case-insensitive, Freemail auch über Organisationsdomain, Reply-To ohne `@` → kein Befund: ok
+  - Dennis: Begründungstexte in der Probe-Ausgabe ansehen
+- **AP-02a** (Konten/Auth): Tests fertig (`test/ap-02a-accounts-auth`, `0e6260d`). Builder **partial** (`04d2aaa`,
+  Worktree sauber): gesamter Vertrag implementiert und baut, aber ungeprüft; offen: nicht-interaktive Probe (Fälle
+  1–27), AuthProbe-Konsole `_scratch\auth-probe\` (Fälle 28–30, csproj braucht `GenerateDocumentationFile=false`),
+  Nutzungsblock für Dennis. Abweichungen/Fragen in `work\AP-02a\impl-notes.md`, Planer-Entscheidung nötig zu:
+  - `ListKeysAsync("")` wirft beim Builder, der Tester erwartet „alle Schlüssel“ (meine Tendenz: alle Schlüssel)
+  - kaputte `auth-config.json` meldet `Provider = GenericImap` – ok?
+  - Re-Auth mit falschem Konto: Sign-out nur, wenn die Adresse kein gespeichertes Konto ist (sinnvoll, Vertrag anpassen)
+  - Google-Login ohne eigenes Timeout (403-Seite wartet ewig) → Timeout ergänzen
+  - Credential-Keys: Kollision `a@b.c`/`a_b.c`, Länge > 128, NTFS case-insensitive → Key = `google.` + Hash der Adresse?
 
 ## Übergabe – so geht es weiter
 1. Je Builder-Branch `impl-notes.md` lesen: STEP-RESULT `done` oder `partial`? Bei `partial` bzw. uncommitteten
