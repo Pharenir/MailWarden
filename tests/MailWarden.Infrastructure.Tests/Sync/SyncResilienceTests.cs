@@ -189,7 +189,7 @@ public sealed class SyncResilienceTests
         Assert.StartsWith("MailTransportException", inboxResult.Error, StringComparison.Ordinal);
         Assert.Null(junkResult.Error);
         Assert.Equal(1, junkResult.Added);
-        Assert.Empty(harness.Server.Fetches.Where(fetch => fetch.Folder == Inbox));
+        Assert.DoesNotContain(harness.Server.Fetches, fetch => fetch.Folder == Inbox);
         MailFolder? storedInbox = await harness.FindFolderAsync(Inbox);
         if (storedInbox is not null)
         {
