@@ -95,6 +95,32 @@ public sealed class AuthenticationResultsParserTests
         Assert.Equal(expectedDomain, parsed.Spf?.Domain);
     }
 
+    // Case 3b (C20): CFWS (whitespace, comments) before a word starting with '@' continues the address value
+    [Theory]
+    [InlineData("smtp.mailfrom=\"x@victim.test\" @attacker.test")]
+    [InlineData("smtp.mailfrom=\"x@victim.test\" (c) @attacker.test")]
+    [InlineData("smtp.mailfrom=victim.test (c) @attacker.test")]
+    public void Parse_spf_domain_continues_across_whitespace_and_comments_before_at_word(string mailFrom)
+    {
+        AuthenticationResults parsed = AuthenticationResultsParser.Parse($"mx.test; spf=pass {mailFrom}");
+
+        Assert.Equal(AuthVerdict.Pass, parsed.Spf?.Verdict);
+        Assert.Equal("attacker.test", parsed.Spf?.Domain);
+    }
+
+    // Case 3c (C21): "key=" followed by whitespace is an empty value; the next word starts a new pair
+    [Fact]
+    public void Parse_empty_value_followed_by_whitespace_does_not_swallow_the_next_pair()
+    {
+        AuthenticationResults parsed = AuthenticationResultsParser.Parse(
+            "mx.test; spf=pass smtp.mailfrom= dmarc=fail header.from=a.test");
+
+        Assert.NotNull(parsed.Dmarc);
+        Assert.Equal(AuthVerdict.Fail, parsed.Dmarc.Verdict);
+        Assert.Equal("a.test", parsed.Dmarc.Domain);
+        Assert.Null(parsed.Spf?.Domain);
+    }
+
     // Case 3a (C19): a quoted header.i value is unquoted before the domain is taken
     [Fact]
     public void Parse_dkim_domain_from_quoted_header_i()

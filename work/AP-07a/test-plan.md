@@ -84,3 +84,9 @@ Further: authentication points table (`Authentication_signal_points`, 13 rows in
   Authenticated; foreign DMARC pass + SPF fail -> Failed.
 - Assumptions: the 30a display-name token `<1000 a>.other.test` must count as domain-like (label length not limited by the
   contract); test name checks of exception message only for the signal id.
+
+## fix.3 additions (C20-C22, 2026-10-31; written, not yet compiled or run)
+- Case 3b (C20): `AuthenticationResultsParserTests.Parse_spf_domain_continues_across_whitespace_and_comments_before_at_word` (3 rows -> `attacker.test`).
+- Case 3c (C21): `Parse_empty_value_followed_by_whitespace_does_not_swallow_the_next_pair` (Dmarc Fail `a.test`; Spf domain null). Prefixed with `spf=pass` so the empty value belongs to a real result.
+- Case 22b (C22): `SpamClassifierTests.Dmarc_pass_with_empty_quoted_header_from_is_not_authenticated`; new row `dmarc=pass header.from=""` -> Unknown in `AuthStatus_is_derived_from_the_header`.
+- Existing tests checked against C20-C22: no change needed. Row `mx.test; dmarc=pass` (absent header.from) stays Authenticated (C22 keeps C12 behaviour for absent). Existing C17/C19 rows unaffected by C20 (no whitespace before '@' word).
