@@ -93,6 +93,7 @@ public sealed class SpamClassifierTests
         { "mx.test; dmarc=pass header.from=other.test", AuthStatus.Unknown }, // C12
         { "mx.test; dmarc=pass header.from=mail.paypal.test", AuthStatus.Authenticated },
         { "mx.test; dmarc=pass", AuthStatus.Authenticated },
+        { "mx.test; dmarc=pass header.from=\"\"", AuthStatus.Unknown }, // C22
         { "mx.test; dkim=pass header.d=paypal.test", AuthStatus.Authenticated },
         { "mx.test; dkim=pass header.d=mail.paypal.test", AuthStatus.Authenticated },
         { "mx.test; spf=pass smtp.mailfrom=bounce@paypal.test", AuthStatus.Authenticated },
@@ -510,6 +511,21 @@ public sealed class SpamClassifierTests
             from: "sender_a@example.test",
             body: "Mail from example",
             headers: ["mx.test; dmarc=pass header.from=other.test"]);
+
+        ClassificationResult result = Classify(input);
+
+        Assert.Equal(AuthStatus.Unknown, result.AuthStatus);
+        Assert.Null(TestInputs.Find(result, "authentication"));
+    }
+
+    // Case 22b (C22): DMARC pass whose header.from is present but empty has no determinable domain -> not trusted
+    [Fact]
+    public void Dmarc_pass_with_empty_quoted_header_from_is_not_authenticated()
+    {
+        ClassificationInput input = TestInputs.Create(
+            from: "sender_a@example.test",
+            body: "Mail from example",
+            headers: ["mx.test; dmarc=pass header.from=\"\""]);
 
         ClassificationResult result = Classify(input);
 
