@@ -19,6 +19,9 @@ internal sealed class FakeTokenProvider(MailProvider provider = MailProvider.Mic
     /// <summary>Exception thrown by silent token acquisition when set.</summary>
     public Exception? SilentException { get; set; }
 
+    /// <summary>Exception thrown by sign-out (after recording the username) when set.</summary>
+    public Exception? SignOutException { get; set; }
+
     /// <summary>Usernames passed to <see cref="SignOutAsync"/>, in call order.</summary>
     public List<string> SignedOutUsernames { get; } = [];
 
@@ -57,6 +60,11 @@ internal sealed class FakeTokenProvider(MailProvider provider = MailProvider.Mic
     public Task SignOutAsync(string username, CancellationToken ct = default)
     {
         SignedOutUsernames.Add(username);
+        if (SignOutException is not null)
+        {
+            throw SignOutException;
+        }
+
         return Task.CompletedTask;
     }
 }

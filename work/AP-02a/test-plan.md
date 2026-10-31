@@ -77,3 +77,8 @@ The Microsoft/Google provider-specific name rule tests in 8/9 also assert that r
 - Case 25: "account unchanged" is checked via `GetAsync` equality.
 - Case 27: the DPAPI store is exercised alongside (writes/deletes a key) but is not wired into AccountService
   (contract has no such dependency).
+- Case 22a (A12): Google account stored, Microsoft fake signs in the same address -> AccessDenied, SignOut on the Microsoft fake only, store unchanged. 22b: same-provider duplicate -> existing account, no SignOut.
+- Case 25b (A12): Reauthenticate with an address stored only under another provider -> AccessDenied and SignOut of the new grant (assumed reading of "same provider"). 25a stays valid under A12 (same provider, no SignOut).
+- Case 26a (A11): SignOut throws AuthenticationFailedException(Configuration) -> no exception, account gone. Extra: InvalidOperationException from SignOut propagates.
+- Helper: `FakeTokenProvider.SignOutException` added (records the username, then throws).
+- A9, A10, A13-A16: no new tests (need failing store, interactive flow or IMAP).
