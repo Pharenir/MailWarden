@@ -288,6 +288,7 @@ Source: review.2 APPROVE with one SHOULD (`review.md`); verify.2 PASS (290/290).
 | C21 | A property `key=` followed directly by whitespace (empty value, no `;`) yields an empty value (domain null); the next word starts a new pair. `smtp.mailfrom= dmarc=fail header.from=a.test` → Dmarc Fail. (review.2 N6) | fix | new case 3c |
 | C22 | **DMARC Pass whose `header.from` is present but has no determinable domain is not trusted** (treated like a non-aligned DMARC Pass, C12 "otherwise" rules apply). Only an **absent** `header.from` keeps the C12 behaviour. (review.2 Q5) | fix | new case 22b: `dmarc=pass header.from=""` (empty quoted value) with From `example.test`, nothing else → Unknown |
 | C23 | Review.2 N5, N7: comments/notes corrected. N8 (PLAN.md) is the planner's task. | doc | none |
+| C24 | Builder readings of fix.3 confirmed: C21 applies when the next separate word is itself a `key=` (`SPF = FAIL` stays valid, case 3). An `@`-word that is itself a `key=value` is not joined by C20 (`x@victim.test @attacker.test=foo` → `victim.test`) – needs invalid provider data; accepted for AP-07a, fail-safe "domain null" re-evaluated in AP-07b with real headers. | keep | none |
 ## Done criteria
 - Builder: only new files under `src\MailWarden.Core\Classification\`; build `-warnaserror` green; probe program
   under `_scratch\` (git-ignored) runs cases 10–14 and prints the scores; `work\AP-07a\impl-notes.md` with the
