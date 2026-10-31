@@ -24,6 +24,24 @@ public sealed class MailKitTransportFactory(AccountService accountService) : IMa
     /// <exception cref="OperationCanceledException">The operation was cancelled.</exception>
     public async Task<IMailTransport> ConnectAsync(Account account, CancellationToken ct = default)
     {
+        (ImapClient client, ServerEndpoint endpoint) = await ConnectClientAsync(account, ct).ConfigureAwait(false);
+        return new MailKitTransport(client, endpoint);
+    }
+
+    /// <inheritdoc />
+    /// <exception cref="ArgumentNullException"><paramref name="account"/> is null.</exception>
+    /// <exception cref="NotSupportedException">The account is a generic IMAP account (password login not supported).</exception>
+    /// <exception cref="ArgumentException">The account is not stored.</exception>
+    /// <exception cref="OperationCanceledException">The operation was cancelled.</exception>
+    public async Task<IMailCommandTransport> ConnectForCommandsAsync(Account account, CancellationToken ct = default)
+    {
+        (ImapClient client, ServerEndpoint endpoint) = await ConnectClientAsync(account, ct).ConfigureAwait(false);
+        return new MailKitCommandTransport(client, endpoint);
+    }
+
+    // Token, connect and XOAUTH2 login; shared by the read-only sync session and the command session.
+    private async Task<(ImapClient Client, ServerEndpoint Endpoint)> ConnectClientAsync(Account account, CancellationToken ct)
+    {
         ArgumentNullException.ThrowIfNull(account);
         if (account.Provider == MailProvider.GenericImap)
         {
@@ -47,6 +65,6 @@ public sealed class MailKitTransportFactory(AccountService accountService) : IMa
                     ct),
                 ct)
             .ConfigureAwait(false);
-        return new MailKitTransport(client, endpoint);
+        return (client, endpoint);
     }
 }
