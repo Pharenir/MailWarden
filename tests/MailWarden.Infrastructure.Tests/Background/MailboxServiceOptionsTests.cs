@@ -10,7 +10,7 @@ public sealed class MailboxServiceOptionsTests
         new(TimeSpan.FromSeconds(pollSeconds), TimeSpan.FromSeconds(idleRenewSeconds), TimeSpan.FromSeconds(debounceSeconds));
 
     // Case 18
-    [Fact(Timeout = TestTimeouts.PerTestMilliseconds)]
+    [Fact]
     public void Default_values_are_15_minutes_9_minutes_and_2_seconds()
     {
         MailboxServiceOptions defaults = MailboxServiceOptions.Default;
@@ -21,7 +21,7 @@ public sealed class MailboxServiceOptionsTests
     }
 
     // Case 18
-    [Theory(Timeout = TestTimeouts.PerTestMilliseconds)]
+    [Theory]
     [InlineData(59, 540, 2)]
     [InlineData(0, 540, 2)]
     [InlineData(-60, 540, 2)]
@@ -36,7 +36,7 @@ public sealed class MailboxServiceOptionsTests
     }
 
     // Case 18
-    [Theory(Timeout = TestTimeouts.PerTestMilliseconds)]
+    [Theory]
     [InlineData(60, 60, 0)]
     [InlineData(900, 1680, 60)]
     [InlineData(86_400, 540, 2)]

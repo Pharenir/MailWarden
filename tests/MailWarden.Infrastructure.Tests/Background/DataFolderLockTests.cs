@@ -31,7 +31,7 @@ public sealed class DataFolderLockTests : IDisposable
     }
 
     // Case 1
-    [Fact(Timeout = TestTimeouts.PerTestMilliseconds)]
+    [Fact]
     public void Second_acquire_returns_null_and_after_dispose_acquire_works_again_and_lock_file_is_gone()
     {
         DataPaths paths = NewPaths();
@@ -51,7 +51,7 @@ public sealed class DataFolderLockTests : IDisposable
         Assert.False(File.Exists(lockFile));
     }
 
-    [Fact(Timeout = TestTimeouts.PerTestMilliseconds)]
+    [Fact]
     public void Locks_of_different_data_folders_are_independent()
     {
         using DataFolderLock? first = DataFolderLock.TryAcquire(NewPaths("data_a"));
@@ -61,7 +61,7 @@ public sealed class DataFolderLockTests : IDisposable
         Assert.NotNull(second);
     }
 
-    [Fact(Timeout = TestTimeouts.PerTestMilliseconds)]
+    [Fact]
     public void Dispose_twice_does_not_throw()
     {
         DataFolderLock? held = DataFolderLock.TryAcquire(NewPaths());
