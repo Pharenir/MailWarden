@@ -116,7 +116,7 @@ internal sealed class FakeMailFolder
 /// Scripted IMAP server shared by all transports a <see cref="FakeMailTransportFactory"/> creates. Records every call
 /// (in order) and can inject failures and hooks. Offers no write operation by design (the engine is read-only).
 /// </summary>
-internal sealed class FakeMailServer
+internal sealed partial class FakeMailServer
 {
     public List<FakeMailFolder> Folders { get; } = [];
 
@@ -216,7 +216,7 @@ internal sealed class FakeMailServer
 }
 
 /// <summary>Factory over a <see cref="FakeMailServer"/>; each connect yields a fresh, tracked transport.</summary>
-internal sealed class FakeMailTransportFactory(FakeMailServer server) : IMailTransportFactory
+internal sealed partial class FakeMailTransportFactory(FakeMailServer server) : IMailTransportFactory
 {
     public FakeMailServer Server { get; } = server;
 

@@ -11,6 +11,8 @@
     "src/MailWarden.Infrastructure/Classification/**": ["@feature:classifier"],
     "src/MailWarden.Infrastructure/Storage/**": ["@feature:storage"],
     "src/MailWarden.Infrastructure/Sync/SyncEngine*": ["FULL"],
+    "src/MailWarden.Core/Commands/**": ["@feature:sync", "@feature:storage"],
+    "src/MailWarden.Infrastructure/Commands/**": ["@feature:sync", "@feature:storage"],
     "src/MailWarden.Core/Sync/**": ["@feature:sync", "@feature:storage"],
     "src/MailWarden.Infrastructure/Sync/**": ["@feature:sync"],
     "src/MailWarden.Infrastructure/Mime/**": ["@feature:sync"],
