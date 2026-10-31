@@ -2,6 +2,8 @@
 .env
 spike.env
 tokens/
+auth-config.json
+credentials/
 
 # Local-only files
 _scratch/
