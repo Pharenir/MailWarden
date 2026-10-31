@@ -279,6 +279,15 @@ Source: review.1 (`review.md`). verify.1 was PASS (272/272).
 | C17 | Refines C10: the domain is the part after the last `@` **outside quotes**; a value without such an `@` has no domain (null). `x@attacker.test"@victim.test"` → `attacker.test`; `"x@victim.test"@attacker.test` → `attacker.test` (unchanged). (builder fix.2 question 1) | fix | add both examples to 3a |
 | C18 | `ISpamSignal` XML doc states the C13 rule (SignalId must equal `Id`, Reason non-empty, else `Classify` throws InvalidOperationException). | doc | none |
 | C19 | Refines C17 (RFC 8601 `value = token / quoted-string`): a value that consists of **exactly one quoted string** is unquoted first, then the C17 rule applies to its content (`"Bounce@Example.TEST"` → `example.test`; `header.i="@victim.test"` → `victim.test`). A value without any `@` is itself the domain (`smtp.mailfrom=example.test`, `header.d`, `header.from`) – confirmed builder reading. Mixed values keep C17 (`"x@victim.test"@attacker.test` → `attacker.test`). | fix | add the two quoted examples to 3a |
+## Planner decisions 2026-10-31 (fix.3) – binding
+Source: review.2 APPROVE with one SHOULD (`review.md`); verify.2 PASS (290/290).
+
+| # | Decision | Builder | Tester |
+|---|---|---|---|
+| C20 | **CFWS inside an address value is ignored (RFC 5322):** if a property value is followed – after whitespace and/or a comment – by a word that starts with `@` and is not itself a `key=value`, that word belongs to the value (appended before the domain rule of C17/C19 applies). `"x@victim.test" @attacker.test`, `"x@victim.test" (c) @attacker.test` and `victim.test (c) @attacker.test` → `attacker.test`. (review.2 S2) | fix | new case 3b with the three examples |
+| C21 | A property `key=` followed directly by whitespace (empty value, no `;`) yields an empty value (domain null); the next word starts a new pair. `smtp.mailfrom= dmarc=fail header.from=a.test` → Dmarc Fail. (review.2 N6) | fix | new case 3c |
+| C22 | **DMARC Pass whose `header.from` is present but has no determinable domain is not trusted** (treated like a non-aligned DMARC Pass, C12 "otherwise" rules apply). Only an **absent** `header.from` keeps the C12 behaviour. (review.2 Q5) | fix | new case 22b: `dmarc=pass header.from="x@a.test"@` … use `dmarc=pass header.from=""` (empty quoted) with From `example.test`, nothing else → Unknown |
+| C23 | Review.2 N5, N7: comments/notes corrected. N8 (PLAN.md) is the planner's task. | doc | none |
 ## Done criteria
 - Builder: only new files under `src\MailWarden.Core\Classification\`; build `-warnaserror` green; probe program
   under `_scratch\` (git-ignored) runs cases 10–14 and prints the scores; `work\AP-07a\impl-notes.md` with the
