@@ -34,3 +34,19 @@ None.
 - Q2: local-only roles excluded from R1 when the outbox AP comes. → TODO AP-03b
 - Q3: `IEmlStore.DeleteFolderAsync` + cleanup → TODO AP-03b
 - Q4: reconnect after `ImapProtocolException` → AP-03b requirement line.
+
+# review.2 (fix.2 only, reviewer opus; recorded by the planner)
+
+**Verdict: APPROVE** (`git diff 586e2e8 feat/ap-03a-sync-down -- src .gitignore impl-notes.md`). F1–F7 contract-true:
+per-message check uses the same `AbortsSync` (`SyncEngine.cs:285`), candidates ascending so the first failure is the
+minimum, state `failedUid − 1` never below the old value; Error format without exception message; R7/R8 intact;
+`ParseAsync` catches all but OCE with `Extract` in the same try; F2–F7 fine; no tracked file newly ignored.
+
+- SHOULD 1: XML doc `FolderSyncResult.cs:14` and remarks `SyncEngine.cs:17-18` do not describe the new Error format
+  → fixed as doc-only change (no test run needed).
+- NIT: per-message failure in the first sync saves a state → next run drops the initial window, so older UIDs above
+  the failed one are fetched once (contradicts the last sentence of R5) → TODO AP-03b.
+- NIT: a message that always raises `ImapProtocolException` still blocks the account (MailKit disconnects, next
+  fetch = Network) → reconnect in AP-03b (Q4).
+- NIT: SyncProbe shows the new Error format truncated → fixed together with SHOULD 1.
+- NIT: two EML delete helpers with different failure semantics – merge with `IEmlStore.DeleteFolderAsync` (AP-03b).
