@@ -197,7 +197,7 @@ public sealed class FileEmlStore(DataPaths paths) : IEmlStore
 - `schema_version(version INTEGER NOT NULL)` – exactly one row. Missing table = version 0 (fresh database).
 - `accounts(id TEXT PK, display_name TEXT NOT NULL, email_address TEXT NOT NULL UNIQUE COLLATE NOCASE, provider INTEGER NOT NULL)`
 - `folders(id INTEGER PK AUTOINCREMENT, account_id TEXT NOT NULL REFERENCES accounts(id) ON DELETE CASCADE, full_name TEXT NOT NULL, role INTEGER NOT NULL, uid_validity INTEGER NOT NULL, UNIQUE(account_id, full_name))`
-- `messages(id INTEGER PK AUTOINCREMENT, account_id TEXT NOT NULL REFERENCES accounts(id) ON DELETE CASCADE, folder_id INTEGER NOT NULL REFERENCES folders(id) ON DELETE CASCADE, uid INTEGER NOT NULL, message_id TEXT NULL, subject TEXT NOT NULL, from_address TEXT NOT NULL, from_name TEXT NOT NULL, date TEXT NOT NULL /* ISO 8601 with offset, round-trips DateTimeOffset exactly */, flags INTEGER NOT NULL, has_attachments INTEGER NOT NULL, size INTEGER NOT NULL, eml_path TEXT NULL, text_preview TEXT NOT NULL, UNIQUE(account_id, folder_id, uid))` + index `(folder_id, date DESC)` + index `(date DESC)`
+- `messages(id INTEGER PK AUTOINCREMENT, account_id TEXT NOT NULL REFERENCES accounts(id) ON DELETE CASCADE, folder_id INTEGER NOT NULL REFERENCES folders(id) ON DELETE CASCADE, uid INTEGER NOT NULL, message_id TEXT NULL, subject TEXT NOT NULL, from_address TEXT NOT NULL, from_name TEXT NOT NULL, date TEXT NOT NULL /* ISO 8601 with offset, round-trips DateTimeOffset exactly */, flags INTEGER NOT NULL, has_attachments INTEGER NOT NULL, size INTEGER NOT NULL, eml_path TEXT NULL, text_preview TEXT NOT NULL, UNIQUE(account_id, folder_id, uid))` + index `(folder_id, date DESC)` + index `(date DESC)` – **superseded by D3/D4 below**
 - `messages_fts` – FTS5 virtual table `(subject, from_address, from_name, body_text)` with `rowid` = `messages.id`, maintained by `SqliteMessageStore` (insert/update/delete in the same transaction as the row). Query with `MATCH` on a sanitised term list (each whitespace-separated token quoted as `"token"*`), so user input can never break the FTS syntax.
 - `contacts(id INTEGER PK AUTOINCREMENT, email_address TEXT NOT NULL UNIQUE COLLATE NOCASE, display_name TEXT NOT NULL, source INTEGER NOT NULL)` – table only, no store in AP-01.
 - Migrations: ordered list `(int version, string sql)` in one class `SchemaMigrations`; each runs in a transaction and writes `schema_version` at the end.
@@ -252,6 +252,24 @@ Feature tag `feature:storage` unless noted. "Fresh database" = `SqliteDatabase.I
 
 Positive control for the Tester: a test that stores a message and reads it back must **fail** if `Date` is stored
 without offset (e.g. compare `Date.Offset`), and the FTS test for `bodyText` must fail if body text is not indexed.
+
+## Planner decisions 2026-10-31 (fix.2) – binding, supersede the text above where they differ
+Source: tester ambiguities (author.0), builder open questions (`impl-notes.md`), review.1 (`review.md`).
+
+| # | Decision | Builder | Tester |
+|---|---|---|---|
+| D1 | **Search tokens are joined with implicit AND** (FTS5 default for space-separated phrases). | keep | case 19 as written |
+| D2 | **Control characters (`char.IsControl`, incl. `\0`) are token separators** in `SearchAsync`, like whitespace. Text consisting only of whitespace/control characters → `ArgumentException` (extends case 18). (review BLOCK 1) | fix | add `"alpha\0x"` → finds a message containing `alpha`, no exception; `"\0"`, `"\t\0 "` → ArgumentException |
+| D3 | **Schema v1 change (not released yet): message account must equal folder account.** `folders` gets `UNIQUE(id, account_id)`; `messages` replaces the single-column folder FK by `FOREIGN KEY (folder_id, account_id) REFERENCES folders (id, account_id) ON DELETE CASCADE`; `UNIQUE(account_id, folder_id, uid)` becomes `UNIQUE(folder_id, uid)`. Violation → `StorageException`. (review SHOULD 1) | fix | new case 11a: upsert message with AccountId B into a folder of account A → StorageException; `ListAsync(AccountId: B)` stays empty |
+| D4 | **Indexes in v1:** replace `(folder_id, date DESC)` and `(date DESC)` by expression indexes `(folder_id, julianday(date) DESC, id DESC)` and `(julianday(date) DESC, id DESC)`; ordering stays `julianday(date) DESC, id DESC`. (review SHOULD 2) | fix | none (behaviour unchanged) |
+| D5 | **`ResolveMailPath` also rejects** segments ending in `.` or a space (`x.eml.`, `x.eml `, `...`) and DOS device names (`CON`, `PRN`, `AUX`, `NUL`, `COM1`–`COM9`, `LPT1`–`LPT9`, with or without extension) with `ArgumentException`. (review SHOULD 4) | fix | extend case 27 |
+| D6 | **`FileEmlStore` routes every relative path through `DataPaths.ResolveMailPath`**, so `WriteAsync`/`OpenReadAsync`/`Exists`/`DeleteAsync` reject invalid paths with `ArgumentException`. (already implemented per review) | keep | new case 27a for all four methods with `../x.eml` and `C:\x.eml` |
+| D7 | **Fail fast on arguments:** `Limit <= 0`, `Offset < 0`, `SearchAsync(null)` (`ArgumentNullException`), `DataPaths(null)` (`ArgumentNullException`), relative root (`ArgumentException`), `MailMessage.Uid == 0` in `UpsertAsync` (`ArgumentOutOfRangeException`, IMAP UIDs ≥ 1). | keep / add Uid check (review NIT 3) | new case 15a for the listed inputs |
+| D8 | **Second `InitializeAsync` on the same instance → `InvalidOperationException`** (fail fast). | keep | new case 4a |
+| D9 | **`ListAsync` of accounts/folders sorts case-insensitively** (ASCII `NOCASE`); document in the interface XML docs. (review NIT 6) | doc | case 5 unchanged (do not rely on mixed-case order) |
+| D10 | Overwriting an EML file while a reader is open fails with `StorageException` – accepted for AP-01; fix the comment and the `IEmlStore.WriteAsync` XML doc. AP-03/AP-04 read EML into memory and retry. (review SHOULD 3) | doc | none |
+| D11 | FTS deletion only via `MessageSearchIndex` (review SHOULD 5). Remaining NITs 1, 2, 4, 5, 7 at the builder's discretion. | fix | none |
+| D12 | Out of scope, recorded in `TODO.md`: WindowsAppSDK metapackage size → AP-13; invalid `MAILWARDEN_DATA_DIR` at start → logger + message box in AP-04. | – | – |
 
 ## Done criteria
 - Builder: `dotnet build MailWarden.sln -warnaserror` green on the feature branch (without the test projects);
