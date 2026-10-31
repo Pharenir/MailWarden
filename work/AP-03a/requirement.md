@@ -139,7 +139,7 @@ public static class MimeBodyText
 ### `MailWarden.Infrastructure.Sync`
 ```csharp
 /// InitialSyncDays: window of the first sync of a folder; 0 = everything; < 0 → ArgumentOutOfRangeException.
-public sealed record SyncOptions(int InitialSyncDays = 90);
+public sealed record SyncOptions(int InitialSyncDays = 0);   // default changed from 90 to 0 by Dennis, 2026-10-31
 
 public sealed record FolderSyncResult(string FolderFullName, FolderRole Role, int Added, int FlagsUpdated, int Deleted,
     bool UidValidityReset, string? Error);

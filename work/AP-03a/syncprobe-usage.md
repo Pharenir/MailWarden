@@ -22,7 +22,7 @@ dotnet run --project _scratch\sync-probe -- <dataRoot> <address> [initialDays]
 
 - `<dataRoot>`: Probe-Datenordner (voller Pfad)
 - `<address>`: E-Mail-Adresse des Kontos (muss mit der AuthProbe angelegt sein)
-- `[initialDays]`: Zeitfenster des ersten Abgleichs je Ordner in Tagen, Standard 90, `0` = alle Mails
+- `[initialDays]`: Zeitfenster des ersten Abgleichs je Ordner in Tagen, Standard `0` = alle Mails
 
 Beispiel (künstliche Adresse):
 

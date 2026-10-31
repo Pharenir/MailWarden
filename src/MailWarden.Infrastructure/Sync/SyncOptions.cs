@@ -4,9 +4,9 @@ namespace MailWarden.Infrastructure.Sync;
 /// Settings of the sync engine.
 /// </summary>
 /// <param name="InitialSyncDays">
-/// Window of the first sync of a folder in days (local calendar days back from today); 0 = everything.
+/// Window of the first sync of a folder in days (local calendar days back from today); 0 = everything (default).
 /// </param>
-public sealed record SyncOptions(int InitialSyncDays = 90)
+public sealed record SyncOptions(int InitialSyncDays = 0)
 {
     private readonly int initialSyncDays = Validate(InitialSyncDays);
 
