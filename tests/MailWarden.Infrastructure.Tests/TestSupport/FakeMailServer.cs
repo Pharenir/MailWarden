@@ -162,6 +162,9 @@ internal sealed class FakeMailServer
     /// </summary>
     public bool AnyFailureDropsConnection { get; set; }
 
+    /// <summary>Called right after the factory created a transport (already in <see cref="Transports"/>).</summary>
+    public Action<FakeMailTransport>? OnTransportCreated { get; set; }
+
     /// <summary>Thrown at the start of every FetchMessagesAsync call for the given folder full name.</summary>
     public Dictionary<string, Exception> BatchFailures { get; } = [];
 
@@ -233,6 +236,7 @@ internal sealed class FakeMailTransportFactory(FakeMailServer server) : IMailTra
 
         var transport = new FakeMailTransport(Server);
         Server.Transports.Add(transport);
+        Server.OnTransportCreated?.Invoke(transport);
         return Task.FromResult<IMailTransport>(transport);
     }
 }
@@ -249,7 +253,14 @@ internal sealed class FakeMailTransport(FakeMailServer server) : IMailTransport
     public List<string> OpenedFolders { get; } = [];
 
     /// <summary>False after a lost connection (see <see cref="FakeMailServer.NetworkFailureDropsConnection"/>) or dispose.</summary>
-    public bool IsConnected => !connectionLost && !Disposed;
+    public bool IsConnected =>
+        !connectionLost && !Disposed && (DisconnectAfterOpens is null || OpenedFolders.Count < DisconnectAfterOpens);
+
+    /// <summary>
+    /// When set, <see cref="IsConnected"/> turns false once this many folders were opened, without any failure
+    /// (silent connection loss between two folders). Calls on the transport keep working.
+    /// </summary>
+    public int? DisconnectAfterOpens { get; set; }
 
     public bool Disposed => DisposeCalls > 0;
 
