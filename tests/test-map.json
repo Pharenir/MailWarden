@@ -7,6 +7,7 @@
     "src/MailWarden.Core/**/I*.cs": ["FULL"],
     "src/MailWarden.Core/Model/**": ["@feature:storage"],
     "src/MailWarden.Core/Storage/**": ["@feature:storage"],
+    "src/MailWarden.Core/Classification/**": ["@feature:classifier"],
     "src/MailWarden.Infrastructure/Storage/**": ["@feature:storage"],
     "tests/**/TestSupport/**": ["FULL"],
     "tests/fixtures/**": ["FULL"],
