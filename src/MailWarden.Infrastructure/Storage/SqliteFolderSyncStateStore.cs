@@ -5,7 +5,8 @@ using Microsoft.Data.Sqlite;
 namespace MailWarden.Infrastructure.Storage;
 
 /// <summary>
-/// <see cref="IFolderSyncStateStore"/> on the <c>folder_sync_state</c> table (schema v2). The row is removed by the
+/// <see cref="IFolderSyncStateStore"/> on the <c>folder_sync_state</c> table (schema v2, column
+/// <c>skipped_up_to_uid</c> since v3). The row is removed by the
 /// foreign-key cascade when its folder is deleted. <see cref="FolderSyncState.HighestModSeq"/> is stored bit-exact in
 /// the signed 64-bit column (CONDSTORE values are 63-bit, so stored values are never negative in practice).
 /// </summary>
@@ -21,7 +22,7 @@ public sealed class SqliteFolderSyncStateStore(SqliteDatabase database) : IFolde
         {
             await using var command = database.Connection.CreateCommand();
             command.CommandText = """
-                SELECT folder_id, highest_synced_uid, highest_mod_seq, last_synced_at
+                SELECT folder_id, skipped_up_to_uid, highest_mod_seq, last_synced_at
                 FROM folder_sync_state
                 WHERE folder_id = $folder_id;
                 """;
@@ -34,7 +35,7 @@ public sealed class SqliteFolderSyncStateStore(SqliteDatabase database) : IFolde
 
             return new FolderSyncState(
                 FolderId: reader.GetInt64(0),
-                HighestSyncedUid: SqliteValues.ReadUInt32(reader, 1),
+                SkippedUpToUid: SqliteValues.ReadUInt32(reader, 1),
                 HighestModSeq: unchecked((ulong)reader.GetInt64(2)),
                 LastSyncedAt: reader.IsDBNull(3) ? null : SqliteValues.ReadDate(reader, 3));
         }
@@ -53,15 +54,15 @@ public sealed class SqliteFolderSyncStateStore(SqliteDatabase database) : IFolde
             // Upsert by folder; an unknown folder violates the foreign key and surfaces as StorageException.
             await using var command = database.Connection.CreateCommand();
             command.CommandText = """
-                INSERT INTO folder_sync_state (folder_id, highest_synced_uid, highest_mod_seq, last_synced_at)
-                VALUES ($folder_id, $highest_synced_uid, $highest_mod_seq, $last_synced_at)
+                INSERT INTO folder_sync_state (folder_id, skipped_up_to_uid, highest_mod_seq, last_synced_at)
+                VALUES ($folder_id, $skipped_up_to_uid, $highest_mod_seq, $last_synced_at)
                 ON CONFLICT (folder_id) DO UPDATE SET
-                    highest_synced_uid = excluded.highest_synced_uid,
+                    skipped_up_to_uid = excluded.skipped_up_to_uid,
                     highest_mod_seq = excluded.highest_mod_seq,
                     last_synced_at = excluded.last_synced_at;
                 """;
             command.Parameters.AddWithValue("$folder_id", state.FolderId);
-            command.Parameters.AddWithValue("$highest_synced_uid", (long)state.HighestSyncedUid);
+            command.Parameters.AddWithValue("$skipped_up_to_uid", (long)state.SkippedUpToUid);
             command.Parameters.AddWithValue("$highest_mod_seq", unchecked((long)state.HighestModSeq));
             command.Parameters.AddWithValue(
                 "$last_synced_at",

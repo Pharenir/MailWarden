@@ -14,11 +14,24 @@ namespace MailWarden.Infrastructure.Sync;
 /// <remarks>
 /// Order per folder: open (EXAMINE) → UIDVALIDITY check → deletions → new messages → flags → sync state. EML files
 /// are written before their rows and deleted before their rows, so a crash leaves at most an orphan file that the next
-/// run overwrites. Network/authentication failures and cancellation abort the pass. Any other failure of one message
-/// is collected and the folder continues: the folder completes with Error "&lt;n&gt; message(s) failed (first:
-/// &lt;Type.Name&gt;)" and its HighestSyncedUid is the lowest failed UID − 1, so failed and newer UIDs are retried.
+/// run overwrites.
+/// <para>
+/// New messages: on every pass the candidates are all server UIDs that are not stored locally and lie above the floor
+/// (<see cref="FolderSyncState.SkippedUpToUid"/>). There is no high-water mark, so a UID the server did not deliver
+/// in an earlier pass (missing from SEARCH, FETCH returned nothing, or a per-message failure) is retried on the next
+/// pass for as long as it exists on the server. The floor is decided once, at the first completed sync of the folder:
+/// 0 without an initial window (<see cref="SyncOptions.InitialSyncDays"/> 0) or for an empty folder; otherwise the
+/// lowest UID inside the window − 1, or the highest server UID when no message lies inside the window. It never
+/// changes afterwards, until a UIDVALIDITY reset deletes the state. Accepted consequence: a message outside the window
+/// whose UID is above the floor (e.g. moved into the folder later with an old date) is fetched from the second pass on.
+/// </para>
+/// <para>
+/// Network/authentication failures and cancellation abort the pass. Any other failure of one message is collected and
+/// the folder continues: the folder completes with Error "&lt;n&gt; message(s) failed (first: &lt;Type.Name&gt;)",
+/// its state is saved as usual and the failed UIDs are retried next pass because they are still missing locally.
 /// Any other failure of the folder itself is recorded as "&lt;ExceptionType&gt;: &lt;message&gt;", the folder keeps
 /// its previous sync state and the next folder continues. Not thread-safe; one pass at a time.
+/// </para>
 /// </remarks>
 public sealed class SyncEngine
 {
@@ -256,26 +269,32 @@ public sealed class SyncEngine
             progress.Deleted = vanishedUids.Count;
         }
 
-        // R5: new UIDs above the high-water mark; the first sync is limited to the initial window.
+        // R5 (fix.3 G1): candidates are every server UID that is not stored locally and lies above the floor, so a UID
+        // the server did not deliver in an earlier pass is retried as long as it exists. The floor is decided once,
+        // at the first completed sync of the folder, and stays fixed until a UIDVALIDITY reset deletes the state.
         FolderSyncState? syncState = await syncStates.GetAsync(folder.Id, ct).ConfigureAwait(false);
-        uint highestSyncedUid = syncState?.HighestSyncedUid ?? 0;
-        List<uint> candidateUids =
-            [.. serverUids.Where(uid => uid > highestSyncedUid && !localFlags.ContainsKey(uid)).Order()];
-        if (syncState is null && candidateUids.Count > 0)
+        HashSet<uint>? windowUidSet = null;
+        uint skippedUpToUid;
+        if (syncState is not null)
         {
-            DateTimeOffset? windowStart = InitialWindowStart();
-            if (windowStart is not null)
-            {
-                IReadOnlyList<uint> windowUids = await transport
-                    .SearchUidsAsync(windowStart, ct)
-                    .ConfigureAwait(false);
-                var windowUidSet = new HashSet<uint>(windowUids);
-                candidateUids.RemoveAll(uid => !windowUidSet.Contains(uid));
-            }
+            skippedUpToUid = syncState.SkippedUpToUid;
+        }
+        else
+        {
+            (skippedUpToUid, windowUidSet) = await InitialFloorAsync(transport, serverUids, ct).ConfigureAwait(false);
         }
 
-        // One message never blocks its folder: non-aborting failures are collected and retried next time.
-        uint? lowestFailedUid = null;
+        List<uint> candidateUids =
+        [
+            .. serverUids
+                .Where(uid => uid > skippedUpToUid
+                    && !localFlags.ContainsKey(uid)
+                    && (windowUidSet is null || windowUidSet.Contains(uid)))
+                .Order(),
+        ];
+
+        // One message never blocks its folder: non-aborting failures are collected and retried next time (they stay
+        // missing locally and above the floor).
         foreach (uint uid in candidateUids)
         {
             try
@@ -289,15 +308,8 @@ public sealed class SyncEngine
             {
                 progress.FailedMessages++;
                 progress.FirstFailureType ??= exception.GetType().Name;
-                lowestFailedUid ??= uid;
             }
         }
-
-        // Candidates are ascending, so the first failed UID is the lowest; it and every newer UID are retried.
-        uint highestServerUid = serverUids.Count == 0 ? 0 : serverUids.Max();
-        uint newHighestSyncedUid = lowestFailedUid is uint failedUid
-            ? failedUid - 1
-            : Math.Max(highestSyncedUid, highestServerUid);
 
         // R7: server flags win for messages that were stored before this pass and still exist on the server.
         if (localFlags.Keys.Any(serverUidSet.Contains))
@@ -322,10 +334,11 @@ public sealed class SyncEngine
             progress.FlagsUpdated = changedFlags.Count;
         }
 
-        // R8: the state only moves forward after the folder completed.
+        // R8 (fix.3 G2): saved only after the folder completed; the floor of the first sync is kept unchanged and
+        // per-message failures do not change it.
         var completedState = new FolderSyncState(
             folder.Id,
-            newHighestSyncedUid,
+            skippedUpToUid,
             serverState.HighestModSeq,
             timeProvider.GetUtcNow());
         await syncStates.SaveAsync(completedState, ct).ConfigureAwait(false);
@@ -454,6 +467,32 @@ public sealed class SyncEngine
                 // Skipped on purpose, see method comment.
             }
         }
+    }
+
+    // G1 (first sync of a folder, no state): floor and the UIDs inside the initial window (null = no window, every
+    // missing UID is a candidate). Floor: no window or empty folder → 0; window UIDs found → lowest window UID − 1;
+    // no window UID found → highest server UID (everything was outside the window).
+    private async Task<(uint Floor, HashSet<uint>? WindowUids)> InitialFloorAsync(
+        IMailTransport transport,
+        IReadOnlyList<uint> serverUids,
+        CancellationToken ct)
+    {
+        DateTimeOffset? windowStart = InitialWindowStart();
+        if (windowStart is null || serverUids.Count == 0)
+        {
+            return (0, null);
+        }
+
+        IReadOnlyList<uint> windowUids = await transport.SearchUidsAsync(windowStart, ct).ConfigureAwait(false);
+        if (windowUids.Count == 0)
+        {
+            return (serverUids.Max(), []);
+        }
+
+        // UID 0 is not a valid IMAP UID; never let it wrap the floor around to uint.MaxValue.
+        uint lowestWindowUid = windowUids.Min();
+        uint floor = lowestWindowUid == 0 ? 0 : lowestWindowUid - 1;
+        return (floor, [.. windowUids]);
     }
 
     // Local midnight InitialSyncDays days back; null = no window (0 days, or a window reaching before year 1).

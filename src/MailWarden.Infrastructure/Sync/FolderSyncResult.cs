@@ -14,7 +14,7 @@ namespace MailWarden.Infrastructure.Sync;
 /// <param name="Error">
 /// Null when everything succeeded. "&lt;ExceptionType&gt;: &lt;message&gt;" = the folder failed and keeps its previous
 /// sync state. "&lt;n&gt; message(s) failed (first: &lt;Type.Name&gt;)" = the folder completed but single messages
-/// failed; its HighestSyncedUid is the lowest failed UID − 1, so they are retried in the next pass.
+/// failed; they are still missing locally, so the next pass retries them.
 /// </param>
 public sealed record FolderSyncResult(
     string FolderFullName,
