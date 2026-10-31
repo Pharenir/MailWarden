@@ -36,3 +36,8 @@ Ergebnis: **PASS**
 - Build `dotnet build MailWarden.sln -warnaserror`: 0 Warnungen, 0 Fehler.
 - Stufe S3 (volle Suite, Wächter): 296 gesamt, 296 bestanden, 0 fehlgeschlagen, 0 übersprungen (verify.2: 290, +6). Wächter: ok, 3,1 s.
 - Fehlschläge: keine.
+
+## verify.4 (2026-10-31)
+- Merge test/ap-07a-classifier-core (4c0717b, 3d/3e) in feat-Branch: sauber, Build -warnaserror 0/0.
+- S3 (volle Suite, Waechter): 299/299 bestanden (verify.3: 296, +3 neue Tests), 3,1 s, Ergebnis ok.
+- Keine Fehlschlaege.

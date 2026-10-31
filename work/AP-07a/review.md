@@ -262,3 +262,63 @@ three places; no duplicate helper. Plan: AP-07 rows marked in this diff (N8 done
 - **Q6 (S3)** Fix in a short fix.4 (tokenizer, a few lines + one tester case) or bind it as a must-do of AP-07b
   before real headers are classified? Recommendation: fix now – it is cheap, and the risk direction is "too much
   trust" with attacker-controlled input.
+
+## review.4 (2026-10-31)
+
+Scope: fix.4 `git diff 8b62121 fe361fc -- src` (`AuthenticationResultsTokenizer.cs`, `AuthenticationResultsParser.cs`)
+plus direct interactions, against requirement C25–C27 and impl-notes fix.4. Worktree `src\` is identical to `fe361fc`
+(the merge `9446c7b` touches no `src\`). `tests\`, `test-plan.md`, `test-result.md` not read. Executed: `dotnet build
+MailWarden.sln -warnaserror` → 0 warnings, 0 errors. Everything else by reasoning; probe and tests not run.
+
+**Verdict: APPROVE** (0 BLOCK, 0 SHOULD, 2 NIT; notes for AP-07b below).
+
+### Focus items
+- **S3 / C25 – fixed.** `AuthenticationResultsTokenizer.cs:119-123`: inside a comment, `"` hands over to
+  `ReadQuotedString` (backslash escapes honoured, unterminated → input end), so `(`/`)` inside `"…"` neither nest nor
+  close. The escape check (`:113-117`) runs first, so `\"` inside a comment is still no quote. Review.3 example by
+  reasoning: the comment now ends at the provider's own `)`, the genuine `smtp.mailfrom="x) … y "@attacker.test` is one
+  value (mixed, last unquoted `@` → `attacker.test`), `; dmarc=fail …` is live again → SPF `attacker.test`, DMARC Fail,
+  status Failed. Case 3d of the requirement likewise → `attacker.test`, Fail. Bypass variants checked: `"x\" ) … "`
+  (escaped quote inside the quoted local part) stays opaque; unbalanced `(((` inside the quoted part no longer raises
+  the depth; `\"` outside a quoted string would need a backslash in an SMTP dot-string, which is not possible.
+- **Linear / never throws (C25) – confirmed.** Every character is consumed exactly once, either by `SkipComment` or by
+  `ReadQuotedString`, which returns a position > its start; `Tokenize` resumes at the returned index. `position += 2`
+  past the end only exits the loop (`return text.Length`); `ReadQuotedString` is only entered with `position <
+  text.Length` and guards `position + 1 < text.Length` before reading an escape. Hostile `("("(…` inputs stay O(n).
+- **N10 / C26 – fixed.** `AuthenticationResultsParser.cs:113-114` sets `hasVerdict` from
+  `!IsNullOrWhiteSpace(value.Text)`; `ResultCollector.Add` returns early (`:331-334`) before any of the three cases, so
+  an empty SPF/DKIM/DMARC verdict neither occupies the first-wins slot nor sets `isDmarcHeaderFromWithoutDomain`.
+  The method still collects its properties (`:106-109`), so `spf= smtp.mailfrom=victim.test; spf=fail …` cannot leak
+  `victim.test` into the next method. `dmarc=; dmarc=fail header.from=a.test` → DMARC Fail. `dmarc= fail …` (separated
+  non-key word) still reads `fail` as the verdict (C21 path unchanged). `dmarc=;` alone without AuthServId → `Empty`.
+  This restores the pre-fix.3 behaviour for empty method verdicts; no consumer depended on an Unknown entry for them.
+- **N9 / C27 – done.** `Parse` doc (`:22-25`) now covers C20 (`@…` after CFWS), C21 (empty values) and C26;
+  `ParseStatement` comment (`:88-89`) mentions C26; `:121` reads "A Word followed by '='". Docs match behaviour.
+
+### Checklist (fix.4 diff)
+Correctness: C25–C27 as specified. Architecture: Core-only, BCL-only, no public signature changed (`PendingMethod`
+private, tokenizer internal). Data: n/a. Security: closes S3; no new trust path (see AP-07b note 1 for the trade-off).
+Consistency: the only comment/quote scanner is this tokenizer; top-level and in-comment quotes now use the same
+`ReadQuotedString`. Readability: comments updated, no dead code, no debug output. Uniqueness: no new helper, the
+existing `ReadQuotedString` is reused. Plan: no PLAN row changes needed (hardening under rows 1 and 5).
+
+### NIT
+- **N11** `AuthenticationResultsTokenizer.cs:29` – the class summary line is about 150 characters after the edit; the
+  rest of the file wraps at about 120. Re-wrap.
+- **N12** `AuthenticationResultsTokenizer.cs:121` – `ReadQuotedString(…, out _)` builds and discards the content string
+  for every quoted string in a comment. Linear and measured fast (impl-notes: ≤ 169 ms per 1 MB), so only a possible
+  allocation-free skip variant later; not worth a round.
+
+### Für AP-07b (outside the fix.4 diff or by design; not BLOCK/SHOULD)
+1. **Unterminated quote swallows the rest of the header.** Since C25 also inside comments (before only at top level,
+   e.g. `smtp.mailfrom=x"@attacker.test; dmarc=fail …`). If a provider writes an attacker-supplied lone `"` unescaped,
+   a later `dmarc=fail` is lost (Failed → weaker status). Not new as a class (the top-level path existed before
+   fix.4), and the direction is "less evidence", not "trusted". Check with real Gmail/Outlook headers whether lone or
+   unescaped quotes can appear in comments or `smtp.mailfrom`; option: end an unterminated quoted string at the next
+   `;` instead of the input end.
+2. **C25 is a deliberate deviation from RFC 5322 grammar.** RFC 5322 `ctext` includes `"`, comments do not know quoted
+   strings; the requirement text "(RFC 5322: …)" in C25 attributes the rule to the RFC. The code comment
+   (`AuthenticationResultsTokenizer.cs:104-106`) correctly justifies it with provider copying, not with the RFC.
+   `docs\classifier.md` (documenter) should describe it as hardening, not as RFC behaviour.
+3. Provider escaping of `)`/`"` in comments (review.3 S3 precondition) is still unverified; re-check with real
+   headers together with C24 (`@domain=…` continuation).
