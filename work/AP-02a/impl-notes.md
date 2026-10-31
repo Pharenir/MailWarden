@@ -1,9 +1,25 @@
-STEP-RESULT: done (fix.2; manual cases 28–30 still pending – only Dennis runs the AuthProbe)
+STEP-RESULT: done (fix.3; manual cases 28–30 still pending – only Dennis runs the AuthProbe)
 
 # AP-02a – Implementation notes (Builder)
 
 Branch `feat/ap-02a-accounts-auth`. Build: `dotnet build MailWarden.sln -warnaserror` → 0 warnings, 0 errors
 (after every change of this step).
+
+## fix.3 (2026-10-31)
+Basis: requirement.md "Planner decisions … (fix.3)" A19/A20, `review.md` review.2 (SHOULD 1, NIT 3/4). Commit
+`024526f`. Build `-warnaserror` (solution incl. test projects, compile only) green. Nothing under `tests\` read.
+
+| # | Change | File:line | Verified by (builder probe, not a tester run) |
+|---|---|---|---|
+| A19 | `ReauthenticateAsync` discards the wrong grant via `SignOutBestEffortAsync` (`CancellationToken.None`, swallows only `AuthenticationFailedException`) → a failing sign-out no longer replaces AccessDenied; method doc unchanged. | `Core\Accounts\AccountService.cs:150-154` | A19 / 25c: fake signs in `other@example.test` (not stored), SignOut throws `AuthenticationFailedException(credential_store_unavailable)` → AccessDenied (code null), SignOut called once, account unchanged; SignOut throwing `InvalidOperationException` → propagates (as documented). 25, 25a still PASS |
+| A20 | Comments say exactly what is swallowed (only `AuthenticationFailedException`; cancellation/other exceptions propagate or replace the result) and that a grant may remain on disk, encrypted but valid at the provider (orphaned-grant TODO, A18). `DpapiCredentialStore` remarks: one instance per directory, shared by all token providers (AP-04 composition root). | `AccountService.cs:184-188` (removal), `:194-197` (helper); `Security\DpapiCredentialStore.cs:15-19` | build only (comments/doc) |
+
+- Getestet: probe `_scratch\ap02a-probe\` 48/48 PASS (all previous cases + A19). No network, no browser.
+- Ungetestet: cancellation by the caller between sign-in and cleanup in re-auth (fake ignores the token; the
+  account lookup before it already throws on a cancelled token) – the cleanup itself uses `CancellationToken.None`
+  (code review only).
+- Offene Fragen: keine. (review.2 NIT 2 – lookup between sign-in and cleanup – belongs to the A18 orphaned-grant
+  TODO; not changed.)
 
 ## fix.2 (2026-10-31)
 Basis: requirement.md "Planner decisions … (fix.2)" A9–A18, `review.md` (review.1), `security-review.md` (secure.1).
