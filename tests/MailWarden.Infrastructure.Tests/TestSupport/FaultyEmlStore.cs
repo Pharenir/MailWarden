@@ -9,6 +9,9 @@ internal sealed class FaultyEmlStore(IEmlStore inner) : IEmlStore
     /// <summary>When set and true for a path, <see cref="WriteAsync"/> throws before writing.</summary>
     public Func<string, bool>? FailWriteWhen { get; set; }
 
+    /// <summary>When set and true for a path, <see cref="DeleteAsync"/> throws before deleting.</summary>
+    public Func<string, bool>? FailDeleteWhen { get; set; }
+
     public string RelativePathFor(Guid accountId, long folderId, uint uid) => inner.RelativePathFor(accountId, folderId, uid);
 
     public Task WriteAsync(string relativePath, Stream content, CancellationToken ct = default)
@@ -25,5 +28,13 @@ internal sealed class FaultyEmlStore(IEmlStore inner) : IEmlStore
 
     public bool Exists(string relativePath) => inner.Exists(relativePath);
 
-    public Task DeleteAsync(string relativePath, CancellationToken ct = default) => inner.DeleteAsync(relativePath, ct);
+    public Task DeleteAsync(string relativePath, CancellationToken ct = default)
+    {
+        if (FailDeleteWhen?.Invoke(relativePath) == true)
+        {
+            throw new StorageException("Injected EML delete failure.");
+        }
+
+        return inner.DeleteAsync(relativePath, ct);
+    }
 }

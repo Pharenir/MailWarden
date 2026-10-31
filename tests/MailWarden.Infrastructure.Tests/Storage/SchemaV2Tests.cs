@@ -92,9 +92,9 @@ public sealed class SchemaV2Tests
     }
 
     [Fact]
-    public void Current_schema_version_is_three()
+    public void Current_schema_version_is_four()
     {
-        Assert.Equal(3, SqliteDatabase.CurrentSchemaVersion);
+        Assert.Equal(4, SqliteDatabase.CurrentSchemaVersion);
     }
 
     // Smoke: a fresh database has the v2 table
@@ -105,7 +105,7 @@ public sealed class SchemaV2Tests
         await using SqliteDatabase database = SqliteDatabase.InMemory();
         await database.InitializeAsync();
 
-        Assert.Equal(3, database.SchemaVersion);
+        Assert.Equal(4, database.SchemaVersion);
         HashSet<string> tables = await ReadNamesAsync(database, "SELECT name FROM sqlite_master WHERE type = 'table'");
         Assert.Contains("folder_sync_state", tables);
         await using SqliteCommand command = database.Connection.CreateCommand();
@@ -142,7 +142,7 @@ public sealed class SchemaV2Tests
         await using SqliteDatabase database = SqliteDatabase.ForFile(databasePath);
         await database.InitializeAsync();
 
-        Assert.Equal(3, database.SchemaVersion);
+        Assert.Equal(4, database.SchemaVersion);
         Assert.Contains("folder_sync_state", await ReadNamesAsync(database, "SELECT name FROM sqlite_master WHERE type = 'table'"));
         await using (SqliteCommand versionCommand = database.Connection.CreateCommand())
         {
@@ -208,7 +208,7 @@ public sealed class SchemaV2Tests
         await using SqliteDatabase second = SqliteDatabase.ForFile(databasePath);
         await second.InitializeAsync();
 
-        Assert.Equal(3, second.SchemaVersion);
+        Assert.Equal(4, second.SchemaVersion);
         Assert.Single(await new SqliteAccountStore(second).ListAsync());
         Assert.Equal(3u, (await new SqliteFolderSyncStateStore(second).GetAsync(7))!.SkippedUpToUid);
     }
