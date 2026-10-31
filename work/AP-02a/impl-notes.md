@@ -1,9 +1,46 @@
-STEP-RESULT: done (builder part; manual cases 28–30 pending – only Dennis runs the AuthProbe)
+STEP-RESULT: done (fix.2; manual cases 28–30 still pending – only Dennis runs the AuthProbe)
 
 # AP-02a – Implementation notes (Builder)
 
 Branch `feat/ap-02a-accounts-auth`. Build: `dotnet build MailWarden.sln -warnaserror` → 0 warnings, 0 errors
 (after every change of this step).
+
+## fix.2 (2026-10-31)
+Basis: requirement.md "Planner decisions … (fix.2)" A9–A18, `review.md` (review.1), `security-review.md` (secure.1).
+Commit `89dc243`. Build `-warnaserror` (solution incl. the merged test projects, compile only – no test run) green.
+No AP-01 file changed (`FileEmlStore` untouched), nothing under `tests\` read, `PLAN.md` unchanged.
+
+| # | Change | File:line | Verified by (builder probe, not a tester run) |
+|---|---|---|---|
+| A9 | ⚠️ Reads open with `FileShare.Read \| FileShare.Delete` (`ReadSharedAsync`); temp cleanup best effort (`DeleteTemporaryFile`, never hides the original exception). **Deviation/addition:** the share flag alone does **not** reach the goal – measured on Windows 11 26200 (`_scratch\share-check\`): `File.Move(overwrite)` onto a target held open with Read\|Delete sharing → `UnauthorizedAccessException`. `File.Replace` works there but was rejected: it has a window without target (parallel reader got `null` = "no grant") and 36/40 concurrent writers failed. Implemented instead: `File.Move` (atomic) + one `SemaphoreSlim` per store instance that serialises read/write/delete (review SHOULD 1 alternative). Doc: one instance per directory. | `Security\DpapiCredentialStore.cs:32-34` (lock), `:53-77` (read), `:100-127` (write), `:130-146` (delete), `:186-200` (`ReadSharedAsync`), `:202-219` (`DeleteTemporaryFile`), remarks `:13-19` | A9a (40 concurrent writers + 8 readers against a sequential 200-write loop on one key: no IO error, every read complete; info: an **external** held handle still blocks the replace → documented), A9c (120 mixed read/write/delete ops), A9b (target blocked by a directory → original `UnauthorizedAccessException`, no `.tmp` left), cases 1–7 unchanged |
+| A10 | `IOException`/`UnauthorizedAccessException` of the credential store → `AuthenticationFailedException(Unknown)`, code `credential_store_unavailable`, inner kept, own sentence. Google: read, write, sign-out; Microsoft: cache load and save callbacks (MSAL passes the callback exception through unchanged – observed). `CredentialStoreException` mapping unchanged; `ITokenProvider` doc unchanged. | `Auth\AuthFailures.cs:15-16, 55-79`; `Auth\GoogleTokenProvider.cs:127-138, 297-304, 345-352`; `Auth\MicrosoftTokenProvider.cs:201-205, 242-245`; class docs | A10 (directory in place of `google.<hash>.bin` / `msal.cache.bin`: Google silent + sign-out, Microsoft silent + sign-out → Unknown/`credential_store_unavailable`, inner IO type) |
+| A11 | `RemoveAccountAsync`: `AuthenticationFailedException` from `SignOutAsync` is swallowed, account is deleted; other exceptions propagate (account stays). | `Core\Accounts\AccountService.cs:162-188` | A11 (26a fake Configuration → deleted, no exception; fake `InvalidOperationException` → propagates, account stays; real `MicrosoftTokenProvider` without config and real `GoogleTokenProvider` with inaccessible grant file → both accounts deleted), 26, A8 |
+| A12 | Add: address stored under another provider → fresh grant signed out (best effort, `CancellationToken.None`), `AuthenticationFailedException(AccessDenied)`, code `address_in_use`, store unchanged; same provider → existing account (unchanged). Re-auth: A3 guard only for a stored account **of the same provider**. | `AccountService.cs:15-18` (message/code), `:74-90` (add), `:147-155` (re-auth) | A12 (22a: Google account `shared@…`, MS fake signs in `SHARED@…` → AccessDenied/`address_in_use`, MS SignOut called, Google not, store unchanged; same-provider re-add returns existing; MS re-auth signing in the stored Google address → MS grant signed out), 21, 25, 25a |
+| A13 | Storing a new account fails → fresh grant signed out (best effort, `CancellationToken.None`, an `AuthenticationFailedException` of the sign-out is swallowed), store exception rethrown unchanged. | `AccountService.cs:92-102`, helper `:190-203` | A13 (real in-memory SQLite with a `BEFORE INSERT` trigger that aborts → `StorageException` rethrown, SignOut called, store empty; SignOut failing too → still the `StorageException`) |
+| A14 | Google: random `state` (32 bytes, `Base64Url`, 43 chars) set on the request, checked first with `CryptographicOperations.FixedTimeEquals` → else Unknown/`state_mismatch`; redirect `error` kept as code only if `[a-z_]{1,64}`, else null (mapping then Unknown). | `Auth\GoogleTokenProvider.cs:35-38` (constants), `:152-176` (flow), `:211-243` (helpers) | A14 via reflection on the internal helpers (format, randomness, match/mismatch/null/empty/prefix/case, sanitising of 13 values). The real browser round trip is **untested** (case 28/30) |
+| A15 | Message without address: "Not a valid email address (expected local@domain without whitespace)." | `Providers\ProviderProfiles.cs:79-83` | A15 (4 invalid inputs; message contains neither input nor its domain), 14 |
+| A16 | Disconnect after successful IMAP/SMTP check: failures ignored, caller cancellation still thrown. | `Providers\ConnectionProbe.cs:126-127, 143-144, 147-164` | A16 via reflection on `DisconnectIgnoringFailuresAsync` (IO/Timeout/OCE-without-caller-cancel ignored; caller cancel thrown; delegate called). Real servers untested (case 28) |
+| A17 | `MicrosoftTokenProvider` remarks: one instance per credential store (singleton), last writer wins otherwise. NIT 9: `MissingCodeError` → `MissingAuthorizationCodeCode`. NIT 8 not changed (contract sentence stays). | `Auth\MicrosoftTokenProvider.cs:16-29`; `Auth\GoogleTokenProvider.cs:35` | build only (doc/rename) |
+| A18 | nothing done (TODO items for the planner). | – | – |
+
+### Getestet / ungetestet (fix.2)
+- **Getestet (builder probe `_scratch\ap02a-probe\`, 47/47 PASS, 2026-10-31):** all earlier cases 1–27, 25a, A1–A8,
+  G-silent, MS-silent, CP plus A9a, A9b, A9c, A10, A11, A12, A13, A14, A15, A16 as listed above. No network, no
+  browser. AuthProbe rebuilt (0 warnings), not started.
+- **Ungetestet:** state round trip with the real Google redirect (whether Google echoes `state` – it should per
+  RFC 6749 – is only visible in case 28/30); disconnect against real servers; behaviour of an **external** process
+  reading a credential file while MailWarden writes (replace is denied → the writing token provider reports
+  `credential_store_unavailable`); MSAL save callback with an IO failure (needs a real sign-in; only the load
+  callback was observed).
+
+### Offene Fragen (fix.2)
+- `Security\DpapiCredentialStore.cs:32-34` – A9 deviates in its mechanism (in-process lock instead of relying on
+  the share flag, which Windows does not honour for `File.Move`). Planner: accept? Cross-process concurrency (e.g.
+  AuthProbe and app on the same data folder) stays unprotected; documented as "one instance per directory".
+- `Core\Accounts\AccountService.cs:15-18` – `address_in_use` is a MailWarden code in `ProviderErrorCode` (as decided);
+  message wording "This address is already used by a MailWarden account of another provider." – fine for AP-04?
+- A18 items are not in `TODO.md` yet (decision said "→ TODO.md"; builder was told "only take note") – planner adds
+  them.
 
 ## Done / remaining
 | Part | Status |
