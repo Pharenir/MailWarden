@@ -264,6 +264,18 @@ Source: builder open questions (`impl-notes.md`), tester assumptions (`test-plan
 | C8 | Confirmed tester readings: contact + AuthStatus Unknown → always LikelyLegit (never better, never worse); Reply-To freemail while From is freemail too and not aligned → +10 (the +15 needs a non-freemail From). | keep | as written |
 | C9 | Middle tier of `random-domain`: a label with `0.5 ≤ S < 0.8` gives +15. | keep | new case 10a: pick a label, first assert `0.5 ≤ S(label) < 0.8`, then classify a sender with that label → `random-domain` +15 |
 
+## Planner decisions 2026-10-31 (fix.2) – binding, supersede the text above where they differ
+Source: review.1 (`review.md`). verify.1 was PASS (272/272).
+
+| # | Decision | Builder | Tester |
+|---|---|---|---|
+| C10 | **Property values are read as one contiguous run** after `key=` up to whitespace, `;` or `(` (outside quotes); a quoted local part inside the value stays part of it; the domain is the part after the **last** `@`. A `=` or `dmarc=`/`dkim=`/`spf=` inside a value never starts a new pair or result. (review B1) | fix | new case 3a: `smtp.mailfrom="x@victim.test"@attacker.test` → SPF domain `attacker.test`; `smtp.mailfrom=bounces+123-user=example.test@mailer.test` → `mailer.test`; `smtp.mailfrom=x=dmarc=none@a.test` followed by `; dmarc=fail header.from=a.test` → Dmarc Fail (not None) |
+| C11 | **DMARC takes precedence.** AuthStatus: if a DMARC result exists with Fail → **Failed** (an aligned SPF/DKIM pass does not rescue it); DMARC Pass → Authenticated only per C12; otherwise (no DMARC, or None/other verdicts) the DKIM/SPF alignment rules apply as before. Failed otherwise as before. (review Q1) | fix | new case 21a: `spf=pass smtp.mailfrom=example.test; dmarc=fail header.from=example.test`, From `example.test` → Failed; contact with that header → not TrustedContact |
+| C12 | **DMARC Pass counts only if its `header.from` is null or aligned with the From domain.** A DMARC Pass for another domain is ignored (rules of C11 "otherwise" apply). (review Q2) | fix | new case 22a: `dmarc=pass header.from=other.test`, From `example.test`, nothing else → Unknown |
+| C13 | **`Classify` validates custom signal results (fail fast):** `SignalResult.SignalId` must equal `signal.Id` (ordinal) and `Reason` must be non-empty/non-whitespace → `InvalidOperationException` naming the signal id. (review S1, project rule "no silent points") | fix | new case 28a with a stub signal returning an empty reason / a different id |
+| C14 | **Values of the sender in reason texts are truncated** to at most 100 characters (`…` appended); applies to all built-in signals. (review N4) | fix | case 30 unchanged; new case 30a: display name with a 1 000-char token → reason ≤ 200 chars |
+| C15 | Review N1–N3: fix at builder's discretion (`FromAddress` null → ArgumentException with param `input`, like the other null members). | fix | none |
+| C16 | Out of scope → AP-07b (`TODO.md`): authserv-id check against the provider profile (Q3); full Public Suffix List instead of the built-in multi-label list. | – | – |
 ## Done criteria
 - Builder: only new files under `src\MailWarden.Core\Classification\`; build `-warnaserror` green; probe program
   under `_scratch\` (git-ignored) runs cases 10–14 and prints the scores; `work\AP-07a\impl-notes.md` with the
