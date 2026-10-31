@@ -80,7 +80,7 @@ Später: Naive Bayes aus Dennis’ Entscheidungen, Domain-Alter per RDAP.
 |---|---|---|
 | AP-00 | **Spike Anmeldung:** MS-App-Registrierung (Kostenprüfung), MSAL-Login + MailKit-IMAP gegen hotmail.de; Google-Cloud-Projekt, OAuth-Login + IMAP gegen Gmail. Konsolenprogramm in `_scratch\`. | Go/No-Go, `docs\auth-setup.md` mit Schritt-für-Schritt-Anleitung |
 | AP-01 | Solution-Skelett (inkl. startfähiger WinUI-3-Leer-App als Tooling-Check), Core-Modell (Account, Folder, Message, Contact), SQLite-Schema + Migration, EML-Store, FTS5 | Build grün, Storage-Tests |
-| AP-02 | Kontenverwaltung + Zugangsdaten (DPAPI), Token-Cache, Provider-Profile | Konto anlegen/löschen/testen |
+| AP-02 | Kontenverwaltung + Zugangsdaten (DPAPI), Token-Cache, Provider-Profile. **AP-02a** ohne UI (Credential-Store, OAuth MS/Google, Provider-Profile, Ordnerrollen, Konto-Service, Verbindungstest); **AP-02b** = Konten-UI mit AP-04 | Konto anlegen/löschen/testen |
 | AP-03 | Sync-Engine: Ordnerliste, inkrementeller Sync (UIDVALIDITY, UIDNEXT, Flags), IDLE für Posteingang, Junk-Ordner immer mitsynchronisieren, Befehlswarteschlange (Move/Delete/Flag) mit Wiederholung | Mails aller Konten lokal, Änderungen beidseitig |
 | AP-04 | WinUI-3-Oberfläche: Gruppenansichten Posteingang/Gesendet/Postausgang/Screener/Junk/Quarantäne über alle Konten, dieselben Ansichten je Konto, Ordnerbaum, Lesebereich (WebView2, bereinigt), Light/Dark/System | Lesen aller Konten in einer Ansicht |
 | AP-05 | Verfassen/Antworten/Weiterleiten, SMTP-Versand je Konto, Anhänge, Signatur je Konto, Gesendet-Ordner | Senden von allen Konten |
@@ -137,6 +137,19 @@ Spalten *Umgesetzt* / *Getestet* geführt. Vorab festgelegt:
 | 8 | WinUI-3-Leer-App baut mit `dotnet build` ohne Visual Studio und startet unpackaged (Fenster „MailWarden“, folgt dem Windows-Farbschema) | `src\MailWarden.App` (baut) | manuell Dennis – offen |
 
 Vollständiger Schnittstellenvertrag: `work\AP-01\requirement.md`.
+
+### AP-02a Konten + Anmeldung (ohne UI)
+| # | Sollverhalten | Umgesetzt | Getestet |
+|---|---|---|---|
+| 1 | Secrets DPAPI-verschlüsselt je Schlüssel, atomar, ungültige Schlüssel abgelehnt, kaputte Datei → `CredentialStoreException` ohne Inhalt | `DpapiCredentialStore` | `DpapiCredentialStoreTests` (Fälle 1–7, A1) |
+| 2 | Server-Ordner → `FolderRole` nach Flags und Provider-Regeln; Server-`Outbox` nie `FolderRole.Outbox`; Gmail `[Gmail]`/`All Mail` nie im gemeinsamen Posteingang | `FolderRoleResolver`, `MailKitFolderFlags` | `FolderRoleResolverTests`, `MailKitFolderFlagsTests` (8–14, A7) |
+| 3 | Provider-Profile MS/Google mit festen Endpunkten; GenericImap → NotSupported | `ProviderProfiles` | `ProviderProfilesTests` (15–16) |
+| 4 | Auth-Konfiguration aus Datei + Umgebung, fehlende Werte erst bei Nutzung → `Configuration`-Fehler mit Schlüsselnamen | `AuthConfiguration` | `AuthConfigurationTests` (18, A2) |
+| 5 | MSAL-/Google-Fehler → providerneutraler `AuthFailureReason` | `AuthErrorMapping` | `AuthErrorMappingTests` (19–20) |
+| 6 | Konto hinzufügen / Token / Re-Auth (falsches Konto → AccessDenied) / Entfernen | `AccountService` | `AccountServiceTests` (21–27, 25a); fix.2 (A11–A13) offen |
+| 7 | Interaktive Anmeldung MS + Google mit echten Konten, Token-Cache, Abbruch → klare Meldung; IMAP + SMTP-Login | `MicrosoftTokenProvider`, `GoogleTokenProvider`, `ConnectionProbe` | manuell Dennis mit AuthProbe (Fälle 28–30) – offen |
+
+Vollständiger Schnittstellenvertrag: `work\AP-02a\requirement.md`.
 
 ### AP-07 Klassifizierer (Kern des Projekts, deshalb vorab)
 | # | Sollverhalten | Umgesetzt | Getestet |
