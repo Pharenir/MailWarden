@@ -61,7 +61,7 @@ public sealed class FileEmlStoreTests
 
         Assert.Equal(shortContent, await ReadAllAsync(store, relativePath));
         string[] files = Directory.GetFiles(paths.MailRoot, "*", SearchOption.AllDirectories);
-        Assert.Empty(files.Where(file => file.EndsWith(".tmp", StringComparison.OrdinalIgnoreCase)));
+        Assert.DoesNotContain(files, file => file.EndsWith(".tmp", StringComparison.OrdinalIgnoreCase));
         Assert.Single(files);
     }
 
