@@ -154,14 +154,14 @@ Vollständiger Schnittstellenvertrag: `work\AP-02a\requirement.md`.
 ### AP-03a Abgleich Server → lokal
 | # | Sollverhalten | Umgesetzt | Getestet |
 |---|---|---|---|
-| 1 | Ordnerliste: sichtbare Server-Ordner werden mit Rolle (`FolderRoleResolver`) lokal angelegt/aktualisiert; versteckte (z. B. `[Gmail]/All Mail`) nie; auf dem Server verschwundene Ordner samt Mails und EML-Dateien lokal entfernt | | |
-| 2 | Erster Abgleich lädt Mails der letzten `InitialSyncDays` (Standard 90, 0 = alle) als EML + Metadaten + Volltext; ältere werden auch später nicht nachgeladen | | |
-| 3 | Folgeabgleich lädt nur neue UIDs; Flags (gelesen, beantwortet, markiert, gelöscht, Entwurf) werden vom Server übernommen (mit CONDSTORE nur Änderungen); auf dem Server gelöschte Mails verschwinden lokal samt EML | | |
-| 4 | UIDVALIDITY geändert → alle lokalen Mails des Ordners verworfen und neu geladen; nie Mischbestand | | |
-| 5 | Abgleich verändert den Server nicht (Ordner nur lesend geöffnet, `\Seen` bleibt unverändert) | | |
-| 6 | Abbruch (Netz, Abbruch-Token) mitten im Ordner → nächster Lauf setzt fort, keine Dubletten, keine halben Datensätze; Fehler in einem Ordner stoppen die anderen nicht (außer Netz/Anmeldung) | | |
-| 7 | Schema v2 (Abgleichstand je Ordner) wird auf eine v1-Datenbank migriert, ohne Daten zu verlieren | | |
-| 8 | Echte Konten: Abgleich aller drei Konten mit der SyncProbe, Zahlen plausibel gegen Outlook/Gmail-Web | | manuell Dennis |
+| 1 | Ordnerliste: sichtbare Server-Ordner werden mit Rolle (`FolderRoleResolver`) lokal angelegt/aktualisiert; versteckte (z. B. `[Gmail]/All Mail`) nie; auf dem Server verschwundene Ordner samt Mails und EML-Dateien lokal entfernt | ✅ `Infrastructure\Sync\SyncEngine.cs` (Ordnerliste), `Infrastructure\Sync\MailKitTransport.cs` | |
+| 2 | Erster Abgleich lädt Mails der letzten `InitialSyncDays` (Standard 90, 0 = alle) als EML + Metadaten + Volltext; ältere werden auch später nicht nachgeladen | ✅ `Infrastructure\Sync\SyncEngine.cs`, `Infrastructure\Sync\SyncOptions.cs`, `Infrastructure\Mime\MimeBodyText.cs` | |
+| 3 | Folgeabgleich lädt nur neue UIDs; Flags (gelesen, beantwortet, markiert, gelöscht, Entwurf) werden vom Server übernommen (mit CONDSTORE nur Änderungen); auf dem Server gelöschte Mails verschwinden lokal samt EML | ✅ `Infrastructure\Sync\SyncEngine.cs`, `Infrastructure\Storage\SqliteMessageStore.cs` (UID-Abfragen, `UpdateFlagsAsync`) | |
+| 4 | UIDVALIDITY geändert → alle lokalen Mails des Ordners verworfen und neu geladen; nie Mischbestand | ✅ `Infrastructure\Sync\SyncEngine.cs` | |
+| 5 | Abgleich verändert den Server nicht (Ordner nur lesend geöffnet, `\Seen` bleibt unverändert) | ✅ `Core\Sync\IMailTransport.cs` (keine Schreiboperation), `Infrastructure\Sync\MailKitTransport.cs` (EXAMINE, BODY.PEEK[]) | |
+| 6 | Abbruch (Netz, Abbruch-Token) mitten im Ordner → nächster Lauf setzt fort, keine Dubletten, keine halben Datensätze; Fehler in einem Ordner stoppen die anderen nicht (außer Netz/Anmeldung) | ✅ `Infrastructure\Sync\SyncEngine.cs` | |
+| 7 | Schema v2 (Abgleichstand je Ordner) wird auf eine v1-Datenbank migriert, ohne Daten zu verlieren | ✅ `Infrastructure\Storage\SchemaMigrations.cs`, `SqliteDatabase.cs`, `SqliteFolderSyncStateStore.cs` | |
+| 8 | Echte Konten: Abgleich aller drei Konten mit der SyncProbe, Zahlen plausibel gegen Outlook/Gmail-Web | ⚠️ SyncProbe `_scratch\sync-probe\` gebaut, nicht gestartet (braucht echte Konten) | manuell Dennis |
 
 Vollständiger Schnittstellenvertrag: `work\AP-03a\requirement.md`.
 
