@@ -43,7 +43,8 @@ internal sealed class AuthenticationSignal : ISpamSignal
             return new SignalResult(
                 SignalId,
                 CompAuthOverrulePoints,
-                $"DMARC failed for sender domain '{ReasonText.Truncate(context.FromDomain)}', but the provider's composite authentication (compauth) passed; the sender is treated as unverified.");
+                $"DMARC failed for sender domain '{ReasonText.Truncate(context.FromDomain)}', but the provider's "
+                + "composite authentication (compauth) passed; the sender is treated as unverified.");
         }
 
         // Collect every failed check with its points.

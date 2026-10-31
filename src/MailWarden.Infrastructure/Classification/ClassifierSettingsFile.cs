@@ -17,7 +17,6 @@ public static class ClassifierSettingsFile
     private const string CertainSpamThresholdKey = "certainSpamThreshold";
     private const string SuspiciousTldsKey = "suspiciousTlds";
     private const string FreemailDomainsKey = "freemailDomains";
-    private const int MaximumShownKeyLength = 100;
 
     private static readonly JsonDocumentOptions DocumentOptions = new()
     {
@@ -76,6 +75,9 @@ public static class ClassifierSettingsFile
         }
         catch (JsonException exception)
         {
+            // The inner JsonException is kept for diagnosis: this file holds only thresholds and domain lists, no
+            // secrets, and the parser message names a position, never the path (unlike auth-config.json, where only
+            // the position is passed on).
             throw new InvalidDataException(
                 $"Classifier settings file '{fileName}' is not valid JSON (line {exception.LineNumber + 1}, "
                 + $"byte {exception.BytePositionInLine + 1}).",
@@ -151,19 +153,10 @@ public static class ClassifierSettingsFile
         return entries.ToFrozenSet(StringComparer.OrdinalIgnoreCase);
     }
 
-    // Key names are echoed truncated: an unknown key is file content of arbitrary length. A surrogate pair is never
-    // split.
+    // Key names are echoed truncated: an unknown key is file content of arbitrary length.
     private static InvalidDataException InvalidKey(string fileName, string key, string problem)
     {
-        var shownKey = key;
-        if (key.Length > MaximumShownKeyLength)
-        {
-            var cutLength = char.IsHighSurrogate(key[MaximumShownKeyLength - 1])
-                ? MaximumShownKeyLength - 1
-                : MaximumShownKeyLength;
-            shownKey = string.Concat(key.AsSpan(0, cutLength), "…");
-        }
-
-        return new InvalidDataException($"Classifier settings file '{fileName}': key '{shownKey}' {problem}.");
+        return new InvalidDataException(
+            $"Classifier settings file '{fileName}': key '{DisplayText.Truncate(key)}' {problem}.");
     }
 }
