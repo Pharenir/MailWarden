@@ -53,7 +53,7 @@ Further: authentication points table (`Authentication_signal_points`, 13 rows in
   authentication, link and reply-to reasons because the exact wording is open; random-domain, suspicious-tld,
   domain-not-in-body, display-name check the label/domain/TLD strictly. Score value in the random-domain reason is not
   asserted.
-- random-domain tier +15 (score 0.5 to 0.8) is not tested: no label in the requirement is specified in that band.
+- random-domain middle tier (C9): covered by case 10a, label `wrtplkjo` (S = 0.619, asserted in the test before classifying).
 - Rule 5 Override wording: only the substring "authenticated" is asserted; rule 4/6/3 substrings "allow list",
   "could not be verified", "block list" (case-insensitive).
 - Domain edge cases not tested because unspecified: `GetDomain("user@.")`, `GetRegistrableLabel("localhost")`,
@@ -62,3 +62,9 @@ Further: authentication points table (`Authentication_signal_points`, 13 rows in
 - Display-name tokens such as "Version 2.0" (digit TLD) are assumed not domain-like per "letter-only TLD".
 - Test-map: `TestSupport` changes trigger FULL per the existing map entry; new project is not in the solution yet
   (planner adds it at verify).
+
+## verify.1 additions (2026-10-31)
+- Case 10a: `Middle_tier_random_label_gives_fifteen_points` (C9).
+- C5: `Duplicate_signal_ids_differing_only_in_case_are_rejected`.
+- C2: `Parse_maps_verdict_words` row `hardfail` -> Fail.
+- C8 confirmed: contact + Unknown always LikelyLegit and freemail Reply-To with freemail From +10 are already tested as written.
