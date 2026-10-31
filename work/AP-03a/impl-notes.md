@@ -1,9 +1,38 @@
-STEP-RESULT: done (implement.1; case 28 needs real accounts – SyncProbe built, not run)
+STEP-RESULT: done (fix.2; case 28 needs real accounts – SyncProbe built, not run)
 
 # AP-03a – Implementation notes (Builder)
 
 Branch `feat/ap-03a-sync-down`. Build: `dotnet build MailWarden.sln -warnaserror` → 0 warnings, 0 errors (after
 every file of this step). Nothing under `tests\` read or changed; `test-plan.md`/`test-result.md` not read.
+
+## fix.2 (2026-10-31)
+Basis: requirement.md "Decisions fix.2" F1–F7. Build `-warnaserror` (solution incl. tests, compile only) green;
+SyncProbe builds. Tests not read or changed. SHOULD 2 (shared connect/list code with `ConnectionProbe`) not touched
+(deferred).
+
+| # | Change | File:line |
+|---|---|---|
+| F1 | R5 catches every non-aborting exception per UID (`AbortsSync` unchanged: Network/Authentication transport errors, `AuthenticationFailedException`, OCE still abort), counts it and continues; R7 runs normally. R8 saves `HighestSyncedUid = lowest failed UID − 1` (candidates ascending → first failure is the lowest), otherwise as before. Folder `Error` = `"<n> message(s) failed (first: <Type.Name>)"` when the folder otherwise completed; a later folder-level exception keeps the old format `"<Type>: <message>"` and the old state. Parse: `LoadAsync` **and** all field/`MimeBodyText.Extract` access in one try; any exception except OCE → unparseable. | `Sync\SyncEngine.cs:191-197`, `:273-297`, `:378-406`, `FolderProgress` |
+| F2 | Folder removal (R1): each EML delete in its own try (all exceptions except OCE skipped), folder row deleted anyway. R3/R4 deletes inside a folder are unchanged (failure = folder error). | `Sync\SyncEngine.cs:171`, `:434-454` |
+| F3 | Engine: `UidValidity == 0` after open → `MailTransportException(Protocol)` before R3, nothing stored or changed for the folder. Transport: `OpenFolderAsync` throws the same after EXAMINE (folder not marked open). | `Sync\SyncEngine.cs:214-220`; `Sync\MailKitTransport.cs:103-111` |
+| F4 | No visible folder with role Inbox (the resolver never yields a hidden Inbox) → `MailTransportException(Protocol)` before any upsert or removal. | `Sync\SyncEngine.cs:132-138` |
+| F5 | `title` added to the skipped elements (head itself kept); doc updated. | `Mime\MimeBodyText.cs:14-16`, `:27` |
+| F6 | `MimeMessage.LoadAsync(stream, persistent: true, ct)` (EML stream stays open during extraction); `await using Stream remoteContent` directly after the null check (path computation now inside the ownership); `SyncAccountAsync` doc: Protocol for a list without inbox, StorageException for folder-row deletes, EML delete failures skipped (removal) or recorded (inside a folder). | `Sync\SyncEngine.cs:70-79`, `:346`, `:385` |
+| F7 | `.gitignore`: `*.db`, `*.db-wal`, `*.db-shm`, `*.eml`, `!tests/fixtures/**/*.eml` (checked with `git check-ignore`: fixtures not ignored). | `.gitignore:18-22` |
+
+- Deviations: none. `FetchAndStoreAsync` keeps one method; the remote stream now lives until the row is stored
+  (previously disposed right after the EML write) – negligible, one message at a time.
+- Getestet (builder self-check, not a tester run): `_scratch\sync-selfcheck\` **71/71 PASS** – all previous checks
+  plus 29 (error format, state = failed − 1, retry fetches only 2 and 4), 30 (StorageException from a failing EML
+  store decorator), 31 (file held with `FileShare.None` → folder removed, file left, no exception), 32, 33 (throws,
+  folders untouched, transport disposed), 34. My own case 16 and case 3 were adapted to F1/F4.
+- Info for the tester (punctual run `Category=feature:sync`, 76/78): two existing tests fail **because of the
+  contract change**, not because of a defect – `SyncFolderTests.Folder_that_gets_the_All_flag_is_removed` (its folder
+  list has no Inbox → F4) and `SyncErrorTests.Failure_in_the_middle_of_a_folder_keeps_stored_rows_and_old_state_and_resumes_next_time`
+  (per-message failure now continues with the next UID → F1). Only the test output was read, not the test code.
+- Ungetestet: F1 path "exception inside `MimeBodyText.Extract`" (no input found that makes MimeKit throw there;
+  code review only); F3 in `MailKitTransport` (real server).
+- Offene Fragen: keine.
 
 ## implement.1 (2026-10-31)
 
