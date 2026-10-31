@@ -148,3 +148,10 @@ WinUI-App für Fall 30: im Projektordner `dotnet build MailWarden.sln`, dann
   AP-02a ×1 · Reviewer AP-01 ×1
 - Sitzung 2 (2026-10-31): Builder AP-07a ×1 (+5 Fortsetzungen), AP-02a ×1 (+2 Fortsetzungen) · Tester AP-01 ×1,
   AP-07a ×6, AP-02a ×4 · Reviewer AP-01 ×1, AP-07a ×4, AP-02a ×3 · Security AP-02a ×2 · Documenter ×3
+- Sitzung 3 (2026-10-31): Tester S3 main ×1 · AP-07b: Builder ×1 (+1 Fortsetzung), Tester ×2 (+1), Reviewer ×1,
+  Documenter ×1 · AP-03a: Builder ×1 (+2 Fortsetzungen), Tester ×2 (+2), Reviewer ×2, Security ×1, Documenter ×1
+
+**CPM-Reihenfolge (wenn Dennis freigibt):** `chore/session-handover` → `feat/ap-07b-classifier-calibration` →
+`feat/ap-03a-sync-down` (alles `--no-ff`). Probe-Merge: nur `README.md` kollidiert zwischen AP-07b und AP-03a (beide
+Documenter-Ergänzungen zusammenführen). Danach Build + S3 auf `main`, dann Push; SyncProbe aus
+`.worktrees\feat-ap-03a\_scratch\sync-probe` nach `_scratch\sync-probe` im Hauptordner retten.
