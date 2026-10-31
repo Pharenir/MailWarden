@@ -249,6 +249,55 @@ no personal data). `S(x)` = `RandomDomainScorer.Score(x)`.
 Positive controls: case 22 must fail if alignment is ignored; case 21 must fail if any header other than index 0 is
 used; case 16 must fail if contacts bypass authentication.
 
+## Planner decisions 2026-10-31 (verify.1) – binding, supersede the text above where they differ
+Source: builder open questions (`impl-notes.md`), tester assumptions (`test-plan.md`).
+
+| # | Decision | Builder | Tester |
+|---|---|---|---|
+| C1 | `dmarc=bestguesspass` (Outlook.com, no DMARC record) stays `Unknown`. Re-evaluated in AP-07b against real headers. | keep | none |
+| C2 | `hardfail` → `Fail` (obsolete RFC 5451 synonym); all other unknown verdict words → `Unknown` (case 6 unchanged). | keep | optional: `spf=hardfail` → Fail |
+| C3 | The keyword `none` is never taken as AuthServId (`"none"` alone → `Empty`); otherwise case 5 as written. | keep | none |
+| C4 | Known false positive of `display-name-mismatch`: names like `J.Doe` / `Mr.Smith` match the "domain-like token" rule (+20). Accepted for AP-07a; the rule is refined in AP-07b with real mail data (e.g. known-TLD list). | keep | do not test `J.Doe` either way |
+| C5 | Duplicate signal ids are compared case-insensitively (`"a"` and `"A"` → ArgumentException, extends case 28). | keep | optional |
+| C6 | Freemail = From domain **or** its organisational domain in `FreemailDomains` (`mail.gmx.net` is freemail); same for Reply-To. | keep | none |
+| C7 | Reply-To without a usable domain (no `@`) → no `reply-to-mismatch` finding. | keep | none |
+| C8 | Confirmed tester readings: contact + AuthStatus Unknown → always LikelyLegit (never better, never worse); Reply-To freemail while From is freemail too and not aligned → +10 (the +15 needs a non-freemail From). | keep | as written |
+| C9 | Middle tier of `random-domain`: a label with `0.5 ≤ S < 0.8` gives +15. | keep | new case 10a: pick a label, first assert `0.5 ≤ S(label) < 0.8`, then classify a sender with that label → `random-domain` +15 |
+
+## Planner decisions 2026-10-31 (fix.2) – binding, supersede the text above where they differ
+Source: review.1 (`review.md`). verify.1 was PASS (272/272).
+
+| # | Decision | Builder | Tester |
+|---|---|---|---|
+| C10 | **Property values are read as one contiguous run** after `key=` up to whitespace, `;` or `(` (outside quotes); a quoted local part inside the value stays part of it; the domain is the part after the **last** `@`. A `=` or `dmarc=`/`dkim=`/`spf=` inside a value never starts a new pair or result. (review B1) | fix | new case 3a: `smtp.mailfrom="x@victim.test"@attacker.test` → SPF domain `attacker.test`; `smtp.mailfrom=bounces+123-user=example.test@mailer.test` → `mailer.test`; `smtp.mailfrom=x=dmarc=none@a.test` followed by `; dmarc=fail header.from=a.test` → Dmarc Fail (not None) |
+| C11 | **DMARC takes precedence.** AuthStatus: if a DMARC result exists with Fail → **Failed** (an aligned SPF/DKIM pass does not rescue it); DMARC Pass → Authenticated only per C12; otherwise (no DMARC, or None/other verdicts) the DKIM/SPF alignment rules apply as before. Failed otherwise as before. (review Q1) | fix | new case 21a: `spf=pass smtp.mailfrom=example.test; dmarc=fail header.from=example.test`, From `example.test` → Failed; contact with that header → not TrustedContact |
+| C12 | **DMARC Pass counts only if its `header.from` is null or aligned with the From domain.** A DMARC Pass for another domain is ignored (rules of C11 "otherwise" apply). (review Q2) | fix | new case 22a: `dmarc=pass header.from=other.test`, From `example.test`, nothing else → Unknown |
+| C13 | **`Classify` validates custom signal results (fail fast):** `SignalResult.SignalId` must equal `signal.Id` (ordinal) and `Reason` must be non-empty/non-whitespace → `InvalidOperationException` naming the signal id. (review S1, project rule "no silent points") | fix | new case 28a with a stub signal returning an empty reason / a different id |
+| C14 | **Values of the sender in reason texts are truncated** to at most 100 characters (`…` appended); applies to all built-in signals. (review N4) | fix | case 30 unchanged; new case 30a: display name with a 1 000-char token → reason ≤ 200 chars |
+| C15 | Review N1–N3: fix at builder's discretion (`FromAddress` null → ArgumentException with param `input`, like the other null members). | fix | none |
+| C16 | Out of scope → AP-07b (`TODO.md`): authserv-id check against the provider profile (Q3); full Public Suffix List instead of the built-in multi-label list. | – | – |
+| C17 | Refines C10: the domain is the part after the last `@` **outside quotes**; a value without such an `@` has no domain (null). `x@attacker.test"@victim.test"` → `attacker.test`; `"x@victim.test"@attacker.test` → `attacker.test` (unchanged). (builder fix.2 question 1) | fix | add both examples to 3a |
+| C18 | `ISpamSignal` XML doc states the C13 rule (SignalId must equal `Id`, Reason non-empty, else `Classify` throws InvalidOperationException). | doc | none |
+| C19 | Refines C17 (RFC 8601 `value = token / quoted-string`): a value that consists of **exactly one quoted string** is unquoted first, then the C17 rule applies to its content (`"Bounce@Example.TEST"` → `example.test`; `header.i="@victim.test"` → `victim.test`). A value without any `@` is itself the domain (`smtp.mailfrom=example.test`, `header.d`, `header.from`) – confirmed builder reading. Mixed values keep C17 (`"x@victim.test"@attacker.test` → `attacker.test`). | fix | add the two quoted examples to 3a |
+## Planner decisions 2026-10-31 (fix.3) – binding
+Source: review.2 APPROVE with one SHOULD (`review.md`); verify.2 PASS (290/290).
+
+| # | Decision | Builder | Tester |
+|---|---|---|---|
+| C20 | **CFWS inside an address value is ignored (RFC 5322):** if a property value is followed – after whitespace and/or a comment – by a word that starts with `@` and is not itself a `key=value`, that word belongs to the value (appended before the domain rule of C17/C19 applies). `"x@victim.test" @attacker.test`, `"x@victim.test" (c) @attacker.test` and `victim.test (c) @attacker.test` → `attacker.test`. (review.2 S2) | fix | new case 3b with the three examples |
+| C21 | A property `key=` followed directly by whitespace (empty value, no `;`) yields an empty value (domain null); the next word starts a new pair. `smtp.mailfrom= dmarc=fail header.from=a.test` → Dmarc Fail. (review.2 N6) | fix | new case 3c |
+| C22 | **DMARC Pass whose `header.from` is present but has no determinable domain is not trusted** (treated like a non-aligned DMARC Pass, C12 "otherwise" rules apply). Only an **absent** `header.from` keeps the C12 behaviour. (review.2 Q5) | fix | new case 22b: `dmarc=pass header.from=""` (empty quoted value) with From `example.test`, nothing else → Unknown |
+| C23 | Review.2 N5, N7: comments/notes corrected. N8 (PLAN.md) is the planner's task. | doc | none |
+| C24 | Builder readings of fix.3 confirmed: C21 applies when the next separate word is itself a `key=` (`SPF = FAIL` stays valid, case 3). An `@`-word that is itself a `key=value` is not joined by C20 (`x@victim.test @attacker.test=foo` → `victim.test`) – needs invalid provider data; accepted for AP-07a, fail-safe "domain null" re-evaluated in AP-07b with real headers. | keep | none |
+## Planner decisions 2026-10-31 (fix.4, last round per budget) – binding
+Source: review.3 APPROVE with one SHOULD (`review.md`); verify.3 PASS (296/296). Round 4 of 4: review.4 checks only the
+fix.4 diff; new findings outside it go to AP-07b.
+
+| # | Decision | Builder | Tester |
+|---|---|---|---|
+| C25 | **Quoted strings inside comments are opaque** (hardening, deliberately stricter than RFC 5322, where `"` in a comment is an ordinary character: providers copy attacker-controlled envelope values into their comments, so a `)` or `"` inside a quoted string within a comment neither closes the comment nor starts anything). An unterminated quoted string inside a comment ends at the comment's end of input like today; linear runtime kept. (review.3 S3) | fix | new case 3d: `spf=pass (sender "x) smtp.mailfrom=victim.test y "@attacker.test) smtp.mailfrom=attacker.test; dmarc=fail header.from=victim.test` → SPF domain `attacker.test`, Dmarc Fail |
+| C26 | A method key with an **empty verdict** (`spf=;`, `dmarc=` at statement end) is not kept as a result, so a later real result of the same method counts. (review.3 N10) | fix | new case 3e: `dmarc=; dmarc=fail header.from=a.test` → Dmarc Fail |
+| C27 | `Parse` XML doc mentions C20/C21; comment wording at `AuthenticationResultsParser.cs:116` fixed. (review.3 N9) | doc | none |
 ## Done criteria
 - Builder: only new files under `src\MailWarden.Core\Classification\`; build `-warnaserror` green; probe program
   under `_scratch\` (git-ignored) runs cases 10–14 and prints the scores; `work\AP-07a\impl-notes.md` with the

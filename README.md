@@ -8,8 +8,9 @@ MailWarden is developed and used by a single person and is not offered as a serv
 Privacy policy: `PRIVACY.md` · Terms of service: `TERMS.md`.
 
 Status: early development (see `PLAN.md`). Implemented so far: solution skeleton, local storage layer (SQLite
-database and EML file store) and an empty WinUI 3 main window. There is no mail functionality yet: no account setup,
-no synchronisation, no inbox view, no spam classifier.
+database and EML file store), the core of the spam classifier (a library in `MailWarden.Core`, not yet connected to
+any mail) and an empty WinUI 3 main window. There is no mail functionality yet: no account setup, no
+synchronisation, no inbox view; the classifier does not sort or move any mail yet.
 
 ## Requirements
 - Windows 11
@@ -28,7 +29,7 @@ dotnet run --project src\MailWarden.App
 ```
 
 - Build: the first build restores NuGet packages and needs internet access.
-- Tests: `dotnet test` runs the unit tests of the storage layer. They use temporary folders and artificial data only.
+- Tests: `dotnet test` runs the unit tests of the storage layer and the spam classifier core. They use temporary folders and artificial data only.
 - Start: `dotnet run` opens the main window (currently empty). Alternatively start the built
   `src\MailWarden.App\bin\x64\Debug\net9.0-windows10.0.19041.0\win-x64\MailWarden.App.exe`. The app is
   self-contained; no separate Windows App SDK runtime has to be installed.
@@ -52,9 +53,10 @@ as soon as it is used; the app does not use it yet, so a fresh start leaves the 
 
 ## Project structure
 ```
-src\MailWarden.Core            domain model and storage interfaces (no I/O, no packages)
+src\MailWarden.Core            domain model, storage interfaces and the spam classifier core (no I/O, no packages)
 src\MailWarden.Infrastructure  SQLite stores and EML file store
 src\MailWarden.App             WinUI 3 app (main window only)
+tests\MailWarden.Core.Tests             unit tests for the spam classifier core
 tests\MailWarden.Infrastructure.Tests   unit tests for the storage layer
 ```
 
