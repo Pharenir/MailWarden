@@ -73,3 +73,42 @@ None.
   it passes `Classify` unmapped and the folder fails with that type for this pass only; worth a look in case 18 logs.
 - Out-of-order fallback is silent when it succeeds (impl-notes). If case 18 shows no speed-up, count
   `FetchMessageAsync` calls in the SyncProbe first.
+
+# review.2 (fix.2, reviewer, 2026-10-31)
+Scope: `git diff 7858f40 e28523a -- src work/AP-03b/impl-notes.md` against "Decisions fix.2" (K1–K4) on top of B1–B7.
+`tests\` not read. Build `dotnet build MailWarden.sln -warnaserror`: 0 warnings, 0 errors.
+
+## Verdict: APPROVE
+
+Checked by reading:
+1. K1 (`SyncEngine.cs:149-180`): the check runs only for `folderIndex > 0`, before the folder's progress reporter and
+   sync, independent of the previous outcome; nothing runs after the last folder (cases 19/20 hold). Budget:
+   increment, then `> MaxReconnectsPerPass` → `MailTransportException(Network)` (case 21: 2nd loss with budget 1
+   throws; case 10 with 5 folders: 4th loss throws). Disposal: budget throw → current transport disposed in
+   `finally`; variable nulled before `lostTransport.DisposeAsync()` (which swallows everything but OOM), so a
+   throwing `ConnectAsync` leaves null and nothing is disposed twice or leaked. The `(Result, Failed)` tuple is gone
+   cleanly.
+2. `SyncReport`: a failure in the last folder no longer triggers a connect, so the report with all folders is returned
+   (SHOULD 1 of review.1 resolved). Budget/reconnect failure before a later folder still throws and loses the report,
+   as B4/K1 require; finished folders keep their stored state.
+3. K2 (`IMailTransport.cs:51-53`) and K3 (`SyncEngine.cs:110-115`, `:153-154`, class remarks `:40-42`) match the code.
+4. K4 (`MailKitTransport.cs:413-414`): `MessageNotFoundException` → Protocol in `Classify`. The single fetch catches it
+   around `GetStreamAsync` inside the action (`:201-209`), so `Classify` never sees it there; no side effect.
+   `MailKitTransportFactory.cs:39` also uses `RunAsync`, but connect cannot raise it. The MailKit source check in
+   `impl-notes.md` is plausible (multi-UID `GetStreamsAsync` documents no `MessageNotFoundException`).
+5. NITs: `MessageMetadataItems` (`MailKitTransport.cs:29-31`) has the same four items as before in both fetches;
+   `string.Create(InvariantCulture, …)` (`SyncEngine.cs:162-164`) formats ints only, same text; resolver summary is a
+   pure reflow. No behaviour change.
+
+## SHOULD
+None.
+
+## NIT
+- `SyncEngine.cs:112-113`: "No folder-end report is sent when the pass aborts (… reconnect failure or budget)" –
+  those two happen between folders, where no folder is open (and the next folder gets no start report either).
+  Correct, but "when the pass aborts inside a folder (cancellation, authentication)" would be more precise.
+- `MailKitTransport.cs:184-187`: a `MessageNotFoundException` from the single fetch's metadata `FetchAsync` (not raised
+  by MailKit 4.18) would now be Protocol instead of unmapped. Both count as a per-message failure in the fallback;
+  only the type name in the folder Error text would differ. No action needed.
+- PLAN.md AP-03b row 3 still reads "Verbindungsabbruch in einem Ordner … verbindet neu"; K1 also covers a loss without
+  folder error. Compatible; documenter may widen the wording when marking the row.
