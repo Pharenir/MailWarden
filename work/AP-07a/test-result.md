@@ -28,3 +28,11 @@
 - New/changed tests (db1ad80): `Parse_spf_domain_is_taken_after_the_last_at_sign` +2 rows (C17 `x@attacker.test"@victim.test"` -> attacker.test; C19 `"Bounce@Example.TEST"` -> example.test), new `Parse_dkim_domain_from_quoted_header_i` (C19 -> victim.test)
 - Failures: none
 - Test counter in TODO.md not reset (outside tester scope; planner to do). durations.jsonl updated.
+
+## verify.3 (2026-10-31)
+
+Ergebnis: **PASS**
+- Merge `test/ap-07a-classifier-core` (cb200d5) in `feat/ap-07a-classifier-core`: sauber, kein Konflikt (+3 Tests 3b/3c/22b, test-plan.md).
+- Build `dotnet build MailWarden.sln -warnaserror`: 0 Warnungen, 0 Fehler.
+- Stufe S3 (volle Suite, Wächter): 296 gesamt, 296 bestanden, 0 fehlgeschlagen, 0 übersprungen (verify.2: 290, +6). Wächter: ok, 3,1 s.
+- Fehlschläge: keine.

@@ -182,3 +182,83 @@ Plan: see N8.
   absent (intended) and `header.from` present but without a determinable domain per C17 (e.g. `"a@b""c@d"`). The
   second is ambiguous input and should rather not grant trust. Distinguish (e.g. keep "property present" in the
   parser and give such a DMARC pass no effect)? Low likelihood; can go to AP-07b with the authserv-id check (C16).
+
+## review.3 (2026-10-31)
+
+Scope: fix.3 `git diff 8b2b155 be10e1e -- src` (`AuthenticationResultsParser.cs`, `AuthStatusEvaluator.cs`,
+`AuthenticationResults.cs`) plus interactions, against requirement C20–C24 and impl-notes fix.3. Files read via
+`git show be10e1e:<path>`; worktree `src\` is identical to `be10e1e`. `tests\`, `test-plan.md`, `test-result.md` not
+read. Build and probe not run by the reviewer; everything below is by reasoning, nothing was executed.
+
+**Verdict: APPROVE** for fix.3 (0 BLOCK, 1 SHOULD outside the fix.3 diff, 2 NIT, 1 question for the planner).
+
+### Focus items
+- **S2 / C20 – fixed.** `AuthenticationResultsParser.cs:148-160` continues the value over a separated token when
+  `IsAddressDomainContinuation` (`:213-219`: Word starting with `@`, not a key) – only for property values
+  (`isPropertyValue`, `:99-100`), never for method verdicts. Appending happens before C17/C19, so a single quoted
+  local part followed by ` @attacker.test` / ` (c) @attacker.test` is no longer "exactly one quoted string" and the
+  domain is the last unquoted `@` → `attacker.test`; `victim.test (c) @attacker.test` likewise. Variants checked by
+  reasoning: `"x@victim.test" @ attacker.test` and `x@ (c) attacker.test` → domain part empty → `ToDomain` null
+  (fail-safe); `"x@victim.test" "@attacker.test"` → mixed, all `@` quoted → null; `dkim=pass @x.test` → stray, verdict
+  intact. C20 can only move the domain towards a later `@word` the provider wrote outside a comment; no new trust
+  path from the envelope (an unquoted SMTP path cannot contain whitespace, and the real domain is always last).
+- **N6 / C21 – fixed.** `:141-146` empty value when the token after `=` is missing or is separated and itself a key;
+  `key = value` (case 3) unchanged, `smtp.mailfrom=dmarc=fail` (joined, B1) still one value. `IsKeyAt` (`:117-122`)
+  now accepts `key=` at the statement end; `tokens[start]` is only read after the `start >= end` short circuit.
+  See N10 for a side effect on methods.
+- **Q5 / C22 – fixed.** Flag set only for the kept (first) DMARC result (`:331-334`, `case "dmarc" when dmarcResult
+  is null`), carried by the internal init property (`AuthenticationResults.cs:26`), evaluated in `DescribePass`
+  (`AuthStatusEvaluator.cs:56`, `:61`), which `Evaluate` uses – both stay consistent. `AuthenticationSignal` only reads
+  DMARC fail, so no other consumer needs the flag. Placing it on the outer record (not on `AuthMethodResult`) is
+  justified in impl-notes; a `with` copy can keep a stale `true`, but the flag only matters when `Dmarc.Domain` is
+  null, so a replaced DMARC result with a domain is unaffected – acceptable.
+- **Linear / never throws – confirmed.** `ReadValue` returns `start` (= key position + 2) for empty values, so
+  `ParseStatement` always advances; the continuation check is O(1) per token (`StartsWith`, `IsKeyAt`); every token is
+  still visited once in `ReadValue` and its text scanned once; the domain slice invariants of review.2 are unchanged.
+- **C24 – acceptable.** `x@victim.test @attacker.test=foo` → `victim.test` needs a provider emitting a bare
+  `@domain=...` word outside a comment, which no valid pvalue produces; it opens no path beyond what S3 below already
+  allows. Re-evaluating with real headers in AP-07b is fine.
+
+### SHOULD (outside the fix.3 diff, pre-existing since fix.1; found while checking C20 interactions)
+**S3 – attacker data inside a provider comment can close the comment early; the rest becomes live tokens, so a
+spoofed `smtp.mailfrom=` can be injected and later statements (incl. `dmarc=fail`) swallowed by a stray quote.**
+`AuthenticationResultsTokenizer.cs:104-133` (`SkipComment` ignores quoted strings, so the first unescaped `)` closes
+the comment), `AuthenticationResultsParser.cs:296` (first `smtp.mailfrom` wins).
+Example (Gmail style, the provider copies the envelope sender verbatim into its SPF comment), envelope sender
+`"x) smtp.mailfrom=victim.test y "@attacker.test`, SPF pass for `attacker.test`, From `…@victim.test`:
+`mx.google.com; spf=pass (google.com: domain of "x) smtp.mailfrom=victim.test y "@attacker.test designates 192.0.2.1 as permitted sender) smtp.mailfrom="x) smtp.mailfrom=victim.test y "@attacker.test; dmarc=fail (p=QUARANTINE) header.from=victim.test`
+→ the comment ends after `x`; `smtp.mailfrom=victim.test` becomes the first SPF property; the quote before
+`@attacker.test designates` swallows the genuine `smtp.mailfrom=` key; the last quote runs to the input end and
+swallows `; dmarc=fail …`. Result: SPF Pass `victim.test`, no DMARC → **Authenticated**; with a contact → TrustedContact,
+which per PLAN row 1 even moves the message out of Junk. Precondition: the provider writes `)`/`"` from the local part
+unescaped into a comment. RFC 5322 `ctext` forbids that (a compliant generator writes `\)`), but whether Gmail
+escapes it is unknown (reviewer unsure). Attacker-triggered and "too much trust" direction, hence SHOULD; not a
+fix.3 regression (C20 incidentally defeats the variant without the trailing `y`, not the one above).
+Suggested fix (small, linear): in `SkipComment`, treat a quoted string inside a comment as opaque (skip `"…"` with
+backslash escapes, ending at the input end). A valid quoted local part is balanced and escapes inner `"` as `\"`, so
+the comment then ends at the provider's own `)`. Tester case: the header above → SPF domain `attacker.test`, DMARC
+Fail, status Failed. Alternatively verify Gmail's escaping with a real header in AP-07b before any real header reaches
+the parser.
+
+### NIT
+- **N9** `AuthenticationResultsParser.cs:19-22` – the public `Parse` doc still says a property value is "one contiguous
+  run … up to whitespace, ';' or '('"; since C20/C21 a separated `@…` word is appended and `key=` before another key
+  or at the statement end is an empty value. Add one sentence each. `:116` "directly followed by '=' (whitespace in
+  between allowed" – "directly" contradicts the parenthesis; "followed by '='" suffices.
+- **N10** `AuthenticationResultsParser.cs:117-119`, `:141-146`, `:99`, `:321-336` – C21 also applies to method keys:
+  `spf=;` / `dmarc=;` at a statement end now create a result with verdict Unknown (before fix.3 they were skipped).
+  Because only the first SPF/DMARC result is kept, `dmarc=; dmarc=fail …` now loses the provider's DMARC fail
+  (Failed → Unknown or even Authenticated via an aligned pass) and `spf=; spf=fail` loses the SPF fail. Sloppy provider
+  output only; optional: do not keep a method result whose verdict value is empty.
+
+### Checklist (fix.3 diff)
+Correctness: C20–C22 as specified, C24 as accepted. Architecture: Core-only, BCL-only, no new dependency, public API
+unchanged (new member is internal). Data: n/a. Security: no new trust path from fix.3; S3 is pre-existing.
+Consistency: `Evaluate`/`DescribePass` consistent; reason texts unchanged. Readability: comments updated (N5 done),
+except N9; no dead code, no debug output. Uniqueness: `IsKeyAt` replaces the inline pair check and is used in all
+three places; no duplicate helper. Plan: AP-07 rows marked in this diff (N8 done by the planner); row 1 mentions C11.
+
+### Question for the planner
+- **Q6 (S3)** Fix in a short fix.4 (tokenizer, a few lines + one tester case) or bind it as a must-do of AP-07b
+  before real headers are classified? Recommendation: fix now – it is cheap, and the risk direction is "too much
+  trust" with attacker-controlled input.
