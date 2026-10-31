@@ -8,8 +8,9 @@ namespace MailWarden.Core.Storage;
 public interface IMessageStore
 {
     /// <summary>
-    /// Inserts or updates the message by key (<see cref="MailMessage.AccountId"/>, <see cref="MailMessage.FolderId"/>,
-    /// <see cref="MailMessage.Uid"/>). The <see cref="MailMessage.Id"/> of the argument is ignored.
+    /// Inserts or updates the message by key (<see cref="MailMessage.FolderId"/>, <see cref="MailMessage.Uid"/>). The
+    /// <see cref="MailMessage.Id"/> of the argument is ignored. <see cref="MailMessage.AccountId"/> must be the account
+    /// of the folder.
     /// </summary>
     /// <param name="message">Message to store.</param>
     /// <param name="bodyText">
@@ -18,7 +19,10 @@ public interface IMessageStore
     /// </param>
     /// <param name="ct">Cancellation token.</param>
     /// <returns>The stored copy with its database id.</returns>
-    /// <exception cref="StorageException">Account or folder does not exist.</exception>
+    /// <exception cref="ArgumentOutOfRangeException"><see cref="MailMessage.Uid"/> is 0 (IMAP UIDs start at 1).</exception>
+    /// <exception cref="StorageException">
+    /// Account or folder does not exist, or the folder belongs to another account.
+    /// </exception>
     Task<MailMessage> UpsertAsync(MailMessage message, string? bodyText, CancellationToken ct = default);
 
     /// <summary>Loads one message.</summary>
@@ -42,13 +46,18 @@ public interface IMessageStore
 
     /// <summary>
     /// Full-text search over subject, sender address, sender name and indexed body text; case-insensitive.
-    /// Every whitespace-separated word must match (prefix match); search syntax characters are treated as text.
+    /// Every word must match (prefix match); words are separated by whitespace and control characters; search syntax
+    /// characters are treated as text.
     /// </summary>
     /// <param name="text">Search words.</param>
     /// <param name="limit">Maximum number of results, must be greater than 0.</param>
     /// <param name="ct">Cancellation token.</param>
     /// <returns>Matching messages newest first.</returns>
-    /// <exception cref="ArgumentException"><paramref name="text"/> is empty or whitespace only.</exception>
+    /// <exception cref="ArgumentNullException"><paramref name="text"/> is null.</exception>
+    /// <exception cref="ArgumentException">
+    /// <paramref name="text"/> is empty or consists only of whitespace and control characters.
+    /// </exception>
+    /// <exception cref="ArgumentOutOfRangeException"><paramref name="limit"/> is not greater than 0.</exception>
     Task<IReadOnlyList<MailMessage>> SearchAsync(string text, int limit = 100, CancellationToken ct = default);
 
     /// <summary>Deletes one message and its index entry. Unknown id = no-op.</summary>

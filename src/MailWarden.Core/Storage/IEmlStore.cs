@@ -21,6 +21,10 @@ public interface IEmlStore
     /// <param name="content">Raw message; read from its current position to the end, not disposed.</param>
     /// <param name="ct">Cancellation token.</param>
     /// <returns>A task that completes when the file is in place.</returns>
+    /// <exception cref="ArgumentException"><paramref name="relativePath"/> is not a valid path below the mail root.</exception>
+    /// <exception cref="StorageException">
+    /// Writing failed, including overwriting a file for which a stream from <see cref="OpenReadAsync"/> is still open.
+    /// </exception>
     Task WriteAsync(string relativePath, Stream content, CancellationToken ct = default);
 
     /// <summary>Opens an EML file for reading. The caller disposes the stream.</summary>

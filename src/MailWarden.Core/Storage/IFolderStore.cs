@@ -10,7 +10,10 @@ public interface IFolderStore
     /// <summary>Lists the folders of one account.</summary>
     /// <param name="accountId">Account id.</param>
     /// <param name="ct">Cancellation token.</param>
-    /// <returns>Folders ordered by <see cref="MailFolder.FullName"/>; empty for an unknown account.</returns>
+    /// <returns>
+    /// Folders ordered by <see cref="MailFolder.FullName"/>, case-insensitive for ASCII letters only (SQLite
+    /// <c>NOCASE</c>); empty for an unknown account.
+    /// </returns>
     Task<IReadOnlyList<MailFolder>> ListAsync(Guid accountId, CancellationToken ct = default);
 
     /// <summary>Loads one folder.</summary>

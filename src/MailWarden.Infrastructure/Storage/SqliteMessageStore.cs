@@ -17,7 +17,10 @@ public sealed class SqliteMessageStore(SqliteDatabase database) : IMessageStore
         FROM messages AS m
         """;
 
-    // Dates are stored with their own offset, so text order is not time order; julianday() converts to UTC.
+    // Dates are stored with their own offset, so text order is not time order; julianday() converts to UTC and is
+    // served by the expression indexes ix_messages_folder_date / ix_messages_date (the expression must stay identical).
+    // julianday() resolves milliseconds only: dates less than 1 ms apart tie and fall back to id order (irrelevant
+    // for IMAP Date headers, which have second precision).
     private const string NewestFirst = " ORDER BY julianday(m.date) DESC, m.id DESC";
 
     private readonly SqliteDatabase database = database ?? throw new ArgumentNullException(nameof(database));
@@ -26,6 +29,11 @@ public sealed class SqliteMessageStore(SqliteDatabase database) : IMessageStore
     public async Task<MailMessage> UpsertAsync(MailMessage message, string? bodyText, CancellationToken ct = default)
     {
         ArgumentNullException.ThrowIfNull(message);
+        if (message.Uid == 0)
+        {
+            throw new ArgumentOutOfRangeException(nameof(message), message.Uid, "MailMessage.Uid must be at least 1.");
+        }
+
         try
         {
             SqliteConnection connection = database.Connection;
@@ -33,7 +41,8 @@ public sealed class SqliteMessageStore(SqliteDatabase database) : IMessageStore
                 .BeginTransactionAsync(ct)
                 .ConfigureAwait(false);
 
-            // Row: key (account_id, folder_id, uid); RETURNING yields the id for both insert and update.
+            // Row: key (folder_id, uid); RETURNING yields the id for both insert and update. account_id is part of
+            // the update so that the composite folder FK also rejects a wrong account on an existing row.
             long storedId;
             await using (var command = connection.CreateCommand())
             {
@@ -43,7 +52,8 @@ public sealed class SqliteMessageStore(SqliteDatabase database) : IMessageStore
                                           flags, has_attachments, size, eml_path, text_preview)
                     VALUES ($account_id, $folder_id, $uid, $message_id, $subject, $from_address, $from_name, $date,
                             $flags, $has_attachments, $size, $eml_path, $text_preview)
-                    ON CONFLICT (account_id, folder_id, uid) DO UPDATE SET
+                    ON CONFLICT (folder_id, uid) DO UPDATE SET
+                        account_id = excluded.account_id,
                         message_id = excluded.message_id,
                         subject = excluded.subject,
                         from_address = excluded.from_address,
@@ -133,6 +143,7 @@ public sealed class SqliteMessageStore(SqliteDatabase database) : IMessageStore
         {
             throw new ArgumentOutOfRangeException(nameof(query), query.Offset, "MessageQuery.Offset must not be negative.");
         }
+
         try
         {
             await using var command = database.Connection.CreateCommand();
@@ -175,7 +186,14 @@ public sealed class SqliteMessageStore(SqliteDatabase database) : IMessageStore
         int limit = 100,
         CancellationToken ct = default)
     {
-        ArgumentException.ThrowIfNullOrWhiteSpace(text);
+        ArgumentNullException.ThrowIfNull(text);
+        if (!MessageSearchIndex.ContainsToken(text))
+        {
+            throw new ArgumentException(
+                "Search text must contain a character other than whitespace or control characters.",
+                nameof(text));
+        }
+
         ArgumentOutOfRangeException.ThrowIfNegativeOrZero(limit);
 
         // Input consisting only of punctuation cannot match any indexed term.
@@ -249,15 +267,13 @@ public sealed class SqliteMessageStore(SqliteDatabase database) : IMessageStore
                 .BeginTransactionAsync(ct)
                 .ConfigureAwait(false);
 
-            // One prepared command, executed once per UID; index entry and row go together.
+            // Index entries first (they are found through the rows), then the rows; one prepared command each.
+            await MessageSearchIndex.DeleteForUidsAsync(connection, transaction, folderId, uids, ct)
+                .ConfigureAwait(false);
             await using (var command = connection.CreateCommand())
             {
                 command.Transaction = transaction;
-                command.CommandText = """
-                    DELETE FROM messages_fts
-                    WHERE rowid IN (SELECT id FROM messages WHERE folder_id = $folder_id AND uid = $uid);
-                    DELETE FROM messages WHERE folder_id = $folder_id AND uid = $uid;
-                    """;
+                command.CommandText = "DELETE FROM messages WHERE folder_id = $folder_id AND uid = $uid;";
                 command.Parameters.AddWithValue("$folder_id", folderId);
                 SqliteParameter uidParameter = command.Parameters.Add("$uid", SqliteType.Integer);
                 foreach (uint uid in uids)

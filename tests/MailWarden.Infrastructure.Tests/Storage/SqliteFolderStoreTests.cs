@@ -129,4 +129,23 @@ public sealed class SqliteFolderStoreTests
         Assert.NotNull(await storage.Folders.GetAsync(survivor.Id));
         Assert.NotNull(await storage.Messages.GetAsync(survivorMessage.Id));
     }
+
+    // Case 23 (D16): the cascade leaves no full-text rows of the deleted messages
+    [Fact(Timeout = TestTimeouts.PerTestMilliseconds)]
+    public async Task Delete_removes_full_text_entries_of_the_deleted_folder_only()
+    {
+        await using StorageFixture storage = await StorageFixture.CreateAsync();
+        Account account = await storage.AddAccountAsync();
+        MailFolder doomed = await storage.AddFolderAsync(account.Id, FolderRole.Inbox);
+        MailFolder survivor = await storage.AddFolderAsync(account.Id, FolderRole.Junk);
+        await storage.AddMessageAsync(doomed, 1, bodyText: "zebrawordonly");
+        MailMessage survivorMessage = await storage.AddMessageAsync(survivor, 1, bodyText: "giraffewordkept");
+        Assert.Single(await storage.Messages.SearchAsync("zebrawordonly"));
+
+        await storage.Folders.DeleteAsync(doomed.Id);
+
+        Assert.Empty(await storage.Messages.SearchAsync("zebrawordonly"));
+        MailMessage found = Assert.Single(await storage.Messages.SearchAsync("giraffewordkept"));
+        Assert.Equal(survivorMessage.Id, found.Id);
+    }
 }

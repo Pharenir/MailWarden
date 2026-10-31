@@ -26,13 +26,14 @@ internal static class SchemaMigrations
             full_name    TEXT    NOT NULL,
             role         INTEGER NOT NULL,
             uid_validity INTEGER NOT NULL,
-            UNIQUE (account_id, full_name)
+            UNIQUE (account_id, full_name),
+            UNIQUE (id, account_id) -- parent key of the composite folder reference in messages
         );
 
         CREATE TABLE messages (
             id              INTEGER PRIMARY KEY AUTOINCREMENT,
             account_id      TEXT    NOT NULL REFERENCES accounts (id) ON DELETE CASCADE,
-            folder_id       INTEGER NOT NULL REFERENCES folders (id) ON DELETE CASCADE,
+            folder_id       INTEGER NOT NULL,
             uid             INTEGER NOT NULL,
             message_id      TEXT    NULL,
             subject         TEXT    NOT NULL,
@@ -44,13 +45,17 @@ internal static class SchemaMigrations
             size            INTEGER NOT NULL,
             eml_path        TEXT    NULL,
             text_preview    TEXT    NOT NULL,
-            UNIQUE (account_id, folder_id, uid)
+            UNIQUE (folder_id, uid),
+            -- The message account must be the account of its folder.
+            FOREIGN KEY (folder_id, account_id) REFERENCES folders (id, account_id) ON DELETE CASCADE
         );
 
-        CREATE INDEX ix_messages_folder_date ON messages (folder_id, date DESC);
-        CREATE INDEX ix_messages_date ON messages (date DESC);
+        -- date is text with its own offset, so lists sort by julianday(date) (UTC instant); the expression indexes
+        -- serve that order (newest first, ties by id) without a temporary sort.
+        CREATE INDEX ix_messages_folder_date ON messages (folder_id, julianday(date) DESC, id DESC);
+        CREATE INDEX ix_messages_date ON messages (julianday(date) DESC, id DESC);
 
-        -- rowid = messages.id; maintained by SqliteMessageStore in the same transaction as the row.
+        -- rowid = messages.id; maintained only by MessageSearchIndex, in the same transaction as the row.
         CREATE VIRTUAL TABLE messages_fts USING fts5 (
             subject,
             from_address,
