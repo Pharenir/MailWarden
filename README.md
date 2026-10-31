@@ -8,8 +8,9 @@ MailWarden is developed and used by a single person and is not offered as a serv
 Privacy policy: `PRIVACY.md` · Terms of service: `TERMS.md`.
 
 Status: early development (see `PLAN.md`). Implemented so far: solution skeleton, local storage layer (SQLite
-database and EML file store) and an empty WinUI 3 main window. There is no mail functionality yet: no account setup,
-no synchronisation, no inbox view, no spam classifier.
+database and EML file store), account and sign-in library (OAuth for Outlook.com and Gmail, encrypted token storage,
+provider profiles with a connection check) and an empty WinUI 3 main window. The account library has no user interface
+yet; account setup in the app comes with AP-04. There is no synchronisation, no inbox view and no spam classifier yet.
 
 ## Requirements
 - Windows 11
@@ -45,6 +46,8 @@ Layout:
 |---|---|
 | `mailwarden.db` | SQLite database: accounts, folders, message metadata, full-text search index |
 | `mail\` | one `.eml` file per message |
+| `credentials\` | DPAPI-encrypted sign-in tokens, one `.bin` file per entry |
+| `auth-config.json` | optional OAuth client configuration (see Environment variables) |
 | `logs\` | log files |
 
 On start the app creates the data folder itself. The database, `mail\` and `logs\` are created by the storage layer
@@ -52,15 +55,26 @@ as soon as it is used; the app does not use it yet, so a fresh start leaves the 
 
 ## Project structure
 ```
-src\MailWarden.Core            domain model and storage interfaces (no I/O, no packages)
-src\MailWarden.Infrastructure  SQLite stores and EML file store
+src\MailWarden.Core            domain model, storage interfaces, account service (no I/O, no packages)
+src\MailWarden.Infrastructure  SQLite stores, EML file store, OAuth sign-in (Microsoft, Google), DPAPI credential
+                               store, provider profiles and connection check
 src\MailWarden.App             WinUI 3 app (main window only)
 tests\MailWarden.Infrastructure.Tests   unit tests for the storage layer
 ```
 
 ## Environment variables
-Only `MAILWARDEN_DATA_DIR` (see above) is evaluated. It is optional. Credentials will be stored encrypted with
-Windows DPAPI in the data folder once account setup exists. See `.env.example`.
+All variables are optional overrides; see `.env.example`.
+
+| Variable | Purpose |
+|---|---|
+| `MAILWARDEN_DATA_DIR` | data folder (see above) |
+| `MAILWARDEN_MS_CLIENT_ID` | client ID of your Microsoft app registration |
+| `MAILWARDEN_GOOGLE_CLIENT_ID` | client ID of your Google OAuth desktop client |
+| `MAILWARDEN_GOOGLE_CLIENT_SECRET` | client secret of that Google client |
+
+The three client values can alternatively be placed in `auth-config.json` in the data folder; environment variables
+take precedence. Details: `docs\auth-setup.md`. Tokens are stored encrypted with Windows DPAPI in `credentials\` in
+the data folder.
 
 ## License
 [PolyForm Noncommercial 1.0.0](https://polyformproject.org/licenses/noncommercial/1.0.0), see `LICENSE`:
