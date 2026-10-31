@@ -295,7 +295,7 @@ fix.4 diff; new findings outside it go to AP-07b.
 
 | # | Decision | Builder | Tester |
 |---|---|---|---|
-| C25 | **Quoted strings inside comments are opaque** (RFC 5322: a `)` or `"` inside a quoted string within a comment neither closes the comment nor starts anything). An unterminated quoted string inside a comment ends at the comment's end of input like today; linear runtime kept. (review.3 S3) | fix | new case 3d: `spf=pass (sender "x) smtp.mailfrom=victim.test y "@attacker.test) smtp.mailfrom=attacker.test; dmarc=fail header.from=victim.test` → SPF domain `attacker.test`, Dmarc Fail |
+| C25 | **Quoted strings inside comments are opaque** (hardening, deliberately stricter than RFC 5322, where `"` in a comment is an ordinary character: providers copy attacker-controlled envelope values into their comments, so a `)` or `"` inside a quoted string within a comment neither closes the comment nor starts anything). An unterminated quoted string inside a comment ends at the comment's end of input like today; linear runtime kept. (review.3 S3) | fix | new case 3d: `spf=pass (sender "x) smtp.mailfrom=victim.test y "@attacker.test) smtp.mailfrom=attacker.test; dmarc=fail header.from=victim.test` → SPF domain `attacker.test`, Dmarc Fail |
 | C26 | A method key with an **empty verdict** (`spf=;`, `dmarc=` at statement end) is not kept as a result, so a later real result of the same method counts. (review.3 N10) | fix | new case 3e: `dmarc=; dmarc=fail header.from=a.test` → Dmarc Fail |
 | C27 | `Parse` XML doc mentions C20/C21; comment wording at `AuthenticationResultsParser.cs:116` fixed. (review.3 N9) | doc | none |
 ## Done criteria
