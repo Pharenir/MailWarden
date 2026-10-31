@@ -53,6 +53,36 @@ public sealed class FolderRoleResolverTests
         Assert.Equal(new FolderClassification(role, hidden), result);
     }
 
+    // AP-03b case 14 (B5): Gmail's "Important" arrives without the role flag and is hidden by name
+    [Theory]
+    [InlineData("[Gmail]/Important")]
+    [InlineData("[Google Mail]/Important")]
+    [InlineData("[gmail]/important")]
+    [InlineData("[GOOGLE MAIL]/IMPORTANT")]
+    public void Google_important_folder_without_flags_is_hidden_without_role(string name)
+    {
+        Assert.Equal(new FolderClassification(FolderRole.None, Hidden: true), Resolve(Google, name));
+    }
+
+    // AP-03b case 14 (B5): the rule is limited to Google
+    [Theory]
+    [InlineData("[Gmail]/Important")]
+    [InlineData("[Google Mail]/Important")]
+    public void Important_by_name_is_visible_for_Microsoft(string name)
+    {
+        Assert.Equal(new FolderClassification(FolderRole.None, Hidden: false), Resolve(Microsoft, name));
+    }
+
+    // AP-03b case 14 (B5): only the exact full names match, not user folders that merely contain the word
+    [Theory]
+    [InlineData("Important")]
+    [InlineData("Archive/Important")]
+    [InlineData("[Gmail]/Important Stuff")]
+    public void Other_folders_named_important_stay_visible_for_Google(string name)
+    {
+        Assert.Equal(new FolderClassification(FolderRole.None, Hidden: false), Resolve(Google, name));
+    }
+
     // Case 10
     [Theory]
     [InlineData("Outbox")]

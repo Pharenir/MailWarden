@@ -128,9 +128,9 @@ public sealed class SyncErrorTests
         Assert.All(harness.Server.Transports, transport => Assert.Equal(1, transport.DisposeCalls));
     }
 
-    // Case 17
+    // Case 17, changed by AP-03b B4: a Network failure inside a folder fails only that folder (reconnect, next folder)
     [Fact(Timeout = TestTimeouts.PerTestMilliseconds)]
-    public async Task Network_error_aborts_the_sync_and_leaves_rows_and_files_consistent()
+    public async Task Network_error_in_a_folder_fails_only_that_folder_and_leaves_rows_and_files_consistent()
     {
         (SyncHarness harness, FakeMailFolder inbox, FakeMailFolder junk) = await StartAsync();
         await using SyncHarness lifetime = harness;
@@ -140,23 +140,28 @@ public sealed class SyncErrorTests
         junk.AddMessage(Mail("junk_one"));
         harness.Server.FetchFailures[(Inbox, 3u)] = new MailTransportException(MailTransportFailure.Network, "Connection lost.");
 
-        MailTransportException exception =
-            await Assert.ThrowsAsync<MailTransportException>(() => harness.SyncAsync());
+        SyncReport report = await harness.SyncAsync();
 
-        Assert.Equal(MailTransportFailure.Network, exception.Failure);
-        Assert.Equal(new[] { Inbox }, harness.Server.OpenedFolders.ToArray());
+        Assert.StartsWith(
+            "MailTransportException",
+            report.Folders.Single(folder => folder.FolderFullName == Inbox).Error,
+            StringComparison.Ordinal);
+        Assert.Null(report.Folders.Single(folder => folder.FolderFullName == Junk).Error);
+        Assert.Equal(new[] { Inbox, Junk }, harness.Server.OpenedFolders.ToArray());
         Assert.Equal(new uint[] { 1, 2 }, await harness.StoredUidsAsync(Inbox));
         await AssertEveryRowHasItsFileAsync(harness, Inbox);
-        Assert.InRange(harness.EmlFileCount(), 2, 3);
+        Assert.InRange(harness.EmlFileCount(), 3, 4);
         Assert.Null(await harness.StateOfAsync(Inbox));
-        Assert.Equal(1, Assert.Single(harness.Server.Transports).DisposeCalls);
+        Assert.Equal(new uint[] { 1 }, await harness.StoredUidsAsync(Junk));
+        Assert.Equal(2, harness.Server.Transports.Count);
+        Assert.All(harness.Server.Transports, transport => Assert.Equal(1, transport.DisposeCalls));
     }
 
     // Case 17 / R9: authentication failures reported by the transport abort as well
+    // (AP-03b B4: Network on open is no longer an abort, see SyncReconnectTests)
     [Theory(Timeout = TestTimeouts.PerTestMilliseconds)]
-    [InlineData(MailTransportFailure.Network)]
     [InlineData(MailTransportFailure.Authentication)]
-    public async Task Network_and_authentication_failures_on_open_abort_before_the_next_folder(MailTransportFailure failure)
+    public async Task Authentication_failures_on_open_abort_before_the_next_folder(MailTransportFailure failure)
     {
         (SyncHarness harness, _, FakeMailFolder junk) = await StartAsync();
         await using SyncHarness lifetime = harness;
