@@ -249,6 +249,21 @@ no personal data). `S(x)` = `RandomDomainScorer.Score(x)`.
 Positive controls: case 22 must fail if alignment is ignored; case 21 must fail if any header other than index 0 is
 used; case 16 must fail if contacts bypass authentication.
 
+## Planner decisions 2026-10-31 (verify.1) – binding, supersede the text above where they differ
+Source: builder open questions (`impl-notes.md`), tester assumptions (`test-plan.md`).
+
+| # | Decision | Builder | Tester |
+|---|---|---|---|
+| C1 | `dmarc=bestguesspass` (Outlook.com, no DMARC record) stays `Unknown`. Re-evaluated in AP-07b against real headers. | keep | none |
+| C2 | `hardfail` → `Fail` (obsolete RFC 5451 synonym); all other unknown verdict words → `Unknown` (case 6 unchanged). | keep | optional: `spf=hardfail` → Fail |
+| C3 | The keyword `none` is never taken as AuthServId (`"none"` alone → `Empty`); otherwise case 5 as written. | keep | none |
+| C4 | Known false positive of `display-name-mismatch`: names like `J.Doe` / `Mr.Smith` match the "domain-like token" rule (+20). Accepted for AP-07a; the rule is refined in AP-07b with real mail data (e.g. known-TLD list). | keep | do not test `J.Doe` either way |
+| C5 | Duplicate signal ids are compared case-insensitively (`"a"` and `"A"` → ArgumentException, extends case 28). | keep | optional |
+| C6 | Freemail = From domain **or** its organisational domain in `FreemailDomains` (`mail.gmx.net` is freemail); same for Reply-To. | keep | none |
+| C7 | Reply-To without a usable domain (no `@`) → no `reply-to-mismatch` finding. | keep | none |
+| C8 | Confirmed tester readings: contact + AuthStatus Unknown → always LikelyLegit (never better, never worse); Reply-To freemail while From is freemail too and not aligned → +10 (the +15 needs a non-freemail From). | keep | as written |
+| C9 | Middle tier of `random-domain`: a label with `0.5 ≤ S < 0.8` gives +15. | keep | new case 10a: pick a label, first assert `0.5 ≤ S(label) < 0.8`, then classify a sender with that label → `random-domain` +15 |
+
 ## Done criteria
 - Builder: only new files under `src\MailWarden.Core\Classification\`; build `-warnaserror` green; probe program
   under `_scratch\` (git-ignored) runs cases 10–14 and prints the scores; `work\AP-07a\impl-notes.md` with the
