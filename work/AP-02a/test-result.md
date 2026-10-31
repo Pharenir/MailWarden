@@ -17,3 +17,9 @@
 - Build `dotnet build MailWarden.sln -warnaserror`: 0 warnings, 0 errors.
 - S3 (full suite via watchdog): **PASS** - 242 total, 242 passed, 0 failed, 0 skipped (verify.1: 237, +5 new). Duration ~3.4 s.
 - Failures: none. Cases 28-30 remain manual (Dennis).
+
+## verify.3 (2026-10-31)
+- Merge `test/ap-02a-accounts-auth` (c53f5d4: case 25c) in `feat/ap-02a-accounts-auth`: conflict-free.
+- Build `dotnet build MailWarden.sln -warnaserror`: 0 warnings, 0 errors.
+- S3 (full suite via watchdog): **PASS** - 243 total, 243 passed, 0 failed, 0 skipped (verify.2: 242, +1 new). Duration ~3.5 s.
+- Failures: none. Cases 28-30 remain manual (Dennis).

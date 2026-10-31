@@ -184,3 +184,50 @@ Grundlage: `requirement.md` @ `9600019` (A9–A18), `impl-notes.md` Abschnitt fi
 - Getestet: nichts ausgeführt (reines Code-Review am eingefrorenen Stand `9600019`).
 - Ungetestet/vermutlich korrekt: ob MSAL Ausnahmen aus dem AfterAccess-Callback unverändert durchreicht (Builder hat
   nur Load beobachtet); der State-Roundtrip mit dem echten Google-Redirect (Fall 28/30).
+
+## review.3 (2026-10-31)
+
+**Urteil: APPROVE**
+
+Umfang: `git diff 8466708 a42df9c -- src` (fix.3, A19/A20); `src` am Worktree-HEAD `0c5a008` gegenüber `a42df9c`
+unverändert. Nichts unter `tests\` gelesen. Build `dotnet build MailWarden.sln -warnaserror` am Worktree: 0 Warnungen,
+0 Fehler.
+
+**A19 – korrekt umgesetzt**
+- `AccountService.cs:153` ruft jetzt `SignOutBestEffortAsync(tokenProvider, signedInAddress)` auf. Damit gleicht der
+  Re-Auth-Pfad den beiden Aufräumstellen in `AddAccountAsync` (`:83`, `:99`). Eine `AuthenticationFailedException` des
+  SignOut ersetzt AccessDenied/`OtherAccountMessage` nicht mehr (`:156`). Andere Ausnahmen laufen weiter durch, wie in
+  der Entscheidung vorgesehen.
+- Konsistenz: Im Projekt gibt es nur noch zwei `SignOutAsync`-Aufrufe, `:180` (Entfernen, bewusst mit `ct`) und `:202`
+  (Helfer, `CancellationToken.None`). Alle Pfade „frischer Grant darf nicht bleiben“ laufen jetzt über den Helfer.
+  Keine Doppelung.
+- Cancellation: Es geht keine Semantik verloren. Vorher konnte ein Abbruch genau während des SignOut eine
+  `OperationCanceledException` liefern und den falschen Grant liegen lassen. Jetzt läuft das Aufräumen zu Ende und das
+  Ergebnis ist AccessDenied. Ein Abbruch vor dem Aufräumen wird weiterhin beachtet: `RequireAccountAsync` und
+  `SignInInteractiveAsync` vor der Anmeldung sowie `FindByAddressAsync(…, ct)` in `:150` danach (bekannter Randfall
+  review.2 NIT 2 → A18-TODO). Das Verhalten entspricht `AddAccountAsync` (`:74`).
+- Die Methodendoku `:122-126` stimmt weiterhin, so wie es A19 verlangt („Doku bleibt“).
+
+**A20 – Kommentare zutreffend**
+- `AccountService.cs:194-197` (Helfer): beschreibt das Verhalten genau (`CancellationToken.None`, es wird nur
+  `AuthenticationFailedException` geschluckt, andere Ausnahmen ersetzen das Ergebnis, Grant kann liegen bleiben →
+  TODO). Der Re-Auth-Fall ist in der Aufzählung ergänzt.
+- `AccountService.cs:184-187` (Entfernen): inhaltlich richtig, siehe NIT 1.
+- `DpapiCredentialStore.cs:16-18`: „exactly one instance per directory (all token providers share it)“ passt zu A20.
+  Der zugehörige Punkt steht im Haupt-Checkout in `TODO.md:19` (AP-04 Composition Root).
+
+**NIT**
+1. `AccountService.cs:185-186`: „The grant may **then** remain on disk“ steht direkt nach dem Satz über durchlaufende
+   Ausnahmen. Man kann es deshalb so lesen, als sei der Fall „Ausnahme läuft durch, Konto bleibt“ gemeint. Gemeint ist
+   aber der geschluckte Fall: gesperrte Datei → `credential_store_unavailable` → Konto gelöscht, Grant bleibt.
+   Vorschlag: „When it is swallowed, the grant may remain on disk …“. Rein redaktionell, keine neue Runde nötig.
+
+**Hinweis (außerhalb des Diffs, kein Befund für dieses AP)**
+- `AccountService.cs:48-51` (Add) und `:124-125` (Re-Auth) sagen „the new grant is signed out again“. Seit A13/A19 ist
+  das best effort: Eine geschluckte `AuthenticationFailedException` kann den Grant liegen lassen. Die beiden Stellen
+  sind untereinander konsistent, und A19 hat die Doku ausdrücklich so belassen. Optional mit dem A18-TODO nachziehen.
+
+### Getestet / ungetestet (Reviewer)
+- Getestet: Build `-warnaserror` am Worktree-HEAD (grün). Keine Tests ausgeführt.
+- Ungetestet/vermutlich korrekt: Abbruch durch den Aufrufer zwischen Anmeldung und Aufräumen im Re-Auth-Pfad (nur
+  durch Lesen des Codes geprüft).
