@@ -19,3 +19,14 @@ INBOX/Junk/Sent/Trash/Zeta. Merged with --no-ff, rerun green. No implementation 
 ## Notes
 - Case 18 (real accounts) remains with the planner. Case 15: no ConnectionProbe unit test exists.
 - `.test-logs\durations.jsonl` not written (worktree has no history; S3 counter reset is up to the coordinator).
+
+## verify.2 (fix.2, cases 19-22): PASS
+Commit under test: bb6a746 (feat b5e0bfc + e28523a, test merge). Build -warnaserror green; S3 via watchdog, about 4 s.
+
+| Project | Total | Passed | Failed |
+|---|---|---|---|
+| MailWarden.Core.Tests | 360 | 360 | 0 |
+| MailWarden.Infrastructure.Tests | 443 | 443 | 0 |
+
+No failures, no test corrections needed. Cases 19-22 green; no existing reconnect test needed adjusting.
+Case 22 approximates the vanished UID via the fake (MailKit 4.18.2 gives no callback for it, per builder K4).
