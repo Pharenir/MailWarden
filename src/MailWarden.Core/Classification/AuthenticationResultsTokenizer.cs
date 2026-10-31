@@ -26,7 +26,7 @@ internal readonly record struct HeaderToken(HeaderTokenKind Kind, string Text, b
 
 /// <summary>
 /// Hand-written single-pass tokenizer (no regex, linear time) for untrusted header values. Comments "(...)" are
-/// dropped (nested, with backslash escapes), quoted strings become one Word with escapes resolved, whitespace and
+/// dropped (nested, with backslash escapes, quoted strings inside them opaque), quoted strings become one Word with escapes resolved, whitespace and
 /// control characters (incl. folded line breaks) separate tokens. Unterminated comments/quotes end at the input end.
 /// </summary>
 internal static class AuthenticationResultsTokenizer
@@ -101,6 +101,9 @@ internal static class AuthenticationResultsTokenizer
     }
 
     // position points at '('; returns the index after the matching ')' or the input length.
+    // C25: quoted strings inside a comment are opaque – a ')' or '(' inside "..." neither closes nor opens a comment
+    // (the provider may copy a quoted local part into its comment). An unterminated quoted string runs to the input
+    // end. Still one pass: every character is visited once.
     private static int SkipComment(string text, int position)
     {
         var depth = 0;
@@ -110,6 +113,12 @@ internal static class AuthenticationResultsTokenizer
             if (character == '\\')
             {
                 position += 2;
+                continue;
+            }
+
+            if (character == '"')
+            {
+                position = ReadQuotedString(text, position, out _);
                 continue;
             }
 

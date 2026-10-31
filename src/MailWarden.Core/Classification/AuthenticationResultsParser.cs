@@ -19,7 +19,10 @@ public static class AuthenticationResultsParser
     /// A property value is one contiguous run after "key=" up to whitespace, ';' or '(' outside quotes (quoted parts
     /// included); a '=' or "dmarc="/"dkim="/"spf=" inside a value never starts a new pair or result. The domain of a
     /// value is the part after the last '@' outside quotes; a value whose '@' signs are all quoted has no domain. A
-    /// value that is exactly one quoted string is unquoted first.
+    /// value that is exactly one quoted string is unquoted first. In a property value, a following word that starts
+    /// with '@' and is not itself a key is appended even after whitespace or a comment (RFC 5322 CFWS before
+    /// "@domain"). "key=" followed by whitespace and another "key=", or standing at the end of a statement, is an
+    /// empty value; a method with an empty verdict ("dmarc=;") is not kept as a result.
     /// Only the first SPF and the first DMARC result are kept; all DKIM results are kept in header order.
     /// Never throws for malformed content – returns what could be parsed (worst case <see cref="AuthenticationResults.Empty"/>).
     /// </summary>
@@ -82,7 +85,8 @@ public static class AuthenticationResultsParser
     // Reads "key=value" pairs; the first pair is the method, later pairs are its properties, unless a later key is
     // spf/dkim/dmarc again (missing ';'). Stray tokens (version numbers) are skipped. A value is one contiguous run
     // (see ReadValue), so '=' or "dmarc=" inside a value never starts a new pair or result. "key=" at the end of the
-    // statement is a present property with an empty value (C21).
+    // statement is a present property with an empty value (C21). A method with an empty verdict still collects its
+    // properties but is never kept (C26), so a later real result of the same method counts.
     private static void ParseStatement(List<HeaderToken> tokens, int start, int end, ResultCollector collector)
     {
         PendingMethod? currentMethod = null;
@@ -106,14 +110,15 @@ public static class AuthenticationResultsParser
             else
             {
                 collector.Add(currentMethod);
-                currentMethod = new PendingMethod(GetMethodName(key), ParseVerdict(value.Text));
+                currentMethod = new PendingMethod(
+                    GetMethodName(key), ParseVerdict(value.Text), hasVerdict: !string.IsNullOrWhiteSpace(value.Text));
             }
         }
 
         collector.Add(currentMethod);
     }
 
-    // A Word directly followed by '=' (whitespace in between allowed, e.g. "dkim = pass").
+    // A Word followed by '=' (whitespace in between allowed, e.g. "dkim = pass").
     private static bool IsKeyAt(List<HeaderToken> tokens, int position, int end)
     {
         return position + 1 < end
@@ -272,11 +277,14 @@ public static class AuthenticationResultsParser
     private readonly record struct PropertyValue(string Text, string? DomainPart);
 
     /// <summary>One method result while its properties are being read.</summary>
-    private sealed class PendingMethod(string name, AuthVerdict verdict)
+    private sealed class PendingMethod(string name, AuthVerdict verdict, bool hasVerdict)
     {
         public string Name { get; } = name;
 
         public AuthVerdict Verdict { get; } = verdict;
+
+        // False for an empty verdict value ("dmarc=;"): such a method is never kept (C26).
+        public bool HasVerdict { get; } = hasVerdict;
 
         public PropertyValue? SmtpMailFrom { get; private set; }
 
@@ -320,7 +328,12 @@ public static class AuthenticationResultsParser
 
         public void Add(PendingMethod? method)
         {
-            switch (method?.Name)
+            if (method is null || !method.HasVerdict)
+            {
+                return;
+            }
+
+            switch (method.Name)
             {
                 case "spf":
                     spfResult ??= new AuthMethodResult(method.Verdict, ToDomain(method.SmtpMailFrom));
