@@ -123,6 +123,14 @@ Fall 30 (AuthProbe abbrechen) bleibt vorerst offen (Dennis 2026-10-31).
 - **AP-03a fix.3 Gate erreicht** (`fix/ap-03a-missed-uids` @ `a221b2e`): verify.1 S3 761/761 (Core 360, Infrastructure
   401), review-fix3 APPROVE (SHOULDs = Doku, vom Planer erledigt), echte Konten auf Datenkopie: 0 abweichende Ordner.
   Gemergt (`2e1420a`), S3 auf `main` 761/761, gepusht; echte `probe-data` nachgeprüft: 0 abweichende Ordner.
+- **AP-03b Gate erreicht** (`feat/ap-03b-sync-robust-fast` @ `7938a29`, Worktrees `feat-ap-03b`/`test-ap-03b`):
+  verify.2 S3 803/803 (Core 360, Infrastructure 443), review.1 + review.2 APPROVE, keine Security-Prüfung (nur lesend,
+  keine neuen Datenablagen – Planer-Entscheidung), Fall 18 echte Konten ≈ 14 Mails/s (vorher ≈ 4), 0 abweichende Ordner;
+  B6 mit AuthProbe gegen echte Server geprüft. Wartet auf CPM: `chore/session-handover-4` → `feat/ap-03b-…` (`--no-ff`),
+  danach SyncProbe mit Fortschritt aus `.worktrees\feat-ap-03b\_scratch\sync-probe` nach `_scratch\sync-probe` kopieren.
+  Hinweis: Builder hat einmal selbst Tests gestartet (Selbstkontrolle, gegen die Regel „nur Tester“).
+- Kosten Sitzung 3, Fortsetzung: fix.3 Builder ×1, Tester ×2 (+1), Reviewer ×1 · S3 main ×1 · AP-03b Builder ×1 (+1),
+  Tester ×1 (+3), Reviewer ×2, Documenter ×1
 
 ### Vertagt aus AP-03a (review.1/secure.1, Details `work\AP-03a\requirement.md` „Decisions fix.2“)
 **In AP-03b aufgenommen (2026-10-31, `work\AP-03b\requirement.md`):** gemeinsamer IMAP-Code (B6), Reconnect nach
