@@ -16,7 +16,9 @@ namespace MailWarden.Infrastructure.Auth;
 /// browser; scopes <c>https://mail.google.com/</c>, <c>openid</c>, <c>email</c>. The signed-in address is taken
 /// from the validated ID token (signature, issuer, audience = client id, expiry, verified email), never from the
 /// hint. The token response (incl. refresh token, without ID token) is stored in the credential store under
-/// <c>google.&lt;lower-case address&gt;</c> (characters outside the key alphabet replaced by '_').
+/// <c>google.&lt;lower-case hex SHA-256 of the normalised address&gt;</c>. An interactive sign-in that does not
+/// complete within the sign-in timeout (default 5 minutes) fails with <see cref="AuthFailureReason.Unknown"/> and
+/// provider error code <c>sign_in_timeout</c>.
 /// </summary>
 public sealed class GoogleTokenProvider : ITokenProvider
 {
@@ -32,17 +34,29 @@ public sealed class GoogleTokenProvider : ITokenProvider
 
     private readonly AuthConfiguration configuration;
     private readonly ICredentialStore credentialStore;
+    private readonly TimeSpan interactiveSignInTimeout;
 
     /// <summary>Creates the provider. Configuration is checked on first use.</summary>
     /// <param name="configuration">Client configuration (Google client id and secret).</param>
     /// <param name="credentialStore">Store for the token responses.</param>
+    /// <param name="interactiveSignInTimeout">
+    /// Time limit of <see cref="SignInInteractiveAsync"/>; null = 5 minutes. When it expires the sign-in fails with
+    /// <see cref="AuthFailureReason.Unknown"/> and provider error code <c>sign_in_timeout</c>.
+    /// </param>
     /// <exception cref="ArgumentNullException">A parameter is null.</exception>
-    public GoogleTokenProvider(AuthConfiguration configuration, ICredentialStore credentialStore)
+    /// <exception cref="ArgumentOutOfRangeException">The timeout is not positive or too large.</exception>
+    public GoogleTokenProvider(
+        AuthConfiguration configuration,
+        ICredentialStore credentialStore,
+        TimeSpan? interactiveSignInTimeout = null)
     {
         ArgumentNullException.ThrowIfNull(configuration);
         ArgumentNullException.ThrowIfNull(credentialStore);
         this.configuration = configuration;
         this.credentialStore = credentialStore;
+        this.interactiveSignInTimeout = InteractiveSignInTimeout.Resolve(
+            interactiveSignInTimeout,
+            nameof(interactiveSignInTimeout));
     }
 
     /// <inheritdoc />
@@ -92,13 +106,32 @@ public sealed class GoogleTokenProvider : ITokenProvider
     public async Task<AccessToken> SignInInteractiveAsync(string? loginHint, CancellationToken ct = default)
     {
         (string clientId, _) = configuration.RequireGoogleClient();
+
+        // The whole browser round trip is bounded: an error page that never redirects (e.g. the 403 of an
+        // unpublished app) would otherwise keep the loopback listener waiting until the caller cancels.
+        return await InteractiveSignInTimeout.RunAsync(
+            Provider,
+            interactiveSignInTimeout,
+            signInCt => SignInWithBrowserAsync(loginHint, clientId, signInCt),
+            ct).ConfigureAwait(false);
+    }
+
+    /// <inheritdoc />
+    public async Task SignOutAsync(string username, CancellationToken ct = default)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(username);
+        await credentialStore.DeleteAsync(CredentialKeyFor(username.Trim()), ct).ConfigureAwait(false);
+    }
+
+    // Browser → loopback listener → authorization code (+ PKCE verifier) → token response → validated address.
+    private async Task<AccessToken> SignInWithBrowserAsync(string? loginHint, string clientId, CancellationToken ct)
+    {
         return await TranslateFailuresAsync(
             async () =>
             {
                 using PkceGoogleAuthorizationCodeFlow flow = CreateFlow(
                     string.IsNullOrWhiteSpace(loginHint) ? null : loginHint.Trim());
 
-                // Browser → loopback listener → authorization code (+ PKCE verifier) → token response.
                 var codeReceiver = new LocalServerCodeReceiver();
                 string redirectUri = codeReceiver.RedirectUri;
                 AuthorizationCodeRequestUrl authorizationRequest =
@@ -141,29 +174,17 @@ public sealed class GoogleTokenProvider : ITokenProvider
             ct).ConfigureAwait(false);
     }
 
-    /// <inheritdoc />
-    public async Task SignOutAsync(string username, CancellationToken ct = default)
-    {
-        ArgumentException.ThrowIfNullOrWhiteSpace(username);
-        await credentialStore.DeleteAsync(CredentialKeyFor(username.Trim()), ct).ConfigureAwait(false);
-    }
-
     /// <summary>
-    /// Credential store key for an address: <c>google.</c> + lower-case address, characters outside
-    /// <c>[A-Za-z0-9._-]</c> replaced by '_'.
+    /// Credential store key for an address: <c>google.</c> + lower-case hex SHA-256 of the UTF-8 address after
+    /// trimming and lower-casing (71 characters). Collision-free, independent of address length and case, and keeps
+    /// the address out of the file name.
     /// </summary>
     /// <param name="emailAddress">Account address.</param>
     /// <returns>The credential store key.</returns>
     internal static string CredentialKeyFor(string emailAddress)
     {
-        var key = new StringBuilder(CredentialKeyPrefix, CredentialKeyPrefix.Length + emailAddress.Length);
-        foreach (char character in emailAddress.ToLowerInvariant())
-        {
-            bool allowed = char.IsAsciiLetterOrDigit(character) || character is '.' or '_' or '-';
-            key.Append(allowed ? character : '_');
-        }
-
-        return key.ToString();
+        byte[] addressBytes = Encoding.UTF8.GetBytes(emailAddress.Trim().ToLowerInvariant());
+        return CredentialKeyPrefix + Convert.ToHexStringLower(SHA256.HashData(addressBytes));
     }
 
     private PkceGoogleAuthorizationCodeFlow CreateFlow(string? loginHint)

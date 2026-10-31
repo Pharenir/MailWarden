@@ -3,8 +3,14 @@ namespace MailWarden.Core.Accounts;
 /// <summary>
 /// Secret storage (OAuth token caches, refresh tokens). The only place where credentials are persisted.
 /// Keys consist of 1–128 characters of <c>[A-Za-z0-9._-]</c>; any other key is rejected with
-/// <see cref="ArgumentException"/> (<see cref="ArgumentNullException"/> for null) by every method.
+/// <see cref="ArgumentException"/> (<see cref="ArgumentNullException"/> for null) by <see cref="ReadAsync"/>,
+/// <see cref="WriteAsync"/> and <see cref="DeleteAsync"/> (prefix rules of <see cref="ListKeysAsync"/> see there).
 /// </summary>
+/// <remarks>
+/// Implementations may treat keys case-insensitively (the DPAPI file store does, because NTFS file names are
+/// case-insensitive): keys that differ only in case may address the same secret. Callers therefore use lower-case
+/// keys only.
+/// </remarks>
 public interface ICredentialStore
 {
     /// <summary>Reads a secret.</summary>
@@ -27,8 +33,11 @@ public interface ICredentialStore
     /// <returns>A task that completes when the secret is deleted.</returns>
     Task DeleteAsync(string key, CancellationToken ct = default);
 
-    /// <summary>Lists the keys that start with a prefix.</summary>
-    /// <param name="prefix">Key prefix (same alphabet and length rules as a key).</param>
+    /// <summary>Lists the keys that start with a prefix (ordinal comparison).</summary>
+    /// <param name="prefix">
+    /// Key prefix: <c>""</c> lists all keys; a non-empty prefix must use the key alphabet and be at most 128
+    /// characters, otherwise <see cref="ArgumentException"/>; null → <see cref="ArgumentNullException"/>.
+    /// </param>
     /// <param name="ct">Cancellation token.</param>
     /// <returns>Matching keys, sorted ordinally.</returns>
     Task<IReadOnlyList<string>> ListKeysAsync(string prefix, CancellationToken ct = default);

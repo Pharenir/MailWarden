@@ -9,6 +9,9 @@ namespace MailWarden.Infrastructure.Auth;
 /// </summary>
 internal static class AuthFailures
 {
+    /// <summary>Provider error code of an interactive sign-in that timed out.</summary>
+    public const string SignInTimeoutCode = "sign_in_timeout";
+
     /// <summary>Creates the exception with the standard message for the reason.</summary>
     /// <param name="provider">Provider whose sign-in failed.</param>
     /// <param name="reason">Failure reason.</param>
@@ -29,14 +32,36 @@ internal static class AuthFailures
             inner);
     }
 
-    private static string MessageFor(MailProvider provider, AuthFailureReason reason)
+    /// <summary>
+    /// Creates the exception for an interactive sign-in that did not complete within its timeout
+    /// (<see cref="AuthFailureReason.Unknown"/>, code <see cref="SignInTimeoutCode"/>, own fixed sentence).
+    /// </summary>
+    /// <param name="provider">Provider whose sign-in timed out.</param>
+    /// <param name="inner">Exception raised by the aborted sign-in, or null.</param>
+    /// <returns>The exception to throw.</returns>
+    public static AuthenticationFailedException SignInTimeout(MailProvider provider, Exception? inner = null)
     {
-        string providerName = provider switch
+        return new AuthenticationFailedException(
+            provider,
+            AuthFailureReason.Unknown,
+            $"{ProviderName(provider)} sign-in timed out because the browser did not return to MailWarden in time.",
+            SignInTimeoutCode,
+            inner);
+    }
+
+    private static string ProviderName(MailProvider provider)
+    {
+        return provider switch
         {
             MailProvider.Microsoft => "Microsoft",
             MailProvider.Google => "Google",
             _ => "The",
         };
+    }
+
+    private static string MessageFor(MailProvider provider, AuthFailureReason reason)
+    {
+        string providerName = ProviderName(provider);
 
         return reason switch
         {

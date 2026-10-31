@@ -16,9 +16,9 @@ public static class FolderRoleResolver
     private const string MicrosoftArchiveName = "Archive";
     private const string MicrosoftSyncIssuesName = "Synchronisierungsprobleme";
 
-    // Outlook.com top-level folders without mail relevance (AP-00 findings).
+    // Outlook.com top-level folders without mail relevance (AP-00 findings); compared case-insensitively.
     private static readonly HashSet<string> MicrosoftHiddenTopLevelNames =
-        new(StringComparer.Ordinal) { "Notes", "Outbox", "Scheduled", MicrosoftSyncIssuesName };
+        new(StringComparer.OrdinalIgnoreCase) { "Notes", "Outbox", "Scheduled", MicrosoftSyncIssuesName };
 
     // Special-use flags in precedence order; the first match decides the role.
     private static readonly (ServerFolderFlags Flag, FolderClassification Classification)[] RoleFlags =
@@ -42,8 +42,8 @@ public static class FolderRoleResolver
     ///    Flagged or Important without one of these → (None, hidden).
     /// 3. Name "INBOX" (case-insensitive) → Inbox.
     /// 4. Top-level "Screener" / "Quarantine" (exact) → Screener / Quarantine.
-    /// 5. Microsoft only: top-level "Archive" → Archive; top-level "Notes", "Outbox", "Scheduled",
-    ///    "Synchronisierungsprobleme" and the children of the latter → (None, hidden).
+    /// 5. Microsoft only (names case-insensitive): top-level "Archive" → Archive; top-level "Notes", "Outbox",
+    ///    "Scheduled", "Synchronisierungsprobleme" and the children of the latter → (None, hidden).
     /// 6. Everything else → (None, visible).
     /// </summary>
     /// <param name="provider">Provider of the account the folder belongs to.</param>
@@ -99,10 +99,10 @@ public static class FolderRoleResolver
             return new FolderClassification(FolderRole.Quarantine, Hidden: false);
         }
 
-        // Rule 5: Outlook.com folders that carry no flag.
+        // Rule 5: Outlook.com folders that carry no flag (names case-insensitive, OUTBOX = Outbox).
         if (provider == MailProvider.Microsoft)
         {
-            if (isTopLevel && fullName == MicrosoftArchiveName)
+            if (isTopLevel && string.Equals(fullName, MicrosoftArchiveName, StringComparison.OrdinalIgnoreCase))
             {
                 return new FolderClassification(FolderRole.Archive, Hidden: false);
             }
@@ -112,7 +112,7 @@ public static class FolderRoleResolver
                 return HiddenWithoutRole;
             }
 
-            if (fullName.StartsWith(MicrosoftSyncIssuesName + separator, StringComparison.Ordinal))
+            if (fullName.StartsWith(MicrosoftSyncIssuesName + separator, StringComparison.OrdinalIgnoreCase))
             {
                 return HiddenWithoutRole;
             }

@@ -11,8 +11,8 @@ namespace MailWarden.Infrastructure.Security;
 /// are atomic (temporary file + replace). The directory is created on the first write.
 /// </summary>
 /// <remarks>
-/// Keys are case-sensitive in the contract, but the file system is not: two keys that differ only in case address
-/// the same file.
+/// Keys are effectively case-insensitive here because NTFS is: two keys that differ only in case address the same
+/// file. Callers use lower-case keys (see <see cref="ICredentialStore"/>).
 /// </remarks>
 public sealed class DpapiCredentialStore : ICredentialStore
 {
@@ -131,7 +131,13 @@ public sealed class DpapiCredentialStore : ICredentialStore
     /// <inheritdoc />
     public Task<IReadOnlyList<string>> ListKeysAsync(string prefix, CancellationToken ct = default)
     {
-        ValidateKey(prefix, nameof(prefix));
+        // "" lists every key; a non-empty prefix follows the key rules.
+        ArgumentNullException.ThrowIfNull(prefix);
+        if (prefix.Length > 0)
+        {
+            ValidateKey(prefix, nameof(prefix));
+        }
+
         ct.ThrowIfCancellationRequested();
         if (!Directory.Exists(directory))
         {
