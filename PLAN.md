@@ -168,11 +168,11 @@ Vollständiger Schnittstellenvertrag: `work\AP-03a\requirement.md`.
 ### AP-07b Kalibrierung + Einstellungsdatei
 | # | Sollverhalten | Umgesetzt | Getestet |
 |---|---|---|---|
-| 1 | `dmarc=fail` mit `compauth=pass` (Microsoft) → Status „nicht verifiziert“ statt „fehlgeschlagen“, 0 Punkte mit Begründung; ohne `compauth=pass` bleibt DMARC fail unüberstimmbar | ✅ `AuthenticationResults.cs` (`CompAuth`), `AuthenticationResultsParser.cs`, `AuthStatusEvaluator.cs`, `Signals\AuthenticationSignal.cs` | |
-| 2 | `dmarc=bestguesspass` → wie kein DMARC-Ergebnis; `dkim=timeout` → TempError | ✅ `AuthenticationResultsParser.cs` (`ParseVerdict`, gilt für alle Methoden) | |
-| 3 | Bei authentifizierten Mails geben `link-domain-mismatch`, `domain-not-in-body` und die schwache Stufe von `random-domain` keine Punkte; bei nicht authentifizierten unverändert | ✅ `Signals\LinkDomainMismatchSignal.cs`, `Signals\DomainNotInBodySignal.cs`, `Signals\RandomDomainSignal.cs` | |
-| 4 | `classifier-settings.json`: fehlt → Standardwerte; einzelne Schlüssel überschreiben Standardwerte; unbekannter Schlüssel, falscher Typ oder ungültige Schwellen → Fehler beim Laden mit Schlüsselname | ✅ `Infrastructure\Classification\ClassifierSettingsFile.cs` (bei ungültigen Schwellen nennt die Meldung den Eigenschaftsnamen aus `Validate()`, F3 akzeptiert; zusätzlich doppelter Schlüssel → Fehler) | |
-| 5 | PstProbe-Lauf nach der Änderung: Fehlalarm aus Befund `compauth` behoben, Junk-Erkennung nicht schlechter | | Planer (PstProbe) |
+| 1 | `dmarc=fail` mit `compauth=pass` (Microsoft) → Status „nicht verifiziert“ statt „fehlgeschlagen“, 0 Punkte mit Begründung; ohne `compauth=pass` bleibt DMARC fail unüberstimmbar | ✅ `AuthenticationResults.cs` (`CompAuth`), `AuthenticationResultsParser.cs`, `AuthStatusEvaluator.cs`, `Signals\AuthenticationSignal.cs` | ✅ `CompAuthAndVerdictTokenTests` (1–5) – verify.2 395/395 |
+| 2 | `dmarc=bestguesspass` → wie kein DMARC-Ergebnis; `dkim=timeout` → TempError | ✅ `AuthenticationResultsParser.cs` (`ParseVerdict`, gilt für alle Methoden) | ✅ `CompAuthAndVerdictTokenTests` (6–7) |
+| 3 | Bei authentifizierten Mails geben `link-domain-mismatch`, `domain-not-in-body` und die schwache Stufe von `random-domain` keine Punkte; bei nicht authentifizierten unverändert | ✅ `Signals\LinkDomainMismatchSignal.cs`, `Signals\DomainNotInBodySignal.cs`, `Signals\RandomDomainSignal.cs` | ✅ `AuthGatedContentSignalTests` (8–12) |
+| 4 | `classifier-settings.json`: fehlt → Standardwerte; einzelne Schlüssel überschreiben Standardwerte; unbekannter Schlüssel, falscher Typ oder ungültige Schwellen → Fehler beim Laden mit Schlüsselname | ✅ `Infrastructure\Classification\ClassifierSettingsFile.cs` (bei ungültigen Schwellen nennt die Meldung den Eigenschaftsnamen aus `Validate()`, F3 akzeptiert; zusätzlich doppelter Schlüssel → Fehler) | ✅ `ClassifierSettingsFileTests` (13–20) |
+| 5 | PstProbe-Lauf nach der Änderung: Fehlalarm aus Befund `compauth` behoben, Junk-Erkennung nicht schlechter | – | ✅ Planer 2026-10-31: andere Ordner LikelySpam 1 → 0, Junk unverändert 1 Certain / 3 Likely / 2 LikelyLegit |
 
 Vollständiger Schnittstellenvertrag: `work\AP-07b\requirement.md`.
 
