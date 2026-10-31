@@ -15,6 +15,11 @@ docs/
 
 # Runtime data (DB, EML store, settings) – never commit mail content
 data/
+*.db
+*.db-wal
+*.db-shm
+*.eml
+!tests/fixtures/**/*.eml
 
 # Build output
 bin/
