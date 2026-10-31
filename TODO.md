@@ -67,8 +67,8 @@ Original-Headern (Outlook.com); 1.870 ohne Header (vermutlich IMAP-/Gmail-Ordner
   zu secure M2 AP-03a und AP-02a-ACL-Punkt, 2026-10-31) → bewusst akzeptiert, keine Änderung
 
 ## Testzähler
-Testzähler: 0/4 seit letztem S3 (zuletzt 2026-10-31: S3 auf `main` @ `09b33b7` nach Merge von AP-03c,
-922/922 – Core.Tests 360, Infrastructure.Tests 562; Bericht `work\S3-main-2026-10-31-e.md`)
+Testzähler: 0/4 seit letztem S3 (zuletzt 2026-10-31: S3 auf `main` @ `3f74af0` nach Merge von AP-03d,
+964/964 – Core.Tests 360, Infrastructure.Tests 604; Bericht `work\S3-main-2026-10-31-f.md`)
 
 ## Stand 2026-10-31 (Session 2, Ende)
 **CPM erledigt:** `chore/app-icon`, AP-01, AP-07a, AP-02a per `--no-ff` nach `main` gemergt, Build grün
@@ -85,22 +85,27 @@ zusammengeführt. „Fertig“ im Sinne von Dennis erst nach seinen manuellen Pr
   secure.2 0/0/0/1 (N7 → TODO). AP-01 hineingemergt. Doku `docs\auth-setup.md` Abschnitt 4 (lokal), README,
   `.env.example` um Google-Variablen ergänzt. Offen: Dennis Fälle 28–30 mit AuthProbe.
 
-## Übergabe – so geht es weiter
-1. CPM Sitzung 3 erledigt (2026-10-31): `chore/session-handover`, AP-07b, AP-03a nach `main` (`e0481ef`), danach
-   `chore/manual-test-list` + `fix/ap-03a-missed-uids` (`2e1420a`); jeweils Build grün, S3 grün, gepusht.
-   Dieser Handover liegt auf `chore/session-handover-4` (lokal) → beim nächsten CPM mit nach `main`.
-2. Nach dem Merge von fix.3: `probe-data` auf Schema v3 migriert, fehlende Papierkorb-Mails (84/107) nachgeladen,
-   `_scratch\sync-check`: alle Ordner aller drei Konten deckungsgleich mit dem Server. Alle Worktrees und gemergten
-   Branches entfernt (nur `main` + Handover-Branch).
-   Werkzeuge in `_scratch\`: `auth-probe`, `sync-probe`, `sync-check` (Server-STATUS gegen lokalen Bestand, optional
-   Diagnose eines Ordners), `ClassifierProbe`, `PstProbe`. Client-Werte für Probes: `_scratchuth-spike\spike.env`
-   ins Terminal laden (siehe `work\manual-tests.md`).
-3. Nächste APs: AP-03b (Befehlswarteschlange, IDLE, Reconnect; Punkte „Vertagt aus AP-03a“), danach AP-07c
-   (Klassifizierer an Mails/Ordner); AP-04 (UI inkl. Konten-UI). Vor Start: Anforderung je AP (Planer).
-4. Aufgeräumt 2026-10-31 (Freigabe Dennis): alle sechs AP-Worktrees und sieben Branches (inkl. `chore/app-icon`)
-   entfernt, leere Datei `AuthenticationResultsParser.cs` gelöscht; Probe-DBs gab es keine mehr. AuthProbe und
-   ClassifierProbe vorher nach `_scratch\auth-probe` bzw. `_scratch\ClassifierProbe` im Hauptordner gerettet.
-   `MailWarden.sln` ohne BOM halten (`dotnet sln` fügt es wieder ein).
+## Übergabe – so geht es weiter (Sessionende 2026-10-31, Sitzung 3)
+1. **Stand `main`:** AP-01, AP-02a, AP-03a (inkl. fix.3), AP-03b, AP-03c, AP-03d, AP-07a, AP-07b gemergt und gepusht.
+   Die Abgleich-Schicht ist vollständig (lesen, Befehle schreiben, Hintergrunddienst); es gibt noch keine Oberfläche.
+   Letzter S3 auf `main` siehe Testzähler. Dieser Handover liegt auf `chore/session-handover-5` und ist mit dem
+   Sessionende-CPM nach `main` gemergt.
+2. **Nächstes AP (Empfehlung Planer, Dennis hat noch nicht entschieden):** AP-04 Oberfläche (Gruppenansichten,
+   Lesebereich mit bereinigtem HTML/WebView2, Konten-UI = AP-02b, Verdrahtung Dienst + Befehle) – vorher die Punkte
+   „Vertagt aus AP-03c/AP-03d (für AP-04)“ in die Anforderung übernehmen; Security-Prüfung einplanen. Alternative:
+   AP-07c (Klassifizierer an Mails/Ordner, Screener/Quarantäne anlegen = CREATE, Verschieben über die Warteschlange).
+   AP-04 ist groß → beim Planen in AP-04a/b teilen (z. B. a = Gerüst + Liste + Lesebereich, b = Konten-UI + Aktionen).
+3. **Werkzeuge in `_scratch\`** (git-ignoriert; Client-Werte vorher aus `_scratch\auth-spike\spike.env` ins Terminal
+   laden, siehe `work\manual-tests.md`): `auth-probe`, `sync-probe` (mit Fortschritt), `sync-check` (Server-STATUS
+   gegen lokalen Bestand, optional Diagnose eines Ordners), `command-probe` (nur geprüfte Junk-Mails, Freigabeliste
+   `command-probe-verified.json`), `shiftdel-probe` (eine Testmail per Betreff), `service-probe` (Hintergrunddienst),
+   `ClassifierProbe`, `PstProbe`. Offen: Probes `sync-probe`/`command-probe`/`shiftdel-probe` auf `DataFolderLock`
+   umstellen (die `service-probe` nutzt sie bereits).
+4. **Echte Daten:** `K:\Projekte\_private\MailWarden\probe-data` (Schema v4, mit dem Server deckungsgleich; die
+   Junk-Mails von Konto 2 sind im Fall-24-Test am Server gelöscht worden). Tests
+   gegen echte Konten immer auf einer Kopie; nur anonymisierte Zahlen ausgeben.
+5. `MailWarden.sln` ohne BOM halten (`dotnet sln` fügt es wieder ein). Python-Patchskripte: Backslashes in
+   Ersetzungstexten als Raw-String schreiben (ein `\a` wurde einmal zum Steuerzeichen).
 
 ## Worktrees (alle unter `.worktrees\`, git-ignoriert)
 Keine offen (alle nach Merge entfernt, Freigabe Dennis 2026-10-31).
@@ -170,8 +175,11 @@ Fall 30 (AuthProbe abbrechen) bleibt vorerst offen (Dennis 2026-10-31).
   Mails nur in den Papierkorb gebracht hat (kein COPYUID, Q1); fehlgeschlagene Befehle anzeigen/verwerfen
 - [ ] AP-04: F1 lädt beim Einreihen die UID-Map des ganzen Ordners (Performance bei großen Ordnern, review.2 NIT)
 - [ ] `command-probe-verified.json` (in `_private`) nach Abschluss der Junk-Tests löschen (Rückfrage Dennis)
+- AP-03d gemergt (`3f74af0`), S3 auf `main` 964/964, gepusht; Worktrees/Branches entfernt; ServiceProbe in
+  `_scratch\service-probe`.
 - Kosten Sitzung 3, Fortsetzung: fix.3 Builder ×1, Tester ×2 (+1), Reviewer ×1 · S3 main ×1 · AP-03b Builder ×1 (+1),
-  Tester ×1 (+3), Reviewer ×2, Documenter ×1
+  Tester ×1 (+3), Reviewer ×2, Documenter ×1 · S3 main ×3 (AP-03b, AP-03c, AP-03d) · AP-03c Builder ×1 (+2), Tester ×1
+  (+3), Reviewer ×2, Security ×1, Documenter ×1 · AP-03d Builder ×1 (+1), Tester ×1 (+3), Reviewer ×2, Documenter ×1
 
 ### Vertagt aus AP-03a (review.1/secure.1, Details `work\AP-03a\requirement.md` „Decisions fix.2“)
 **In AP-03b aufgenommen (2026-10-31, `work\AP-03b\requirement.md`):** gemeinsamer IMAP-Code (B6), Reconnect nach
