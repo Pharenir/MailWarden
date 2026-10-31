@@ -8,8 +8,8 @@ MailWarden is developed and used by a single person and is not offered as a serv
 Privacy policy: `PRIVACY.md` · Terms of service: `TERMS.md`.
 
 Status: early development (see `PLAN.md`). Implemented so far: solution skeleton, local storage layer (SQLite
-database and EML file store), the core of the spam classifier (a library in `MailWarden.Core`, not yet connected to
-any mail), account and sign-in library (OAuth for Outlook.com and Gmail, encrypted token storage, provider profiles
+database and EML file store), the core of the spam classifier (a library in `MailWarden.Core`, calibrated against real
+message headers and with a settings file loader; not yet connected to any mail), account and sign-in library (OAuth for Outlook.com and Gmail, encrypted token storage, provider profiles
 with a connection check) and an empty WinUI 3 main window. The account library has no user interface yet; account
 setup in the app comes with AP-04. There is no synchronisation and no inbox view yet; the classifier does not sort or
 move any mail yet.
@@ -50,6 +50,7 @@ Layout:
 | `mail\` | one `.eml` file per message |
 | `credentials\` | DPAPI-encrypted sign-in tokens, one `.bin` file per entry |
 | `auth-config.json` | optional OAuth client configuration (see Environment variables) |
+| `classifier-settings.json` | optional spam classifier settings (thresholds, lists); the loader exists, the app does not read the file yet (see `docs\classifier.md`) |
 | `logs\` | log files |
 
 On start the app creates the data folder itself. The database, `mail\` and `logs\` are created by the storage layer
