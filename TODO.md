@@ -96,7 +96,49 @@ zusammengeführt. „Fertig“ im Sinne von Dennis erst nach seinen manuellen Pr
    inkl. AP-02b Konten-UI). Vor Start: Anforderung je AP schreiben (Planer), Modellwahl wie bisher.
 
 ## Worktrees (alle unter `.worktrees\`, git-ignoriert)
-Keine aktiven.
+Abgezweigt von `chore/session-handover` @ `d39915b` (enthält Anforderungen AP-03a/AP-07b):
+| Worktree | Branch |
+|---|---|
+| `feat-ap-03a` | `feat/ap-03a-sync-down` |
+| `test-ap-03a` | `test/ap-03a-sync-down` |
+| `feat-ap-07b` | `feat/ap-07b-classifier-calibration` |
+| `test-ap-07b` | `test/ap-07b-classifier-calibration` |
+
+## Session 3 (2026-10-31)
+- AP-03 geteilt in AP-03a (Abgleich Server → lokal, Schema v2) und AP-03b (Befehlswarteschlange, IDLE); AP-07 in
+  AP-07b (Kalibrierung aus PstProbe + `classifier-settings.json`) und AP-07c (Anbindung an Mails/Ordner, nach AP-03b).
+  Grund: AP-07b ist unabhängig vom Sync und läuft parallel; AP-07c braucht die Befehlswarteschlange.
+- Planer-Entscheidungen AP-07b aus PstProbe-Daten (E1–E4 in `work\AP-07b\requirement.md`): `compauth=pass` neutralisiert
+  DMARC fail zu „nicht verifiziert“ (0 Punkte); Inhalts-Signale ohne Punkte bei authentifizierten Mails.
+- AP-03a: Erstabgleich Standard 90 Tage (`InitialSyncDays`, 0 = alles) – Ich bin mir unsicher, ob Dennis mehr will.
+- implement.1 + author.0 für beide APs gestartet.
+- **AP-07b Gate erreicht** (`feat/ap-07b-classifier-calibration`): verify.2 395/395 (S2), review.1 APPROVE, fix.2
+  (SHOULD 1 + NITs) erledigt, PstProbe: Fehlalarm weg, Junk unverändert; Doku (README, `docs\classifier.md` lokal).
+  Wartet auf CPM (zusammen mit AP-03a, ein S3).
+
+- **AP-03a Gate erreicht** (verify.1 S3 646/646, review.1 APPROVE, secure.1 0/0/2/4); fix.2 (F1–F7) läuft.
+
+### Vertagt aus AP-03a (review.1/secure.1, Details `work\AP-03a\requirement.md` „Decisions fix.2“)
+- [ ] **Entscheidung Dennis (secure M2):** Mails liegen im Klartext im Datenordner; `K:\` vererbt Lesezugriff für alle
+  angemeldeten Benutzer. Optionen: ACL ohne Vererbung (nur Dennis + SYSTEM) beim Anlegen des Datenordners, oder
+  Standard `%LOCALAPPDATA%\MailWarden`. Vor dem ersten echten Einsatz entscheiden.
+- [ ] AP-03b: gemeinsamer IMAP-Verbindungs-/Ordnerlisten-Code für `MailKitTransport` und `ConnectionProbe` (review SHOULD 2)
+- [ ] AP-03b: nach `ImapProtocolException` neu verbinden und mit dem nächsten Ordner weitermachen (Q4)
+- [ ] AP-03b/AP-05: rein lokale Rollen (Postausgang) von R1 ausnehmen (Q2)
+- [ ] AP-03b: `IEmlStore.DeleteFolderAsync`, Aufräumen verwaister EML/`*.tmp` beim Start; `secure_delete`/`VACUUM` erwägen (Q3, secure N4)
+- [ ] AP-03b: Metadaten aller Kandidaten in einem FETCH; ohne CONDSTORE holt jeder Lauf alle Flags; vorübergehendes
+  FETCH-null vs. `HighestSyncedUid` (review NITs)
+- [ ] AP-03b: Einzelmail-Fehler beim **ersten** Abgleich speichert einen Stand → nächster Lauf ohne Startfenster lädt
+  ältere UIDs über der fehlgeschlagenen einmalig nach (review.2 NIT; z. B. beim Erstabgleich mit Fehlern keinen Stand speichern)
+- [ ] AP-03b: Mail, die jedes Mal `ImapProtocolException` auslöst, blockiert weiter das Konto (MailKit trennt) → mit Reconnect lösen
+- [ ] AP-04: Logging-Regel `SyncReport` – nur Typ, Rolle, Ordner-ID; nie `Error`-Text oder Ordnername (secure N1)
+- [ ] UI-AP: Steuer-/Bidi-Zeichen (RTLO) in Betreff/Absendername/Ordnernamen beim Anzeigen entschärfen
+
+### Vertagt aus AP-07b
+- [ ] Eine Regel für alle Dateilader (AuthConfiguration, ClassifierSettingsFile, FileEmlStore): IO-Fehler mit
+  Dateiname einpacken, im Log nur Typ + eigene Meldung; `File.Exists` bei unlesbarer Datei (stiller Default) mitentscheiden
+  (AP-07c/AP-04)
+- [ ] Härtung: widersprüchliche `compauth`-Ergebnisse im obersten Header → None (review.1 P2)
 
 WinUI-App für Fall 30: im Projektordner `dotnet build MailWarden.sln`, dann
 `src\MailWarden.App\bin\x64\Debug\net9.0-windows10.0.19041.0\win-x64\MailWarden.App.exe` starten.
