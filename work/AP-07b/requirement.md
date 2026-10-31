@@ -124,3 +124,21 @@ updates them to the new contract (category c, documented in `test-result.md`).
 - Build `-warnaserror` green; S2 with the test filter green; README/`docs\classifier.md` updated by the documenter.
 - Planner re-runs the PstProbe (`_scratch\PstProbe`): the compauth false positive is gone; junk detection is not worse
   (4 of 6 messages in LikelySpam or CertainSpam).
+
+## Decisions fix.2 (planner, 2026-10-31, after verify.1 PASS 395/395 + review.1 APPROVE)
+- E5 (SHOULD 1, fix): make the truncation helper public in Core – `public static class DisplayText` in
+  `MailWarden.Core.Classification` with `public const int MaximumLength = 100` and `public static string Truncate(string value)`
+  (behaviour of today's `ReasonText.Truncate`: cut to 100 chars without splitting a surrogate pair, append "…").
+  `ReasonText.Truncate` delegates to it or is replaced by it; `ClassifierSettingsFile.InvalidKey` uses it. No
+  behaviour change.
+- E6 (NIT 2, fix): comment in `ClassifierSettingsFile` why the inner JsonException is kept (no secrets in this file).
+- E7 (NIT 3, fix): wrap the long string literal in `AuthenticationSignal.cs`.
+- NIT 1 / F2: no change here → TODO (one rule for all file loaders in AP-07c/AP-04: IO errors wrapped with file name
+  only, log only type + own message; decide `File.Exists` vs. unreadable file together).
+- F1: keep D1. F3: accepted, PLAN row 4 ✅.
+- P1: accepted – allow-listed sender in the E1 case becomes TrustedContact (Microsoft's composite auth is the
+  provider's own anti-spoofing verdict); documenter mentions it in `docs\classifier.md`.
+- P2: → TODO (hardening: contradicting compauth results → None).
+- P3: PstProbe run after implement.1 (planner): tiers unchanged except the compauth false positive (other folders
+  LikelySpam 1 → 0); junk 1 CertainSpam, 3 LikelySpam, 2 LikelyLegit (unchanged); the one authenticated junk message
+  keeps its tier.

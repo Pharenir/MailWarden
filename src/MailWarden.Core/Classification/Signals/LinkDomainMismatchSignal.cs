@@ -5,6 +5,7 @@ namespace MailWarden.Core.Classification.Signals;
 /// <summary>
 /// "link-domain-mismatch": non-freemail sender, at least one link host, and at least 80 % of the distinct link hosts
 /// (case-insensitive, trailing '.' ignored) are not aligned with the From domain → +10. Empty host values are ignored.
+/// Never for authenticated senders (AP-07b E3: legitimate mail links to trackers, CDNs and partners).
 /// </summary>
 internal sealed class LinkDomainMismatchSignal : ISpamSignal
 {
@@ -23,7 +24,7 @@ internal sealed class LinkDomainMismatchSignal : ISpamSignal
     /// <inheritdoc/>
     public SignalResult? Evaluate(ClassificationInput input, ClassificationContext context)
     {
-        if (context.FromIsFreemail)
+        if (context.FromIsFreemail || context.AuthStatus == AuthStatus.Authenticated)
         {
             return null;
         }

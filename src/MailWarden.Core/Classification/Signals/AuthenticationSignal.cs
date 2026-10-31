@@ -3,8 +3,9 @@ using System.Globalization;
 namespace MailWarden.Core.Classification.Signals;
 
 /// <summary>
-/// "authentication": −20 when authenticated; otherwise DMARC fail +40, SPF fail +20, SPF softfail +10, all DKIM
-/// signatures fail +20, capped at +50; no finding when nothing failed (e.g. no header).
+/// "authentication": −20 when authenticated; 0 points with an explaining reason when DMARC failed but Microsoft's
+/// compauth passed (AP-07b E1, no failure points at all); otherwise DMARC fail +40, SPF fail +20, SPF softfail +10,
+/// all DKIM signatures fail +20, capped at +50; no finding when nothing failed (e.g. no header).
 /// </summary>
 internal sealed class AuthenticationSignal : ISpamSignal
 {
@@ -12,6 +13,7 @@ internal sealed class AuthenticationSignal : ISpamSignal
     public const string SignalId = "authentication";
 
     private const int AuthenticatedPoints = -20;
+    private const int CompAuthOverrulePoints = 0;
     private const int DmarcFailPoints = 40;
     private const int SpfFailPoints = 20;
     private const int SpfSoftFailPoints = 10;
@@ -32,6 +34,17 @@ internal sealed class AuthenticationSignal : ISpamSignal
                 SignalId,
                 AuthenticatedPoints,
                 $"Sender domain '{ReasonText.Truncate(context.FromDomain)}' is authenticated: {passDescription}.");
+        }
+
+        // E1: the provider's composite authentication overrules its DMARC fail; no SPF/DKIM points either, the sender
+        // is only unverified. The finding is kept (0 points) so the "Why?" view explains the decision.
+        if (AuthStatusEvaluator.IsDmarcFailOverruledByCompAuth(authentication))
+        {
+            return new SignalResult(
+                SignalId,
+                CompAuthOverrulePoints,
+                $"DMARC failed for sender domain '{ReasonText.Truncate(context.FromDomain)}', but the provider's "
+                + "composite authentication (compauth) passed; the sender is treated as unverified.");
         }
 
         // Collect every failed check with its points.

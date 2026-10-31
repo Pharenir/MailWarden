@@ -3,6 +3,7 @@ namespace MailWarden.Core.Classification.Signals;
 /// <summary>
 /// "domain-not-in-body": non-freemail sender, non-empty body, the registrable label of the From domain does not occur
 /// in the body text (case-insensitive substring) and no link host is aligned with the From domain → +15.
+/// Never for authenticated senders (AP-07b E3: the signal separates spam only when the sender is not authenticated).
 /// </summary>
 internal sealed class DomainNotInBodySignal : ISpamSignal
 {
@@ -18,7 +19,8 @@ internal sealed class DomainNotInBodySignal : ISpamSignal
     public SignalResult? Evaluate(ClassificationInput input, ClassificationContext context)
     {
         // Whitespace-only bodies count as empty: there is nothing to judge.
-        if (context.FromIsFreemail || string.IsNullOrWhiteSpace(input.BodyText))
+        if (context.FromIsFreemail || context.AuthStatus == AuthStatus.Authenticated
+            || string.IsNullOrWhiteSpace(input.BodyText))
         {
             return null;
         }

@@ -4,7 +4,8 @@ namespace MailWarden.Core.Classification.Signals;
 
 /// <summary>
 /// "random-domain": <see cref="RandomDomainScorer"/> of the registrable label of the From domain ≥ 0.8 → +35,
-/// ≥ 0.5 → +15. Never for freemail senders (their domain says nothing about the sender).
+/// ≥ 0.5 → +15. Never for freemail senders (their domain says nothing about the sender). For authenticated senders
+/// only the strong band counts (AP-07b E3: the weak band hits abbreviation domains of legitimate senders).
 /// </summary>
 internal sealed class RandomDomainSignal : ISpamSignal
 {
@@ -34,9 +35,15 @@ internal sealed class RandomDomainSignal : ISpamSignal
             return null;
         }
 
+        var isWeakBand = score < StrongThreshold;
+        if (isWeakBand && context.AuthStatus == AuthStatus.Authenticated)
+        {
+            return null;
+        }
+
         // Shown truncated to two decimals so the text never claims a higher score than the decision used.
         var shownScore = Math.Floor((score * 100) + 1e-9) / 100;
-        var points = score >= StrongThreshold ? StrongPoints : WeakPoints;
+        var points = isWeakBand ? WeakPoints : StrongPoints;
         return new SignalResult(
             SignalId,
             points,

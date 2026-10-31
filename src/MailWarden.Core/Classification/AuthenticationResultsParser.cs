@@ -8,13 +8,18 @@ namespace MailWarden.Core.Classification;
 /// </summary>
 public static class AuthenticationResultsParser
 {
-    // Method names that start a new result even without a preceding ';' (tolerance for sloppy headers).
+    // Method names that start a new result even without a preceding ';' (tolerance for sloppy headers). "compauth" is
+    // deliberately missing: a compauth pass only weakens a DMARC fail, so it counts only where the provider writes it,
+    // at the start of its own statement; "compauth=" inside another statement stays an ignored property (fail-safe).
     private static readonly string[] EvaluatedMethodNames = ["spf", "dkim", "dmarc"];
 
     /// <summary>
     /// Parses a header value. Comments "(...)" and quoted strings never split statements; method, verdict and property
     /// names are case-insensitive; folded whitespace and missing spaces after ';' are accepted; unknown methods
-    /// (compauth, arc, bimi, ...) are ignored; unknown verdict words map to <see cref="AuthVerdict.Unknown"/>.
+    /// (arc, bimi, ...) are ignored; unknown verdict words map to <see cref="AuthVerdict.Unknown"/>, "bestguesspass"
+    /// (Microsoft: no DMARC record published) maps to <see cref="AuthVerdict.None"/> and "timeout" to
+    /// <see cref="AuthVerdict.TempError"/> for every method. Microsoft's "compauth" is read into
+    /// <see cref="AuthenticationResults.CompAuth"/> (first result only, only at the start of a statement).
     /// A leading token without '=' before the first ';' is the AuthServId (except the RFC keyword "none").
     /// A property value is one contiguous run after "key=" up to whitespace, ';' or '(' outside quotes (quoted parts
     /// included); a '=' or "dmarc="/"dkim="/"spf=" inside a value never starts a new pair or result. The domain of a
@@ -246,12 +251,13 @@ public static class AuthenticationResultsParser
     {
         return value.Trim().ToLowerInvariant() switch
         {
-            "none" => AuthVerdict.None,
+            // "bestguesspass": Microsoft's DMARC result when the domain publishes no DMARC record (no evidence either way).
+            "none" or "bestguesspass" => AuthVerdict.None,
             "pass" => AuthVerdict.Pass,
             "fail" or "hardfail" => AuthVerdict.Fail,
             "softfail" => AuthVerdict.SoftFail,
             "neutral" => AuthVerdict.Neutral,
-            "temperror" => AuthVerdict.TempError,
+            "temperror" or "timeout" => AuthVerdict.TempError,
             "permerror" => AuthVerdict.PermError,
             "policy" => AuthVerdict.Policy,
             _ => AuthVerdict.Unknown,
@@ -322,6 +328,7 @@ public static class AuthenticationResultsParser
         private readonly List<AuthMethodResult> dkimResults = [];
         private AuthMethodResult? spfResult;
         private AuthMethodResult? dmarcResult;
+        private AuthVerdict? compAuthVerdict;
         private bool isDmarcHeaderFromWithoutDomain;
 
         public string? AuthServId { get; set; }
@@ -346,18 +353,25 @@ public static class AuthenticationResultsParser
                     dmarcResult = new AuthMethodResult(method.Verdict, headerFromDomain);
                     isDmarcHeaderFromWithoutDomain = method.HeaderFrom is not null && headerFromDomain is null;
                     break;
+
+                // Microsoft composite authentication: first result only; its "reason" property is not evaluated.
+                case "compauth":
+                    compAuthVerdict ??= method.Verdict;
+                    break;
             }
         }
 
         public AuthenticationResults Build()
         {
-            if (AuthServId is null && spfResult is null && dmarcResult is null && dkimResults.Count == 0)
+            if (AuthServId is null && spfResult is null && dmarcResult is null && dkimResults.Count == 0
+                && compAuthVerdict is null)
             {
                 return AuthenticationResults.Empty;
             }
 
             return new AuthenticationResults(AuthServId, spfResult, dkimResults.AsReadOnly(), dmarcResult)
             {
+                CompAuth = compAuthVerdict ?? AuthVerdict.None,
                 IsDmarcHeaderFromWithoutDomain = isDmarcHeaderFromWithoutDomain,
             };
         }

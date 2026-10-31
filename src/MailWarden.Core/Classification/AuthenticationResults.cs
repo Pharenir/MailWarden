@@ -18,6 +18,12 @@ public sealed record AuthenticationResults(
     public static AuthenticationResults Empty { get; } = new(null, null, Array.Empty<AuthMethodResult>(), null);
 
     /// <summary>
+    /// Verdict of Microsoft's composite authentication ("compauth=&lt;verdict&gt;"); <see cref="AuthVerdict.None"/>
+    /// when absent. Only the first compauth result of the header counts; its "reason" property is ignored.
+    /// </summary>
+    public AuthVerdict CompAuth { get; init; } = AuthVerdict.None;
+
+    /// <summary>
     /// True when the kept DMARC result has a <c>header.from</c> property that is present but yields no domain
     /// (e.g. <c>header.from=""</c>). Distinguishes that ambiguous case from an absent <c>header.from</c>, which both
     /// give <c>Dmarc.Domain == null</c>; a DMARC pass is not trusted in the first case (planner decision C22).
