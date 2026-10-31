@@ -234,6 +234,8 @@ public sealed class SyncFolderTests
         [
             nameof(IMailTransport.FetchFlagsAsync),
             nameof(IMailTransport.FetchMessageAsync),
+            nameof(IMailTransport.FetchMessagesAsync),
+            "get_" + nameof(IMailTransport.IsConnected),
             nameof(IMailTransport.ListFoldersAsync),
             nameof(IMailTransport.OpenFolderAsync),
             nameof(IMailTransport.SearchUidsAsync),
@@ -254,7 +256,7 @@ public sealed class SyncFolderTests
 
         Assert.All(
             harness.Server.Operations,
-            operation => Assert.Matches("^(List|Open:.+|Search|FetchFlags:\\d+|Fetch:.+:\\d+)$", operation));
+            operation => Assert.Matches("^(List|Open:.+|Search|FetchFlags:\\d+|Fetch:.+:\\d+|FetchBatch:.+:\\d+)$", operation));
         Assert.Equal(new[] { "INBOX", "Sent" }, harness.Server.OpenedFolders.ToArray());
     }
 
