@@ -102,9 +102,9 @@ public sealed class SyncResilienceTests
         Assert.Equal(MessageFlags.Seen, (await harness.MessagesOfAsync(Inbox))[0].Flags);
     }
 
-    // Case 29: network errors still abort (R9 unchanged)
+    // Case 29, changed by AP-03b B4: a network error inside a folder ends that folder, not the pass
     [Fact(Timeout = TestTimeouts.PerTestMilliseconds)]
-    public async Task Network_error_for_one_uid_still_aborts_the_sync()
+    public async Task Network_error_for_one_uid_fails_only_that_folder()
     {
         await using SyncHarness harness = await SyncHarness.CreateAsync();
         FakeMailFolder inbox = harness.Server.AddFolder(Inbox, ServerFolderFlags.Inbox);
@@ -112,7 +112,10 @@ public sealed class SyncResilienceTests
         inbox.AddMessage(Mail("two"));
         harness.Server.FetchFailures[(Inbox, 2u)] = new MailTransportException(MailTransportFailure.Network, "Connection lost.");
 
-        await Assert.ThrowsAsync<MailTransportException>(() => harness.SyncAsync());
+        SyncReport report = await harness.SyncAsync();
+
+        string error = Assert.Single(report.Folders).Error!;
+        Assert.StartsWith("MailTransportException", error, StringComparison.Ordinal);
     }
 
     // Case 30

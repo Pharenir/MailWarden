@@ -158,3 +158,37 @@ public Task<SyncReport> SyncAccountAsync(Guid accountId, IProgress<SyncProgress>
   The planner records this decision.
 - Documenter: README (sync section: batches, progress, reconnect, Gmail Important), PLAN rows AP-03b filled.
 - Case 18 green (planner).
+
+## Decisions fix.2 (planner, 2026-10-31, after verify.1 PASS 799/799 + review.1 APPROVE + case 18 green)
+Case 18 (real accounts, copy of `probe-data`, Sent of the big account reset): 845 messages, whole pass over 27 folders
+in 60 s ≈ 14 messages/s (before ≈ 4/s → 3.5×); progress lines every second; 0 mismatched folders in all three
+accounts; unread unchanged; `[Gmail]/Important` removed. B6 checked against the real servers with the AuthProbe
+`probe` command (uses `ConnectionProbe`): IMAP/SMTP ok, folder counts 34/15/15 as before, Important now hidden → review
+SHOULD 3 done by the planner.
+
+- K1 (review SHOULD 1, contract change B4): the engine checks `transport.IsConnected` **before each folder after the
+  first** (not after a folder failure). If it is false: dispose, reconnect via the factory, count it against
+  `MaxReconnectsPerPass`, then sync that folder. No reconnect after the last folder. This also catches a connection
+  lost without a folder failure. Everything else in B4 is unchanged: a Network failure inside a folder becomes a
+  folder Error, the abort conditions stay, the budget is exceeded → `MailTransportException(Network)`, and the current
+  transport is disposed on every path.
+- K2 (review SHOULD 2, doc): XML doc of `IMailTransport.FetchMessagesAsync` – `RemoteMessage.Content` is valid only
+  until the task returned by onMessage completes; the callback must not keep it.
+- K3 (review NITs, doc): fix the comment at `SyncEngine.cs:164`; progress doc says that no folder-end report is sent
+  when the pass aborts.
+- K4 (review question): if MailKit's `GetStreamsAsync` throws `MessageNotFoundException` (a UID expunged between the
+  metadata and body command), the transport maps it to `MailTransportException(Protocol)`, so the engine falls back
+  to single fetches (B2). The single fetch already returns null in that case. The builder checks the MailKit
+  source and documents the result in `impl-notes.md`.
+- Other NITs of `review.md`: builder's choice, no contract change.
+
+### Additional test cases (fix.2)
+| # | Case | Expected |
+|---|---|---|
+| 19 | Transport reports IsConnected false after folder 1 completed **without** error | reconnect before folder 2; folder 2 synced without Error; factory called twice; first transport disposed |
+| 20 | Network failure in the **last** folder | no further connect (factory called once); report contains all folders, the last with Error; pass does not throw |
+| 21 | Budget: MaxReconnectsPerPass 1, connection lost before folder 2 and before folder 3 | second loss → MailTransportException(Network); folder 1 result stored |
+| 22 (K4) | Batch fetch throws Protocol because a UID vanished between metadata and body | fallback; the vanished UID is skipped (single fetch null), the others stored, no Error |
+
+Existing tests that assert the reconnect after a folder failure stay valid as long as another folder follows. Adjust
+them only if they relied on the old point in time (category c).

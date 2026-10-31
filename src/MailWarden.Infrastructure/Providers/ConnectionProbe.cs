@@ -98,29 +98,23 @@ public sealed class ConnectionProbe
         ServerEndpoint endpoint,
         CancellationToken ct)
     {
-        using var client = new ImapClient { Timeout = (int)OperationTimeout.TotalMilliseconds };
-        await client.ConnectAsync(endpoint.Host, endpoint.Port, ToSocketOptions(endpoint.Security), ct)
-            .ConfigureAwait(false);
-        await client.AuthenticateAsync(new SaslMechanismOAuth2(account.EmailAddress, token.Value), ct)
+        using ImapClient client = await ImapSession
+            .ConnectAsync(endpoint, account.EmailAddress, token.Value, (int)OperationTimeout.TotalMilliseconds, ct)
             .ConfigureAwait(false);
 
-        // Flags come from the LIST response; Outlook.com sends them without advertising SPECIAL-USE (AP-00).
-        var folders = new List<FolderProbe>();
-        foreach (FolderNamespace folderNamespace in client.PersonalNamespaces)
+        // Shared listing with the sync transport (personal namespaces, namespace root skipped).
+        IReadOnlyList<IMailFolder> serverFolders = await ImapSession.ListPersonalFoldersAsync(client, ct)
+            .ConfigureAwait(false);
+        var folders = new List<FolderProbe>(serverFolders.Count);
+        foreach (IMailFolder serverFolder in serverFolders)
         {
-            IList<IMailFolder> serverFolders = await client
-                .GetFoldersAsync(folderNamespace, StatusItems.None, subscribedOnly: false, ct)
-                .ConfigureAwait(false);
-            foreach (IMailFolder serverFolder in serverFolders)
-            {
-                ServerFolderFlags flags = MailKitFolderFlags.From(serverFolder.Attributes);
-                FolderClassification classification = FolderRoleResolver.Resolve(
-                    account.Provider,
-                    serverFolder.FullName,
-                    serverFolder.DirectorySeparator,
-                    flags);
-                folders.Add(new FolderProbe(serverFolder.FullName, flags, classification));
-            }
+            ServerFolderFlags flags = MailKitFolderFlags.From(serverFolder.Attributes);
+            FolderClassification classification = FolderRoleResolver.Resolve(
+                account.Provider,
+                serverFolder.FullName,
+                serverFolder.DirectorySeparator,
+                flags);
+            folders.Add(new FolderProbe(serverFolder.FullName, flags, classification));
         }
 
         await DisconnectIgnoringFailuresAsync(disconnectCt => client.DisconnectAsync(quit: true, disconnectCt), ct)

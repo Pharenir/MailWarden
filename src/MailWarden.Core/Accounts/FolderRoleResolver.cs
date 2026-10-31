@@ -4,9 +4,9 @@ namespace MailWarden.Core.Accounts;
 
 /// <summary>
 /// Maps a server folder (full name, hierarchy delimiter, flags) to a <see cref="FolderClassification"/>. Roles come
-/// from server flags first; names are only used for INBOX, the app-owned folders and the documented Microsoft
-/// folders without flags. The server "Outbox" is never <see cref="FolderRole.Outbox"/> (that role is the local send
-/// queue).
+/// from server flags first; names are only used for INBOX, the app-owned folders, Gmail's "Important" folder and
+/// the documented Microsoft folders without flags. The server "Outbox" is never <see cref="FolderRole.Outbox"/>
+/// (that role is the local send queue).
 /// </summary>
 public static class FolderRoleResolver
 {
@@ -15,6 +15,10 @@ public static class FolderRoleResolver
     private const string QuarantineName = "Quarantine";
     private const string MicrosoftArchiveName = "Archive";
     private const string MicrosoftSyncIssuesName = "Synchronisierungsprobleme";
+
+    // Gmail's virtual "Important" folder when the server omits the \Important flag (AP-03b, case 28); holds duplicates.
+    private static readonly HashSet<string> GoogleImportantNames =
+        new(StringComparer.OrdinalIgnoreCase) { "[Gmail]/Important", "[Google Mail]/Important" };
 
     // Outlook.com top-level folders without mail relevance (AP-00 findings); compared case-insensitively.
     private static readonly HashSet<string> MicrosoftHiddenTopLevelNames =
@@ -42,9 +46,11 @@ public static class FolderRoleResolver
     ///    Flagged or Important without one of these → (None, hidden).
     /// 3. Name "INBOX" (case-insensitive) → Inbox.
     /// 4. Top-level "Screener" / "Quarantine" (exact) → Screener / Quarantine.
-    /// 5. Microsoft only (names case-insensitive): top-level "Archive" → Archive; top-level "Notes", "Outbox",
+    /// 5. Google only (full name, case-insensitive): "[Gmail]/Important" or "[Google Mail]/Important" without one of
+    ///    the role flags → (None, hidden).
+    /// 6. Microsoft only (names case-insensitive): top-level "Archive" → Archive; top-level "Notes", "Outbox",
     ///    "Scheduled", "Synchronisierungsprobleme" and the children of the latter → (None, hidden).
-    /// 6. Everything else → (None, visible).
+    /// 7. Everything else → (None, visible).
     /// </summary>
     /// <param name="provider">Provider of the account the folder belongs to.</param>
     /// <param name="fullName">Full folder name as reported by the server.</param>
@@ -99,7 +105,13 @@ public static class FolderRoleResolver
             return new FolderClassification(FolderRole.Quarantine, Hidden: false);
         }
 
-        // Rule 5: Outlook.com folders that carry no flag (names case-insensitive, OUTBOX = Outbox).
+        // Rule 5: Gmail "Important" without its flag (role flags were handled by rule 2).
+        if (provider == MailProvider.Google && GoogleImportantNames.Contains(fullName))
+        {
+            return HiddenWithoutRole;
+        }
+
+        // Rule 6: Outlook.com folders that carry no flag (names case-insensitive, OUTBOX = Outbox).
         if (provider == MailProvider.Microsoft)
         {
             if (isTopLevel && string.Equals(fullName, MicrosoftArchiveName, StringComparison.OrdinalIgnoreCase))
@@ -118,7 +130,7 @@ public static class FolderRoleResolver
             }
         }
 
-        // Rule 6: ordinary user folder; never a role from any other name.
+        // Rule 7: ordinary user folder; never a role from any other name.
         return VisibleWithoutRole;
     }
 }
