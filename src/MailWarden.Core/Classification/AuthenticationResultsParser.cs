@@ -18,7 +18,8 @@ public static class AuthenticationResultsParser
     /// A leading token without '=' before the first ';' is the AuthServId (except the RFC keyword "none").
     /// A property value is one contiguous run after "key=" up to whitespace, ';' or '(' outside quotes (quoted parts
     /// included); a '=' or "dmarc="/"dkim="/"spf=" inside a value never starts a new pair or result. The domain of a
-    /// value is the part after the last '@' outside quotes; a value whose '@' signs are all quoted has no domain.
+    /// value is the part after the last '@' outside quotes; a value whose '@' signs are all quoted has no domain. A
+    /// value that is exactly one quoted string is unquoted first.
     /// Only the first SPF and the first DMARC result are kept; all DKIM results are kept in header order.
     /// Never throws for malformed content – returns what could be parsed (worst case <see cref="AuthenticationResults.Empty"/>).
     /// </summary>
@@ -130,6 +131,10 @@ public static class AuthenticationResultsParser
             position++;
         }
 
+        // C19: a value that is exactly one quoted string is unquoted first (RFC 8601 "value = quoted-string"), then
+        // C17 applies to its content ("\"Bounce@Example.TEST\"" → "example.test"). Mixed values stay with C17.
+        var isSingleQuotedString = position == start + 1 && tokens[start].IsQuoted;
+
         var builder = new StringBuilder();
         var domainStart = -1;
         var domainEnd = -1;
@@ -138,7 +143,7 @@ public static class AuthenticationResultsParser
         {
             var token = tokens[index];
             var text = TokenText(token);
-            if (token.IsQuoted)
+            if (token.IsQuoted && !isSingleQuotedString)
             {
                 if (domainStart >= 0 && domainEnd < 0)
                 {
