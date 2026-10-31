@@ -262,5 +262,20 @@ name `Junk-E-Mail`; case 25 must fail if the mismatched grant is not signed out.
 - Tester: tests in `tests\MailWarden.Infrastructure.Tests\Accounts\` (existing project from AP-01; add package
   references only if needed, none expected), `TestSupport\FakeTokenProvider.cs`, `work\AP-02a\test-plan.md`,
   `tests\test-map.json` entries for the new source folders → `["@feature:accounts"]`.
+- See "Planner decisions" below for amendments.
 - Planner: merge, S2 via Tester, review + **security review** (credentials, tokens, auth – trigger in the security
   profile), Dennis runs cases 28–30.
+
+## Planner decisions 2026-10-31 (implement.1 continued) – binding, supersede the text above where they differ
+Source: builder deviations/open questions (`impl-notes.md`), tester assumptions (`test-plan.md`).
+
+| # | Decision | Builder | Tester |
+|---|---|---|---|
+| A1 | `ListKeysAsync(prefix)`: `""` = all keys; `null` → ArgumentNullException; a non-empty prefix must use the key alphabet and be ≤ 128 chars, else ArgumentException. Case 4 ("every method") applies to Read/Write/Delete; for ListKeys only `null` and invalid non-empty prefixes. | fix | smoke as written (`ListKeysAsync("")` = all) |
+| A2 | Malformed / non-object / non-string `auth-config.json` → `AuthenticationFailedException(Configuration)` at `Load` time with `Provider = GenericImap` (file is shared by both providers); message names file and position, never content. | keep | optional case |
+| A3 | `ReauthenticateAsync` with a wrong account: AccessDenied, account unchanged; the wrong grant is signed out **only if its address is not itself a stored account** (otherwise a legitimate grant of another MailWarden account would be destroyed). | keep | new case 25a: fake signs in the address of a second stored account → AccessDenied, **no** SignOut, both accounts unchanged |
+| A4 | Interactive sign-in (Microsoft **and** Google) ends after **5 minutes** without redirect → `AuthenticationFailedException(Unknown)`, code `sign_in_timeout`, own fixed sentence. Caller cancellation stays `OperationCanceledException`. Timeout is a constructor parameter with default `TimeSpan.FromMinutes(5)` (optional trailing parameter, so the contract ctor stays source-compatible). | fix | none (interactive) |
+| A5 | Google credential key = `"google." + lower-case hex SHA-256 of the UTF-8 address after Trim + ToLowerInvariant` (71 chars) – no collisions, no length limit, no case issue. Replaces "characters outside the key alphabet replaced by '_'". Nothing is released, no migration. | fix | none (key format not tested) |
+| A6 | `DpapiCredentialStore` keys are effectively case-insensitive (NTFS). Documented in the XML doc of `ICredentialStore`; callers use lower-case keys. No behaviour change. | doc | none |
+| A7 | Microsoft special folder names (`Archive`, `Notes`, `Outbox`, `Scheduled`, `Synchronisierungsprobleme`) are compared case-insensitively (`OUTBOX` = `Outbox`). | keep/verify | as written |
+| A8 | Removing an account deletes the grant locally only; server-side revocation is out of scope (TODO, later AP). `RemoveAccountAsync` without a registered token provider deletes without sign-out. | keep | none |
