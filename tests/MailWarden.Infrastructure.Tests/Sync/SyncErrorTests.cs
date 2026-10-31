@@ -61,9 +61,9 @@ public sealed class SyncErrorTests
         Assert.Equal(SyncHarness.FixedNow.AddHours(1), (await harness.StateOfAsync(Junk))!.LastSyncedAt);
     }
 
-    // Case 16 (R8): rows stored before the error stay, the state does not advance, the next run continues
+    // Case 16 (R8), contract of fix.2 F1: one failing message does not block the folder; only it and newer UIDs are retried
     [Fact(Timeout = TestTimeouts.PerTestMilliseconds)]
-    public async Task Failure_in_the_middle_of_a_folder_keeps_stored_rows_and_old_state_and_resumes_next_time()
+    public async Task Failing_message_in_the_middle_does_not_block_the_folder_and_is_retried_next_time()
     {
         (SyncHarness harness, FakeMailFolder inbox, FakeMailFolder junk) = await StartAsync();
         await using SyncHarness lifetime = harness;
@@ -77,10 +77,12 @@ public sealed class SyncErrorTests
 
         SyncReport failed = await harness.SyncAsync();
 
-        Assert.NotNull(failed.Folders.Single(folder => folder.FolderFullName == Inbox).Error);
+        Assert.Equal(
+            "1 message(s) failed (first: MailTransportException)",
+            failed.Folders.Single(folder => folder.FolderFullName == Inbox).Error);
         Assert.Null(failed.Folders.Single(folder => folder.FolderFullName == Junk).Error);
-        Assert.Equal(new uint[] { 1, 2 }, await harness.StoredUidsAsync(Inbox));
-        Assert.Equal(1u, (await harness.StateOfAsync(Inbox))!.HighestSyncedUid);
+        Assert.Equal(new uint[] { 1, 2, 4 }, await harness.StoredUidsAsync(Inbox));
+        Assert.Equal(2u, (await harness.StateOfAsync(Inbox))!.HighestSyncedUid);
         Assert.Equal(new uint[] { 1 }, await harness.StoredUidsAsync(Junk));
         await AssertEveryRowHasItsFileAsync(harness, Inbox);
 
@@ -89,9 +91,7 @@ public sealed class SyncErrorTests
 
         Assert.Null(resumed.Folders.Single(folder => folder.FolderFullName == Inbox).Error);
         Assert.Equal(new uint[] { 1, 2, 3, 4 }, await harness.StoredUidsAsync(Inbox));
-        Assert.DoesNotContain((Inbox, 1u), harness.Server.Fetches);
-        Assert.DoesNotContain((Inbox, 2u), harness.Server.Fetches);
-        Assert.Contains((Inbox, 3u), harness.Server.Fetches);
+        Assert.Equal(new[] { (Inbox, 3u) }, harness.Server.Fetches.Where(fetch => fetch.Folder == Inbox).ToArray());
         Assert.Equal(4u, (await harness.StateOfAsync(Inbox))!.HighestSyncedUid);
         Assert.Equal(4 + 1, harness.EmlFileCount());
     }

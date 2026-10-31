@@ -22,7 +22,7 @@ Project: `tests\MailWarden.Infrastructure.Tests\`. Traits: `feature:sync` (Sync,
 | 13 | `SyncMessageTests.Message_without_date_header_uses_the_internal_date` |
 | 14 | `SyncMessageTests.Html_only_message_yields_plain_text_without_tags_or_script_content` |
 | 15 | `SyncMessageTests.Unparseable_bytes_are_stored_with_empty_header_fields_and_the_file_is_kept`, `Binary_noise_is_stored_and_does_not_abort_the_folder` |
-| 16 | `SyncErrorTests.Protocol_error_in_one_folder_is_reported_and_the_next_folder_is_still_synced`, `Failure_in_the_middle_of_a_folder_keeps_stored_rows_and_old_state_and_resumes_next_time`, `Unexpected_exception_in_a_folder_is_recorded_with_type_and_message`, `Transport_is_disposed_exactly_once_after_success_and_after_a_folder_error` |
+| 16 | `SyncErrorTests.Protocol_error_in_one_folder_is_reported_and_the_next_folder_is_still_synced`, `Failing_message_in_the_middle_does_not_block_the_folder_and_is_retried_next_time` (adapted to fix.2 F1), `Unexpected_exception_in_a_folder_is_recorded_with_type_and_message`, `Transport_is_disposed_exactly_once_after_success_and_after_a_folder_error` |
 | 17 | `SyncErrorTests.Network_error_aborts_the_sync_and_leaves_rows_and_files_consistent`, `Network_and_authentication_failures_on_open_abort_before_the_next_folder` (Theory), `Connect_failures_propagate_unchanged`, `AuthenticationFailedException_during_a_folder_aborts_the_sync` |
 | 18 | `SyncErrorTests.Cancellation_after_two_of_four_messages_then_a_new_run_completes_without_duplicates`, `Already_cancelled_token_throws_OperationCanceledException_and_stores_nothing`, `OperationCanceledException_from_the_transport_propagates` |
 | 19 | `SyncFolderTests.Inbox_is_synced_first_then_junk_then_the_rest_by_name_ignoring_case`, `Report_lists_the_role_of_every_synced_folder` |
@@ -60,3 +60,20 @@ If verify shows that the real v1 differs, adjust the DDL in the test (not the pr
 - A5 `SyncReport.Folders` lists only synced folders (not removed or hidden ones), in sync order.
 - A6 Folder upsert/removal happens before any folder is synced (case 17 theory expects the not-yet-synced folder to be stored or not irrelevant; assertions avoid depending on it).
 - A7 Cut and collapse order of `MimeBodyText` (collapse, trim, then cut) is not asserted beyond "length <= maxChars".
+
+## fix.2 (cases 29-34, decisions F1-F5)
+| Case | Test method(s) |
+|---|---|
+| 29 | `SyncResilienceTests.Fetch_failure_for_one_uid_stores_the_others_and_retries_only_that_uid`, `Failure_of_the_first_uid_keeps_the_synced_uid_at_zero`, `Several_failures_are_counted_and_the_lowest_failed_uid_decides_the_state`, `Flag_sync_still_runs_when_a_message_failed`, `Network_error_for_one_uid_still_aborts_the_sync` |
+| 30 | `SyncResilienceTests.Eml_write_failure_for_one_uid_is_handled_like_a_fetch_failure` (new `TestSupport\FaultyEmlStore`; the harness engine uses it, `SyncHarness.Eml` stays the real store) |
+| 31 | `SyncResilienceTests.Removed_folder_with_a_locked_eml_file_is_still_removed_and_the_sync_continues` (file held with `FileShare.None`; the second file is deleted, the locked one stays as orphan) |
+| 32 | `SyncResilienceTests.Uid_validity_zero_is_a_protocol_error_for_that_folder_only` (Inbox with UIDVALIDITY 0, Junk synced afterwards) |
+| 33 | `SyncResilienceTests.Folder_list_without_inbox_throws_protocol_error_and_leaves_stored_folders_untouched`, `Folder_list_without_inbox_stores_nothing_on_a_fresh_account` |
+| 34 | `MimeBodyTextTests.Title_content_is_dropped_but_the_body_stays`, `Title_is_dropped_even_when_the_head_is_never_closed` |
+
+Adapted to the new contract:
+- A4 is obsolete (F1). `SyncErrorTests.Failure_in_the_middle_of_a_folder_...` was replaced by `Failing_message_in_the_middle_does_not_block_the_folder_and_is_retried_next_time`: uid 4 is now stored in the failing run, Error is "1 message(s) failed (first: MailTransportException)", HighestSyncedUid = 2, the next run fetches only uid 3.
+- F4: `SyncFolderTests.Folder_that_gets_the_All_flag_is_removed` had no Inbox in the server list; an INBOX folder was added.
+- Checked and unchanged: network/auth/cancel aborts (cases 17, 18), folder-level errors from open/search (case 16, `Unexpected_exception_...`), `Fetch_returning_null` (case 12), unparseable bytes (case 15).
+- Case 32: whether the folder row of the failing folder is stored is not specified; the test only requires that no messages and no sync state exist for it.
+- Not tested: F6/F7 (not behaviour-visible); a parse/extract exception counted as "unparseable" (cannot be injected without product knowledge).

@@ -31,6 +31,7 @@ internal sealed class SyncHarness : IAsyncDisposable
         this.temp = temp;
         Account = account;
         Eml = new FileEmlStore(new DataPaths(temp.RootPath));
+        FaultyEml = new FaultyEmlStore(Eml);
         SyncStates = new SqliteFolderSyncStateStore(storage.Database);
         Server = new FakeMailServer();
         Factory = new FakeMailTransportFactory(Server);
@@ -43,6 +44,9 @@ internal sealed class SyncHarness : IAsyncDisposable
     public Account Account { get; }
 
     public FileEmlStore Eml { get; }
+
+    /// <summary>The EML store the engine sees: delegates to <see cref="Eml"/> and can inject write failures.</summary>
+    public FaultyEmlStore FaultyEml { get; }
 
     public SqliteFolderSyncStateStore SyncStates { get; }
 
@@ -67,7 +71,7 @@ internal sealed class SyncHarness : IAsyncDisposable
     }
 
     public SyncEngine CreateEngine(SyncOptions options) =>
-        new(Factory, Storage.Accounts, Storage.Folders, Storage.Messages, Eml, SyncStates, options, Clock);
+        new(Factory, Storage.Accounts, Storage.Folders, Storage.Messages, FaultyEml, SyncStates, options, Clock);
 
     /// <summary>Replaces <see cref="Engine"/> with one using other options (same stores and server).</summary>
     public void UseOptions(SyncOptions options) => Engine = CreateEngine(options);

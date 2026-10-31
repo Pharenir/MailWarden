@@ -135,6 +135,7 @@ public sealed class SyncFolderTests
     public async Task Folder_that_gets_the_All_flag_is_removed()
     {
         await using SyncHarness harness = await SyncHarness.CreateAsync();
+        harness.Server.AddFolder("INBOX", ServerFolderFlags.Inbox);
         FakeMailFolder folder = harness.Server.AddFolder("Everything");
         folder.AddMessage(SampleMail());
         await harness.SyncAsync();
