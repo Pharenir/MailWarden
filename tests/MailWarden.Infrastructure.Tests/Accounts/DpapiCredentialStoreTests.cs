@@ -120,6 +120,53 @@ public sealed class DpapiCredentialStoreTests
         Assert.Equal(["google.a", "google.b"], keys);
     }
 
+    // A1
+    [Fact(Timeout = TestTimeouts.PerTestMilliseconds)]
+    public async Task ListKeys_with_empty_prefix_returns_all_keys_sorted()
+    {
+        using var temp = new TempDirectory();
+        var store = new DpapiCredentialStore(temp.RootPath);
+        await store.WriteAsync("msal.cache", Secret);
+        await store.WriteAsync("google.a", Secret);
+
+        IReadOnlyList<string> keys = await store.ListKeysAsync(string.Empty);
+
+        Assert.Equal(["google.a", "msal.cache"], keys);
+    }
+
+    // A1
+    [Fact(Timeout = TestTimeouts.PerTestMilliseconds)]
+    public async Task ListKeys_with_null_prefix_throws_ArgumentNull()
+    {
+        using var temp = new TempDirectory();
+        var store = new DpapiCredentialStore(temp.RootPath);
+
+        await Assert.ThrowsAsync<ArgumentNullException>(() => store.ListKeysAsync(null!));
+    }
+
+    // A1
+    [Theory(Timeout = TestTimeouts.PerTestMilliseconds)]
+    [InlineData("../")]
+    [InlineData("a/b")]
+    [InlineData("a:b")]
+    public async Task ListKeys_with_invalid_prefix_throws_ArgumentException(string prefix)
+    {
+        using var temp = new TempDirectory();
+        var store = new DpapiCredentialStore(temp.RootPath);
+
+        await Assert.ThrowsAnyAsync<ArgumentException>(() => store.ListKeysAsync(prefix));
+    }
+
+    // A1
+    [Fact(Timeout = TestTimeouts.PerTestMilliseconds)]
+    public async Task ListKeys_with_prefix_longer_than_128_chars_throws_ArgumentException()
+    {
+        using var temp = new TempDirectory();
+        var store = new DpapiCredentialStore(temp.RootPath);
+
+        await Assert.ThrowsAnyAsync<ArgumentException>(() => store.ListKeysAsync(new string('a', 129)));
+    }
+
     // Case 6
     [Fact(Timeout = TestTimeouts.PerTestMilliseconds)]
     public async Task Corrupt_file_throws_CredentialStoreException_without_bytes_in_message()

@@ -87,7 +87,7 @@ public sealed class AuthConfigurationTests
     {
         var config = new AuthConfiguration(null, "g-id", null);
 
-        AuthenticationFailedException exception = Assert.Throws<AuthenticationFailedException>(config.RequireGoogleClient);
+        AuthenticationFailedException exception = Assert.Throws<AuthenticationFailedException>(() => config.RequireGoogleClient());
 
         Assert.Equal(AuthFailureReason.Configuration, exception.Reason);
         Assert.Contains("MAILWARDEN_GOOGLE_CLIENT_SECRET", exception.Message, StringComparison.Ordinal);

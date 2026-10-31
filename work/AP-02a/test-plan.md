@@ -71,6 +71,9 @@ The Microsoft/Google provider-specific name rule tests in 8/9 also assert that r
 - Case 18: malformed JSON is checked with `Load`; "missing key not value" is asserted by key name only.
 - Case 20: `FakeTokenProvider` usernames queue; fake sign-in returns the last queued username repeatedly.
 - Case 24: unknown id check assumes `ArgumentException` (subclass allowed).
+- Case 25a (A3): fake signs in the address of a second stored account -> AccessDenied, no SignOut, both accounts unchanged.
+- A1: ListKeys empty prefix = all; null -> ArgumentNullException; `../`, `a/b`, `a:b`, 129 chars -> ArgumentException
+  (tests in DpapiCredentialStoreTests). A7: `OUTBOX` already covered by case 10.
 - Case 25: "account unchanged" is checked via `GetAsync` equality.
 - Case 27: the DPAPI store is exercised alongside (writes/deletes a key) but is not wired into AccountService
   (contract has no such dependency).
