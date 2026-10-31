@@ -41,6 +41,6 @@ internal sealed class DomainNotInBodySignal : ISpamSignal
         return new SignalResult(
             SignalId,
             Points,
-            $"Sender domain label '{label}' ({context.FromDomain}) occurs neither in the body text nor in a link host.");
+            $"Sender domain label '{ReasonText.Truncate(label)}' ({ReasonText.Truncate(context.FromDomain)}) occurs neither in the body text nor in a link host.");
     }
 }

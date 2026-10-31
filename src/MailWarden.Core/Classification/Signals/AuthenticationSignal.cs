@@ -31,7 +31,7 @@ internal sealed class AuthenticationSignal : ISpamSignal
             return new SignalResult(
                 SignalId,
                 AuthenticatedPoints,
-                $"Sender domain '{context.FromDomain}' is authenticated: {passDescription}.");
+                $"Sender domain '{ReasonText.Truncate(context.FromDomain)}' is authenticated: {passDescription}.");
         }
 
         // Collect every failed check with its points.
@@ -71,6 +71,6 @@ internal sealed class AuthenticationSignal : ISpamSignal
         return new SignalResult(
             SignalId,
             points,
-            $"Authentication of sender domain '{context.FromDomain}' failed: {failureList}{capNote}.");
+            $"Authentication of sender domain '{ReasonText.Truncate(context.FromDomain)}' failed: {failureList}{capNote}.");
     }
 }

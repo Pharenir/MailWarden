@@ -34,12 +34,12 @@ internal sealed class ReplyToMismatchSignal : ISpamSignal
             return new SignalResult(
                 SignalId,
                 FreemailPoints,
-                $"Reply-To goes to the freemail domain '{replyToDomain}' instead of the sender domain '{context.FromDomain}'.");
+                $"Reply-To goes to the freemail domain '{ReasonText.Truncate(replyToDomain)}' instead of the sender domain '{ReasonText.Truncate(context.FromDomain)}'.");
         }
 
         return new SignalResult(
             SignalId,
             OtherDomainPoints,
-            $"Reply-To domain '{replyToDomain}' differs from the sender domain '{context.FromDomain}'.");
+            $"Reply-To domain '{ReasonText.Truncate(replyToDomain)}' differs from the sender domain '{ReasonText.Truncate(context.FromDomain)}'.");
     }
 }

@@ -55,6 +55,6 @@ internal sealed class LinkDomainMismatchSignal : ISpamSignal
             Points,
             string.Create(
                 CultureInfo.InvariantCulture,
-                $"{notAlignedHosts.Count} of {distinctHosts.Count} distinct link hosts are not aligned with the sender domain '{context.FromDomain}' (e.g. '{notAlignedHosts[0]}')."));
+                $"{notAlignedHosts.Count} of {distinctHosts.Count} distinct link hosts are not aligned with the sender domain '{ReasonText.Truncate(context.FromDomain)}' (e.g. '{ReasonText.Truncate(notAlignedHosts[0])}')."));
     }
 }

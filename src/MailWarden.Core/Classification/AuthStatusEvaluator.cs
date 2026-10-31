@@ -1,10 +1,13 @@
 namespace MailWarden.Core.Classification;
 
 /// <summary>
-/// Derives <see cref="AuthStatus"/> from the parsed top-most Authentication-Results header (rules of AP-07a):
-/// Authenticated = DMARC pass, or DKIM pass for an aligned domain, or SPF pass for an aligned domain;
-/// Failed = not Authenticated and (DMARC fail, SPF fail, or at least one DKIM result and all of them fail);
-/// Unknown otherwise.
+/// Derives <see cref="AuthStatus"/> from the parsed top-most Authentication-Results header (rules of AP-07a, planner
+/// decisions C11/C12): the provider's DMARC result takes precedence –
+/// DMARC fail → Failed (an aligned SPF/DKIM pass does not rescue it);
+/// DMARC pass whose header.from is null or aligned with the From domain → Authenticated;
+/// otherwise (no DMARC, other verdicts, or a pass for another domain) DKIM pass for an aligned domain or SPF pass for
+/// an aligned domain → Authenticated; Failed = not Authenticated and (SPF fail, or at least one DKIM result and all of
+/// them fail); Unknown otherwise.
 /// </summary>
 internal static class AuthStatusEvaluator
 {
@@ -14,40 +17,62 @@ internal static class AuthStatusEvaluator
     /// <returns>The state.</returns>
     public static AuthStatus Evaluate(AuthenticationResults authentication, string fromDomain)
     {
+        if (IsDmarcFail(authentication))
+        {
+            return AuthStatus.Failed;
+        }
+
         if (DescribePass(authentication, fromDomain) is not null)
         {
             return AuthStatus.Authenticated;
         }
 
-        var dmarcFailed = authentication.Dmarc?.Verdict == AuthVerdict.Fail;
         var spfFailed = authentication.Spf?.Verdict == AuthVerdict.Fail;
-        return dmarcFailed || spfFailed || AllDkimFailed(authentication) ? AuthStatus.Failed : AuthStatus.Unknown;
+        return spfFailed || AllDkimFailed(authentication) ? AuthStatus.Failed : AuthStatus.Unknown;
     }
 
-    /// <summary>Describes the first check that makes the message authenticated, for reason texts.</summary>
+    /// <summary>
+    /// Describes the first check that makes the message authenticated, for reason texts. Consistent with
+    /// <see cref="Evaluate"/>: non-null exactly when the state is <see cref="AuthStatus.Authenticated"/>.
+    /// </summary>
     /// <param name="authentication">Parsed header.</param>
     /// <param name="fromDomain">Domain of the From address.</param>
-    /// <returns>E.g. "DMARC pass for 'example.test'", or null when the message is not authenticated.</returns>
+    /// <returns>E.g. "DMARC pass for 'example.test'" (domains truncated for display), or null when the message is not
+    /// authenticated.</returns>
     public static string? DescribePass(AuthenticationResults authentication, string fromDomain)
     {
+        if (IsDmarcFail(authentication))
+        {
+            return null;
+        }
+
+        // A DMARC pass counts only for the From domain (C12); a pass for another domain falls through to DKIM/SPF.
         var dmarc = authentication.Dmarc;
         if (dmarc?.Verdict == AuthVerdict.Pass)
         {
-            return dmarc.Domain is null ? "DMARC pass" : $"DMARC pass for '{dmarc.Domain}'";
+            if (dmarc.Domain is null)
+            {
+                return "DMARC pass";
+            }
+
+            if (IsAligned(dmarc.Domain, fromDomain))
+            {
+                return $"DMARC pass for '{ReasonText.Truncate(dmarc.Domain)}'";
+            }
         }
 
         foreach (var dkim in authentication.Dkim)
         {
-            if (dkim.Verdict == AuthVerdict.Pass && IsAligned(dkim.Domain, fromDomain))
+            if (dkim.Verdict == AuthVerdict.Pass && dkim.Domain is not null && IsAligned(dkim.Domain, fromDomain))
             {
-                return $"DKIM pass for aligned domain '{dkim.Domain}'";
+                return $"DKIM pass for aligned domain '{ReasonText.Truncate(dkim.Domain)}'";
             }
         }
 
         var spf = authentication.Spf;
-        if (spf?.Verdict == AuthVerdict.Pass && IsAligned(spf.Domain, fromDomain))
+        if (spf?.Verdict == AuthVerdict.Pass && spf.Domain is not null && IsAligned(spf.Domain, fromDomain))
         {
-            return $"SPF pass for aligned domain '{spf.Domain}'";
+            return $"SPF pass for aligned domain '{ReasonText.Truncate(spf.Domain)}'";
         }
 
         return null;
@@ -61,8 +86,13 @@ internal static class AuthStatusEvaluator
         return authentication.Dkim.Count > 0 && authentication.Dkim.All(dkim => dkim.Verdict == AuthVerdict.Fail);
     }
 
+    private static bool IsDmarcFail(AuthenticationResults authentication)
+    {
+        return authentication.Dmarc?.Verdict == AuthVerdict.Fail;
+    }
+
     // Domains from the header are untrusted; a missing or label-less domain is never aligned.
-    private static bool IsAligned(string? resultDomain, string fromDomain)
+    private static bool IsAligned(string resultDomain, string fromDomain)
     {
         var resultOrganizationalDomain = DomainNames.TryGetOrganizationalDomain(resultDomain);
         return resultOrganizationalDomain is not null

@@ -32,6 +32,6 @@ internal sealed class SuspiciousTldSignal : ISpamSignal
         return new SignalResult(
             SignalId,
             Points,
-            $"Sender domain '{context.FromDomain}' uses the suspicious top-level domain '.{topLevelDomain}'.");
+            $"Sender domain '{ReasonText.Truncate(context.FromDomain)}' uses the suspicious top-level domain '.{ReasonText.Truncate(topLevelDomain)}'.");
     }
 }

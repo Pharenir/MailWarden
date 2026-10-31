@@ -10,7 +10,7 @@ namespace MailWarden.Core.Classification;
 /// <item>rare bigrams: share of adjacent letter pairs that are two consonants not in a built-in table of common
 /// English/German consonant clusters;</item>
 /// <item>digit/letter alternation: 0 for fewer than 3 letter↔digit changes, else
-/// <c>clamp((changes / (characters - 1) - 0.4) / 0.4)</c>.</item>
+/// <c>clamp((changes / (letters and digits - 1) - 0.4) / 0.4)</c>.</item>
 /// </list>
 /// Score = <c>max(alternation, 0.4 · vowel deficit + 0.3 · consonant run + 0.3 · rare bigrams)</c>, in [0, 1].
 /// Pure arithmetic on invariant lower-case characters: deterministic and culture-invariant.

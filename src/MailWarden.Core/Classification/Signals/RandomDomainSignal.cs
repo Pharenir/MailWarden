@@ -40,6 +40,6 @@ internal sealed class RandomDomainSignal : ISpamSignal
         return new SignalResult(
             SignalId,
             points,
-            string.Create(CultureInfo.InvariantCulture, $"Sender domain label '{label}' looks random (score {shownScore:0.00})."));
+            string.Create(CultureInfo.InvariantCulture, $"Sender domain label '{ReasonText.Truncate(label)}' looks random (score {shownScore:0.00})."));
     }
 }

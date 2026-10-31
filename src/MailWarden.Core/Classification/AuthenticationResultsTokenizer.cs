@@ -18,7 +18,10 @@ internal enum HeaderTokenKind
 /// <summary>One lexical token.</summary>
 /// <param name="Kind">Token kind.</param>
 /// <param name="Text">Word text (empty for '=' and ';').</param>
-internal readonly record struct HeaderToken(HeaderTokenKind Kind, string Text);
+/// <param name="IsJoinedToPrevious">True when no whitespace, control character or comment separates this token from
+/// the previous one (e.g. the quoted string and the '@domain' in <c>"x"@a.test</c>). The parser joins such tokens into
+/// one property value.</param>
+internal readonly record struct HeaderToken(HeaderTokenKind Kind, string Text, bool IsJoinedToPrevious);
 
 /// <summary>
 /// Hand-written single-pass tokenizer (no regex, linear time) for untrusted header values. Comments "(...)" are
@@ -34,6 +37,10 @@ internal static class AuthenticationResultsTokenizer
     {
         var tokens = new List<HeaderToken>();
         var currentWord = new StringBuilder();
+        var currentWordIsJoined = false;
+
+        // True at the start and after whitespace/comments: the next token is not joined to the previous one.
+        var separatorPending = true;
         var position = 0;
 
         while (position < headerValue.Length)
@@ -41,43 +48,53 @@ internal static class AuthenticationResultsTokenizer
             var character = headerValue[position];
             if (character == '(')
             {
-                FlushWord(tokens, currentWord);
+                FlushWord(tokens, currentWord, currentWordIsJoined);
                 position = SkipComment(headerValue, position);
+                separatorPending = true;
             }
             else if (character == '"')
             {
-                FlushWord(tokens, currentWord);
+                FlushWord(tokens, currentWord, currentWordIsJoined);
                 position = ReadQuotedString(headerValue, position, out var quotedText);
-                tokens.Add(new HeaderToken(HeaderTokenKind.Word, quotedText));
+                tokens.Add(new HeaderToken(HeaderTokenKind.Word, quotedText, !separatorPending));
+                separatorPending = false;
             }
             else if (character == ';' || character == '=')
             {
-                FlushWord(tokens, currentWord);
+                FlushWord(tokens, currentWord, currentWordIsJoined);
                 var kind = character == ';' ? HeaderTokenKind.Semicolon : HeaderTokenKind.EqualsSign;
-                tokens.Add(new HeaderToken(kind, string.Empty));
+                tokens.Add(new HeaderToken(kind, string.Empty, !separatorPending));
+                separatorPending = false;
                 position++;
             }
             else if (char.IsWhiteSpace(character) || char.IsControl(character))
             {
-                FlushWord(tokens, currentWord);
+                FlushWord(tokens, currentWord, currentWordIsJoined);
+                separatorPending = true;
                 position++;
             }
             else
             {
+                if (currentWord.Length == 0)
+                {
+                    currentWordIsJoined = !separatorPending;
+                    separatorPending = false;
+                }
+
                 currentWord.Append(character);
                 position++;
             }
         }
 
-        FlushWord(tokens, currentWord);
+        FlushWord(tokens, currentWord, currentWordIsJoined);
         return tokens;
     }
 
-    private static void FlushWord(List<HeaderToken> tokens, StringBuilder currentWord)
+    private static void FlushWord(List<HeaderToken> tokens, StringBuilder currentWord, bool isJoinedToPrevious)
     {
         if (currentWord.Length > 0)
         {
-            tokens.Add(new HeaderToken(HeaderTokenKind.Word, currentWord.ToString()));
+            tokens.Add(new HeaderToken(HeaderTokenKind.Word, currentWord.ToString(), isJoinedToPrevious));
             currentWord.Clear();
         }
     }

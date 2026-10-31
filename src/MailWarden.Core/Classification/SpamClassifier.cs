@@ -85,6 +85,8 @@ public sealed class SpamClassifier
     /// <exception cref="ArgumentNullException"><paramref name="input"/> is null.</exception>
     /// <exception cref="ArgumentException">FromAddress has no '@' or no domain, or a required member of
     /// <paramref name="input"/> is null.</exception>
+    /// <exception cref="InvalidOperationException">A signal returned a result whose SignalId differs from its Id
+    /// (ordinal) or whose Reason is empty/whitespace (no silent points); the message names the signal id.</exception>
     public ClassificationResult Classify(ClassificationInput input)
     {
         ArgumentNullException.ThrowIfNull(input);
@@ -98,6 +100,7 @@ public sealed class SpamClassifier
             var finding = signal.Evaluate(input, context);
             if (finding is not null)
             {
+                EnsureValidFinding(signal, finding);
                 findings.Add(finding);
                 score = checked(score + finding.Points);
             }
@@ -107,14 +110,30 @@ public sealed class SpamClassifier
         return new ClassificationResult(tier, score, context.AuthStatus, findings.AsReadOnly(), overrideReason);
     }
 
+    // Project rule "no silent points": every finding carries its own signal id and a reason. Custom signals are
+    // checked here, fail fast. Messages name only the signal id (code-defined), never message data.
+    private static void EnsureValidFinding(ISpamSignal signal, SignalResult finding)
+    {
+        if (!string.Equals(finding.SignalId, signal.Id, StringComparison.Ordinal))
+        {
+            throw new InvalidOperationException(
+                $"Signal '{signal.Id}' returned a result with a different SignalId.");
+        }
+
+        if (string.IsNullOrWhiteSpace(finding.Reason))
+        {
+            throw new InvalidOperationException($"Signal '{signal.Id}' returned a result without a reason.");
+        }
+    }
+
     // Step 1 of the decision order: precomputed per-message values.
     private ClassificationContext CreateContext(ClassificationInput input)
     {
-        if (input.FromName is null || input.AuthenticationResultsHeaders is null || input.BodyText is null
-            || input.LinkHosts is null)
+        if (input.FromAddress is null || input.FromName is null || input.AuthenticationResultsHeaders is null
+            || input.BodyText is null || input.LinkHosts is null)
         {
             throw new ArgumentException(
-                "FromName, AuthenticationResultsHeaders, BodyText and LinkHosts must not be null.",
+                "FromAddress, FromName, AuthenticationResultsHeaders, BodyText and LinkHosts must not be null.",
                 nameof(input));
         }
 
@@ -158,14 +177,14 @@ public sealed class SpamClassifier
             return (SpamTier.TrustedContact, $"Sender is a contact and authenticated ({passDescription})");
         }
 
-        var scoreTier = GetScoreTier(score);
+        // Contact with unverifiable authentication: always LikelyLegit, never better or worse (C8).
         if (isContact && context.AuthStatus == AuthStatus.Unknown)
         {
-            return (scoreTier > SpamTier.LikelyLegit ? SpamTier.LikelyLegit : scoreTier, UnverifiedContactOverride);
+            return (SpamTier.LikelyLegit, UnverifiedContactOverride);
         }
 
         // Contacts and allow-listed senders with failed authentication end up here, without override.
-        return (scoreTier, null);
+        return (GetScoreTier(score), null);
     }
 
     private SpamTier GetScoreTier(int score)

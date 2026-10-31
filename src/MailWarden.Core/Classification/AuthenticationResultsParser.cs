@@ -1,3 +1,5 @@
+using System.Text;
+
 namespace MailWarden.Core.Classification;
 
 /// <summary>
@@ -14,6 +16,9 @@ public static class AuthenticationResultsParser
     /// names are case-insensitive; folded whitespace and missing spaces after ';' are accepted; unknown methods
     /// (compauth, arc, bimi, ...) are ignored; unknown verdict words map to <see cref="AuthVerdict.Unknown"/>.
     /// A leading token without '=' before the first ';' is the AuthServId (except the RFC keyword "none").
+    /// A property value is one contiguous run after "key=" up to whitespace, ';' or '(' outside quotes (quoted parts
+    /// included, domain = part after the last '@'); a '=' or "dmarc="/"dkim="/"spf=" inside a value never starts a
+    /// new pair or result.
     /// Only the first SPF and the first DMARC result are kept; all DKIM results are kept in header order.
     /// Never throws for malformed content – returns what could be parsed (worst case <see cref="AuthenticationResults.Empty"/>).
     /// </summary>
@@ -74,26 +79,25 @@ public static class AuthenticationResultsParser
     }
 
     // Reads "key=value" pairs; the first pair is the method, later pairs are its properties, unless a later key is
-    // spf/dkim/dmarc again (missing ';'). Stray tokens (version numbers, base64 padding '=') are skipped.
+    // spf/dkim/dmarc again (missing ';'). Stray tokens (version numbers) are skipped. A value is one contiguous run
+    // (see ReadValue), so '=' or "dmarc=" inside a value never starts a new pair or result.
     private static void ParseStatement(List<HeaderToken> tokens, int start, int end, ResultCollector collector)
     {
         PendingMethod? currentMethod = null;
         var position = start;
         while (position < end)
         {
-            var isPair = position + 2 < end
+            var isPairStart = position + 2 < end
                 && tokens[position].Kind == HeaderTokenKind.Word
-                && tokens[position + 1].Kind == HeaderTokenKind.EqualsSign
-                && tokens[position + 2].Kind == HeaderTokenKind.Word;
-            if (!isPair)
+                && tokens[position + 1].Kind == HeaderTokenKind.EqualsSign;
+            if (!isPairStart)
             {
                 position++;
                 continue;
             }
 
             var key = tokens[position].Text;
-            var value = tokens[position + 2].Text;
-            position += 3;
+            position = ReadValue(tokens, position + 2, end, out var value);
 
             if (currentMethod is null || IsEvaluatedMethodName(key))
             {
@@ -107,6 +111,41 @@ public static class AuthenticationResultsParser
         }
 
         collector.Add(currentMethod);
+    }
+
+    // RFC 8601 pvalue: the value after "key =" is one contiguous run up to whitespace, ';' or a comment (outside
+    // quotes). Adjacent word, quoted and '=' parts are concatenated without separator, so a quoted local part stays
+    // part of the value ("\"x@victim.test\"@attacker.test") and VERP/SRS local parts with '=' are not split.
+    // start points at the first token after '=' (start < end); returns the index after the value. Linear: every
+    // token is visited once.
+    private static int ReadValue(List<HeaderToken> tokens, int start, int end, out string value)
+    {
+        var position = start + 1;
+        while (position < end && tokens[position].IsJoinedToPrevious)
+        {
+            position++;
+        }
+
+        if (position == start + 1)
+        {
+            value = TokenText(tokens[start]);
+            return position;
+        }
+
+        var builder = new StringBuilder();
+        for (var index = start; index < position; index++)
+        {
+            builder.Append(TokenText(tokens[index]));
+        }
+
+        value = builder.ToString();
+        return position;
+    }
+
+    // Semicolons never occur inside a statement, so only Word and '=' remain.
+    private static string TokenText(HeaderToken token)
+    {
+        return token.Kind == HeaderTokenKind.EqualsSign ? "=" : token.Text;
     }
 
     // "dkim/1" → "dkim" (RFC 8601 method version), lower-case.

@@ -36,7 +36,7 @@ internal sealed class DisplayNameMismatchSignal : ISpamSignal
                 return new SignalResult(
                     SignalId,
                     Points,
-                    $"Display name mentions '{mentionedDomain}', which differs from the sender domain '{context.FromDomain}'.");
+                    $"Display name mentions '{ReasonText.Truncate(mentionedDomain)}', which differs from the sender domain '{ReasonText.Truncate(context.FromDomain)}'.");
             }
         }
 
