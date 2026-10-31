@@ -279,3 +279,20 @@ Source: builder deviations/open questions (`impl-notes.md`), tester assumptions 
 | A6 | `DpapiCredentialStore` keys are effectively case-insensitive (NTFS). Documented in the XML doc of `ICredentialStore`; callers use lower-case keys. No behaviour change. | doc | none |
 | A7 | Microsoft special folder names (`Archive`, `Notes`, `Outbox`, `Scheduled`, `Synchronisierungsprobleme`) are compared case-insensitively (`OUTBOX` = `Outbox`). | keep/verify | as written |
 | A8 | Removing an account deletes the grant locally only; server-side revocation is out of scope (TODO, later AP). `RemoveAccountAsync` without a registered token provider deletes without sign-out. | keep | none |
+
+## Planner decisions 2026-10-31 (fix.2) – binding, supersede the text above where they differ
+Source: verify.1 PASS (237/237), review.1 APPROVE with SHOULDs (`review.md`), secure.1 0/0/0/6 (`security-review.md`).
+Small round before the merge: SHOULDs and cheap low-severity findings.
+
+| # | Decision | Builder | Tester |
+|---|---|---|---|
+| A9 | `DpapiCredentialStore.ReadAsync` opens with `FileShare.Read \| FileShare.Delete` (like `FileEmlStore`), so a concurrent `WriteAsync` of the same key can replace the file. Temp-file cleanup in `WriteAsync` is best effort and never hides the original exception. (review SHOULD 1/3) | fix | none |
+| A10 | Token providers map IO failures of the credential store (`IOException`, `UnauthorizedAccessException`) to `AuthenticationFailedException(Unknown)`, code `credential_store_unavailable`, inner exception kept; `CredentialStoreException` keeps its documented mapping. `ITokenProvider` doc stays ("every failure arrives as AuthenticationFailedException", except cancellation and argument errors). (review SHOULD 1) | fix | none |
+| A11 | **Removal is never blocked by sign-out:** `RemoveAccountAsync` deletes the account even if `SignOutAsync` throws `AuthenticationFailedException` (e.g. Microsoft without configuration); the exception is not rethrown. Other exceptions propagate. (review SHOULD 2) | fix | new case 26a: fake SignOut throws AuthenticationFailedException(Configuration) → account gone, no exception |
+| A12 | **Address matching includes the provider.** `AddAccountAsync`: signed-in address already stored under **another** provider → sign out the fresh grant, `AuthenticationFailedException(AccessDenied)`, code `address_in_use`, store unchanged (schema allows one account per address). `ReauthenticateAsync`: A3 "is a stored account" means stored **with the same provider**. (review NIT 5, secure N4) | fix | new case 22a: address stored as Google, fake Microsoft provider signs in the same address → AccessDenied, SignOut called on the Microsoft fake, account unchanged |
+| A13 | `AddAccountAsync` signs out a fresh grant of a **new** address when storing the account fails (exception rethrown). (secure N5) | fix | none (needs a failing store) |
+| A14 | Google interactive sign-in sets a random `state` (32 bytes, Base64Url) and compares it in constant time; mismatch → `AuthenticationFailedException(Unknown)`, code `state_mismatch`. `ProviderErrorCode` taken from a redirect URL is kept only if it matches `[a-z_]{1,64}`, else null. (secure N2) | fix | none (interactive) |
+| A15 | No e-mail address in exception messages of `ProviderProfiles` (domain or nothing). (review NIT 7, secure N1) | fix | none |
+| A16 | `ConnectionProbe`: an exception in `DisconnectAsync` after a successful login does not turn `ImapOk`/`SmtpOk` false. (review NIT 10) | fix | none |
+| A17 | `MicrosoftTokenProvider` class doc: one instance per credential store. Review NITs 8, 9: at the builder's discretion (do not change the contract sentence of NIT 8). | doc | none |
+| A18 | Out of scope → `TODO.md`: shared atomic-write helper for `FileEmlStore`/`DpapiCredentialStore` (review SHOULD 3, touches AP-01); `DataPaths.CredentialsDirectory`/`AuthConfigPath` (AP-02b/AP-04); logging rule "never `ToString()` of auth exceptions" (AP-02b, secure N1); ACL / location of the data folder (AP-13, secure N3); server-side revoke (secure N6); cleanup of orphaned grants at start. | – | – |
