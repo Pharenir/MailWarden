@@ -108,6 +108,11 @@ internal sealed class ClassificationHarness : IAsyncDisposable
             {
                 await harness.MarkSyncedAsync(harness.Junk);
             }
+
+            if (harness.Quarantine is not null)
+            {
+                await harness.MarkSyncedAsync(harness.Quarantine);
+            }
         }
 
         return harness;

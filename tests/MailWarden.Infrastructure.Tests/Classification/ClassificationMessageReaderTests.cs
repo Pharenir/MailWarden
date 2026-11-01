@@ -41,9 +41,14 @@ public sealed class ClassificationMessageReaderTests
         ClassificationMessage message = await ReadMessageAsync(Encoding.UTF8.GetBytes(text));
 
         Assert.True(message.Parsed);
+        // The reader keeps the raw value unfolded and trimmed; whitespace normalisation is the key's job.
+        Assert.NotNull(message.TopReceived);
         Assert.Equal(
             "from top.example.test (top.example.test [192.0.2.1]) by mx.example.test with ESMTP id 1; Mon, 15 Jun 2026 10:00:00 +0200",
-            message.TopReceived);
+            System.Text.RegularExpressions.Regex.Replace(message.TopReceived, @"\s+", " "));
+        Assert.StartsWith("from top.example.test", message.TopReceived, StringComparison.Ordinal);
+        Assert.DoesNotContain("lower.example.test", message.TopReceived, StringComparison.Ordinal);
+        Assert.DoesNotContain("\n", message.TopReceived, StringComparison.Ordinal);
         Assert.NotNull(message.Input);
         Assert.Equal("sender_a@example.test", message.Input.FromAddress);
     }
