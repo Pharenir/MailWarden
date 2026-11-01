@@ -173,3 +173,28 @@ Binding. Secure rates S1 and S2 as High once `Act` runs, so they are fixed now a
 | 24 | `"spam"@addr.example.test` against an address entry; Punycode entry and U-form sender; U-form entry and Punycode sender; `*.x.test` | match; match; match; rejected |
 | 25 | CSV with an unterminated quote in row 2 of 5 | 1 `Rejected`, the other rows read |
 | 26 | `AddContactAsync` with spaces around the address; `Hans <a@x.test>`; no domain | trimmed; `ArgumentException`; `ArgumentException` |
+
+## Result case 19 again (planner, 2026-11-01, copy, counts only, with R3)
+966 sent mails read, 34 skipped, 410 contacts. The 7 contacts fewer are the price of R3.
+
+## Decisions fix.3 (planner, 2026-11-01, after verify.2 PASS 2369/2369, review.2 BLOCK, secure.2 no High)
+Binding; they change R2 and R5.
+- **T1 (review BLOCK, secure N1).** `IsExactSender` also requires that normalising through `IdnMapping` leaves every label unchanged except labels starting with `xn--`. A full-width or ideographic look-alike is then not exact and cannot hit an allow entry; Blocked still matches it. The comment in `AddressRules.cs` says what the code does.
+- **T2 (review SHOULD).** In `ContactSenderDirectory` each domain level goes through `NormalizeDomain` on its own, so one unusual label (`ab--cd.xn--mller-kva.example`) does not hide a blocked parent.
+- **T3 (secure N2, changes R2).** The DMARC path also requires the same domain or a real parent or child relation between `header.from` and the From domain. Otherwise it is treated as not verified.
+- **T4 (review NIT).** `ContactBook.RemoveContactAsync` trims like `AddContactAsync`.
+- **T5 (secure N3).** The harvest also skips a mail when `X-Autoreply` or `X-Autorespond` is present, `Precedence` is `auto_reply`, `bulk` or `junk`, the top `Content-Type` is `text/calendar` with `method=REPLY`, or `Content-Class` holds `calendarmessage`.
+
+### Into `TODO.md` (documenter)
+- Before `Act`: count on real data how many `Authenticated` hang only on the child-domain rule; if nearly none, remove that direction. Describe the rule in `docs\classifier.md`.
+- AP-08: warn for every allow entry on a domain, not only `FreemailDomains`, because subdomains count.
+- A contact on an IDN domain is not authenticated when the stamp is in A-form (safe side; compare the forms later). Punycode and U-form can be two rows of the list store; `Unlist` then hits one.
+
+### Additional test cases (fix.3)
+| # | Case | Expected |
+|---|---|---|
+| 27 | Allow entries `example.test`, address `person_a@allowaddr.test`: sender with U+FF45, with U+3002, with U+FF41 in the address, with a mathematical letter | no `Allowed`; Blocked with the same entries still matches; positive control: plain ASCII sender and a real Punycode sender of a U-form entry are `Allowed` |
+| 28 | Block `müller.example`: `sub.xn--mller-kva.example`, `ab--cd.xn--mller-kva.example` | Blocked |
+| 29 | Contact `person_a@firma.com.pl`: `dmarc=pass header.from=evil.com.pl`; `header.from=firma.com.pl`; `header.from=mail.firma.com.pl`; From on a child with `header.from` on the parent | not authenticated; yes; yes; yes |
+| 30 | `RemoveContactAsync(" a@x.test ")` | removed |
+| 31 | Harvest with own From: each marker of T5; positive control: plain mail, `Precedence: list`, `text/calendar` with `method=REQUEST` | skipped; read |
