@@ -18,6 +18,7 @@ public sealed class ReadingPaneBuildGuardTests
         private readonly Dictionary<string, ManualResetEventSlim> _blocks = [];
         private readonly List<string> _calls = [];
         private readonly List<string> _entered = [];
+        private readonly List<(bool IsThreadPoolThread, bool IsBackground)> _threads = [];
         private ManualResetEventSlim? _remoteImageGate;
         private bool _remoteImageBuildEntered;
 
@@ -28,6 +29,18 @@ public sealed class ReadingPaneBuildGuardTests
                 lock (_gate)
                 {
                     return [.. _calls];
+                }
+            }
+        }
+
+        /// <summary>Thread kind of every build call, in call order.</summary>
+        public IReadOnlyList<(bool IsThreadPoolThread, bool IsBackground)> Threads
+        {
+            get
+            {
+                lock (_gate)
+                {
+                    return [.. _threads];
                 }
             }
         }
@@ -92,6 +105,7 @@ public sealed class ReadingPaneBuildGuardTests
             {
                 _calls.Add(content.Subject);
                 _entered.Add(content.Subject);
+                _threads.Add((Thread.CurrentThread.IsThreadPoolThread, Thread.CurrentThread.IsBackground));
                 _blocks.TryGetValue(content.Subject, out block);
                 if (allowRemoteImages)
                 {
@@ -663,4 +677,57 @@ public sealed class ReadingPaneBuildGuardTests
         Assert.Equal(ReadingState.Ready, reading.State);
         Assert.Null(reading.ContentNotice);
         Assert.Single(reading.AttachmentNames);
+    }
+
+    // ---- Case 95 (N2) --------------------------------------------------------------------------------------
+
+    // Case 95: the build runs on a dedicated thread (large stack), not on the thread pool, and that thread must not keep
+    // the process alive.
+    [Fact(Timeout = TestTimeouts.PerTestMilliseconds)]
+    public async Task Build_runs_on_a_dedicated_background_thread()
+    {
+        (ShellHarness harness, _, BlockingBuilder builder, MailFolder inbox) = NewHarness();
+        MailMessage mail = AddMail(harness, inbox, "mail_a");
+
+        await harness.Shell.Reading.ShowAsync(mail);
+
+        (bool isThreadPoolThread, bool isBackground) = Assert.Single(builder.Threads);
+        Assert.False(isThreadPoolThread, "the build ran on a thread-pool thread");
+        Assert.True(isBackground, "the build thread keeps the process alive");
+    }
+
+    // Case 95: the rebuild after "Bilder laden" and every further build use such a thread too.
+    [Fact(Timeout = TestTimeouts.PerTestMilliseconds)]
+    public async Task Rebuild_with_images_and_later_builds_run_on_dedicated_background_threads()
+    {
+        (ShellHarness harness, _, BlockingBuilder builder, MailFolder inbox) = NewHarness();
+        MailMessage withImage = harness.ReadModel.AddMessage(inbox, "mail_image");
+        harness.ReadModel.SetContent(withImage.Id, TestContent.Html("mail_image", RemoteImageMailHtml));
+        MailMessage other = AddMail(harness, inbox, "mail_b");
+        ReadingPaneViewModel reading = harness.Shell.Reading;
+        await reading.ShowAsync(withImage);
+        reading.LoadRemoteImagesCommand.Execute(null);
+        await Wait.UntilAsync(() => reading.DocumentHtml?.Contains("tracker.test", StringComparison.Ordinal) == true, "rebuild finished");
+        await reading.ShowAsync(other);
+
+        (bool IsThreadPoolThread, bool IsBackground)[] threads = [.. builder.Threads];
+        Assert.Equal(3, threads.Length);
+        Assert.All(threads, thread => Assert.False(thread.IsThreadPoolThread));
+        Assert.All(threads, thread => Assert.True(thread.IsBackground));
+    }
+
+    // Case 95: builds are still one at a time, so the dedicated thread does not multiply (positive control for L3).
+    [Fact(Timeout = TestTimeouts.PerTestMilliseconds)]
+    public async Task Two_normal_builds_one_after_the_other_use_threads_of_the_same_kind()
+    {
+        (ShellHarness harness, _, BlockingBuilder builder, MailFolder inbox) = NewHarness();
+        MailMessage first = AddMail(harness, inbox, "mail_a");
+        MailMessage second = AddMail(harness, inbox, "mail_b");
+
+        await harness.Shell.Reading.ShowAsync(first);
+        await harness.Shell.Reading.ShowAsync(second);
+
+        Assert.Equal(2, builder.Threads.Count);
+        Assert.All(builder.Threads, thread => Assert.False(thread.IsThreadPoolThread));
+        Assert.Contains("mail_b_html_marker", harness.Shell.Reading.DocumentHtml, StringComparison.Ordinal);
     }}

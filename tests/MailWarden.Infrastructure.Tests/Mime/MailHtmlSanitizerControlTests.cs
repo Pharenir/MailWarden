@@ -503,6 +503,65 @@ public sealed class MailHtmlSanitizerControlTests
         Assert.NotNull(Parse(result).QuerySelector("a[href]"));
         Assert.Contains("link_marker", Parse(result).Body!.TextContent, StringComparison.Ordinal);
     }
+    // ---- Case 92 (N1): positive controls for the parenthesis limit -----------------------------------------
+
+    private static string StylesOf(SanitizedHtml result) =>
+        string.Concat(Parse(result).All.Select(element => element.GetAttribute("style")).Where(value => value is not null));
+
+    // Case 92
+    [Fact(Timeout = TestTimeouts.PerTestMilliseconds)]
+    public async Task Ordinary_calc_expression_is_kept()
+    {
+        SanitizedHtml result = await SanitizeAsync("<div style=\"width: calc(100% - 10px); color: red\">text_marker</div>");
+
+        Assert.False(result.WasReduced);
+        string styles = StylesOf(result);
+        Assert.Contains("calc(", styles, StringComparison.Ordinal);
+        Assert.True(styles.Contains("red", StringComparison.OrdinalIgnoreCase) || Regex.IsMatch(styles, @"rgba?\(\s*255\s*,\s*0\s*,\s*0", RegexOptions.CultureInvariant), styles);
+    }
+
+    // Case 92
+    [Fact(Timeout = TestTimeouts.PerTestMilliseconds)]
+    public async Task Style_with_twenty_rgb_functions_is_kept()
+    {
+        string style = string.Concat(Enumerable.Range(0, 20).Select(index => $"color: rgb({index}, 0, 0); "));
+
+        SanitizedHtml result = await SanitizeAsync($"<p style=\"{style}\">text_marker</p>");
+
+        Assert.False(result.WasReduced);
+        Assert.False(string.IsNullOrWhiteSpace(StylesOf(result)), "the style was dropped");
+    }
+
+    // Case 92: exactly 256 opening parentheses are allowed, one more is not.
+    [Theory(Timeout = TestTimeouts.PerTestMilliseconds)]
+    [InlineData(256, false)]
+    [InlineData(257, true)]
+    public async Task Exactly_256_opening_parentheses_are_kept_and_257_are_not(int count, bool expectedReduced)
+    {
+        string style = "color: red; width: calc(" + Repeat("(", count - 1) + "1px" + Repeat(")", count);
+
+        SanitizedHtml result = await SanitizeAsync($"<p style=\"{style}\">text_marker</p>");
+
+        Assert.Equal(expectedReduced, result.WasReduced);
+        Assert.Contains("text_marker", Parse(result).Body!.TextContent, StringComparison.Ordinal);
+    }
+
+    // ---- Case 94 (N3): positive control for the output-size estimate --------------------------------------
+
+    // Case 94
+    [Fact(Timeout = TestTimeouts.PerTestMilliseconds)]
+    public async Task Newsletter_with_repeated_attributes_keeps_its_markup()
+    {
+        string cell = "<td align=\"center\" class=\"cell\" style=\"color: red; padding: 4px\" title=\"A rather ordinary tooltip text that repeats\"><font face=\"Arial\" color=\"red\">cell_text</font></td>";
+        string html = "<table>" + Repeat($"<tr>{cell}{cell}{cell}</tr>", 200) + "</table>";
+
+        SanitizedHtml result = await SanitizeAsync(html);
+
+        Assert.False(result.WasReduced);
+        Assert.Equal(600, Regex.Matches(result.Html, @"<td[\s>]").Count);
+        Assert.Equal(200, Regex.Matches(result.Html, @"<tr[\s>]").Count);
+        Assert.Equal(600, Regex.Matches(result.Html, "cell_text").Count);
+    }
     // Guards the helper pattern itself so that the other tests cannot pass vacuously.
     [Fact]
     public void Dangerous_element_pattern_matches_what_it_should_and_nothing_else()
