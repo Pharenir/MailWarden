@@ -254,6 +254,35 @@ public sealed class MailHtmlSanitizerControlTests
         Assert.False(result.WasReduced);
     }
 
+    // Case 69 / 73 (planner): exactly 64 open formatting tags stay and are no reduction; the 65th is dropped.
+    [Theory(Timeout = TestTimeouts.PerTestMilliseconds)]
+    [InlineData(64, false)]
+    [InlineData(65, true)]
+    public async Task Sixty_four_open_formatting_tags_stay_and_the_65th_is_dropped(int count, bool expectedReduced)
+    {
+        SanitizedHtml result = await SanitizeAsync(Repeat("<b>", count) + "text_marker");
+
+        Assert.Equal(expectedReduced, result.WasReduced);
+        Assert.Equal(64, Regex.Matches(result.Html, @"<b[\s>]").Count);
+        Assert.Contains("text_marker", result.Html, StringComparison.Ordinal);
+    }
+
+    // Case 73 positive control (planner): removing raw-text elements such as style and script is not a reduction.
+    [Fact(Timeout = TestTimeouts.PerTestMilliseconds)]
+    public async Task Newsletter_with_style_and_script_blocks_is_not_a_reduction()
+    {
+        const string html =
+            "<style>.a { color: red } /* note: a < b */</style><p class=\"a\">text_marker</p><script>var x = 1 < 2;</script>" +
+            "<table><tr><td>cell_marker</td></tr></table>";
+
+        SanitizedHtml result = await SanitizeAsync(html);
+
+        Assert.False(result.WasReduced);
+        AssertNoDangerousElement(result);
+        string text = Parse(result).Body!.TextContent;
+        Assert.Contains("text_marker", text, StringComparison.Ordinal);
+        Assert.Contains("cell_marker", text, StringComparison.Ordinal);
+    }
     // Case 73 (D3 builder): the document carries the flag of the sanitizer.
     [Fact(Timeout = TestTimeouts.PerTestMilliseconds)]
     public async Task Reading_document_carries_the_reduction_flag()
