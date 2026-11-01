@@ -14,8 +14,8 @@ public sealed record ReadingDocument(string Html, int BlockedRemoteResourceCount
 /// <summary>
 /// Builds the document shown in the reading pane: a page in the style of the theme with a restrictive
 /// Content-Security-Policy around the sanitized HTML or the encoded plain text. A mail must always be readable, so only a mail
-/// without colors of its own turns dark in the dark theme; a mail with its own colors stays a light sheet in a dark window,
-/// its colors are never rewritten (PLAN, risks). The styles are fixed: of the mail, only the yes/no of
+/// without colors of its own turns dark in the dark theme; a mail with its own colors stays a dimmed light sheet in a dark
+/// window, its colors are never rewritten (PLAN, risks). The styles are fixed: of the mail, only the yes/no of
 /// <see cref="SanitizedHtml.HasOwnColors"/> reaches their selection.
 /// </summary>
 public static class ReadingDocumentBuilder
@@ -41,6 +41,12 @@ public static class ReadingDocumentBuilder
         // The browser keeps the yellow background of mark in the dark scheme.
         + "mark a:link,mark a:visited{color:#0b57d0;}";
 
+    // A dark veil over the whole sheet lowers its brightness and keeps the contrast between the colors of the mail. It takes no
+    // clicks and sits above the content of the mail; a mail that lays something above it only loses the veil there.
+    private const string DimmedLightStyle =
+        LightStyle
+        + "html::after{content:'';position:fixed;inset:0;background:rgba(0,0,0,.25);pointer-events:none;z-index:2147483647;}";
+
     /// <summary>
     /// Builds the document. With <see cref="MailContent.Html"/> non-null it contains the sanitized HTML, otherwise
     /// <see cref="MailContent.PlainText"/> encoded in a <c>white-space: pre-wrap</c> block.
@@ -65,7 +71,7 @@ public static class ReadingDocumentBuilder
         }
 
         SanitizedHtml sanitized = MailHtmlSanitizer.Sanitize(content.Html, content.InlineImages, allowRemoteImages, allowEmbeddedImages);
-        string pageStyle = theme == ReadingTheme.Dark && !sanitized.HasOwnColors ? DarkStyle : LightStyle;
+        string pageStyle = theme == ReadingTheme.Dark ? (sanitized.HasOwnColors ? DimmedLightStyle : DarkStyle) : LightStyle;
         return new ReadingDocument(
             Wrap(sanitized.Html, pageStyle, allowRemoteImages, allowEmbeddedImages),
             sanitized.BlockedRemoteResourceCount,
@@ -91,7 +97,7 @@ public static class ReadingDocumentBuilder
 
     /// <summary>
     /// The page background of a theme, for the default background of the browser: while a mail loads it must not differ from
-    /// the page. The light sheet of a mail with colors of its own may still differ in the dark theme; it is the mail.
+    /// the page. The dimmed sheet of a mail with colors of its own may still differ in the dark theme; it is the mail.
     /// </summary>
     /// <param name="theme">Theme the application shows.</param>
     /// <returns>The channels of the color.</returns>

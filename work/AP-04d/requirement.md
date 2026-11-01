@@ -62,3 +62,20 @@ S3 green on the branch merged with `main`, reviewer APPROVE, security-reviewer w
 Added by the planner after fix.1: `content` and `list-style-image` count too, for the reason of D3. `opacity`, `mask`, `visibility`, `clip`, `column-rule` and `text-decoration-color` do not: they hide or paint alike in both themes.
 
 After review.2 APPROVE (S1): `content` and `list-style-image` count only with a value other than `none`, `normal` or `initial`, because `list-style:none` is common in ordinary mail. Explicit no-ops of the other set, such as `box-shadow:none`, stay light (review.2 N3, accepted).
+
+## Decision after Dennis's manual test (planner, 2026-11-01)
+Dennis: plain text mails follow the theme as wanted. A styled mail such as a newsletter "bleibt hell. Ist nicht das schlimmste, aber wäre schön wenn auch diese zumindest etwas abgedunkelt werden könnten."
+
+- G1 (changes D3 and case 4): In the dark theme a mail with colours of its own stays a light sheet with its own colours, under a fixed dark veil over the whole page (25 % black), so white becomes about `#bfbfbf`. No colour is rewritten, so the contrast between its colours holds. The light theme stays byte-identical (D5).
+- G2: The veil is part of our fixed page style. It takes no clicks and no selection (`pointer-events:none`); links and the hint at the mouse work through it. D7 holds: only the yes/no of D4 selects the style.
+- G3: A mail with own colours now gets a different document on a theme change, so it is navigated anew. A mail with approved remote images may fetch them again (secure.1 N1 now also covers `<img>`). Accepted: only approved URLs.
+
+### Additional test cases (G)
+| # | Situation | Expected |
+|---|---|---|
+| 4 (new) | HTML with `style="color:#000"`, dark | Light style plus the veil, colours kept, no dark style |
+| 17 | Every light-sheet case of 5, 7, 14, dark | The veil is there |
+| 18 | Plain text and HTML without colours, dark | No veil |
+| 19 | Any mail, light | No veil, byte-identical to today |
+| 20 | Theme change with a mail with own colours | `DocumentHtml` changes, no read from the store, image approval kept |
+| 21 | Manual, Dennis: newsletter in the dark theme: dimmed, readable, link clicks work, the hint shows the target, text can be selected | As stated |
