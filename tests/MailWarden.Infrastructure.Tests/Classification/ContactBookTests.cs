@@ -86,6 +86,21 @@ public sealed class ContactBookTests
         Assert.Equal("contact_b@example.test", remaining.EmailAddress);
     }
 
+    // Decision: RemoveContactAsync(null) is an ArgumentNullException; control: a known contact is removed
+    [Fact(Timeout = TestTimeouts.PerTestMilliseconds)]
+    public async Task Remove_with_a_null_address_throws_argument_null_exception()
+    {
+        await using StorageFixture storage = await StorageFixture.CreateAsync();
+        ContactBook book = Create(storage);
+        await book.AddContactAsync("contact_a@example.test", "Contact A");
+
+        await Assert.ThrowsAsync<ArgumentNullException>(() => book.RemoveContactAsync(null!));
+
+        Assert.Single(await new SqliteContactStore(storage.Database).ListAsync());
+        await book.RemoveContactAsync("contact_a@example.test");
+        Assert.Empty(await new SqliteContactStore(storage.Database).ListAsync());
+    }
+
     // Case 26: a null address is an ArgumentException
     [Fact(Timeout = TestTimeouts.PerTestMilliseconds)]
     public async Task Null_address_is_refused_with_argument_exception()

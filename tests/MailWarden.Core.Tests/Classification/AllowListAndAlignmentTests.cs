@@ -123,6 +123,37 @@ public sealed class AllowListAndAlignmentTests
         Assert.Equal(SpamTier.TrustedContact, result.Tier);
     }
 
+    // Case 29 (decision): a DMARC pass for a foreign domain falls through to DKIM and SPF
+    [Theory]
+    [InlineData("mx.test; dmarc=pass header.from=evil.com.pl; dkim=pass header.d=firma.com.pl")]
+    [InlineData("mx.test; dmarc=pass header.from=evil.com.pl; spf=pass smtp.mailfrom=bounce@firma.com.pl")]
+    public void Foreign_dmarc_pass_with_a_related_dkim_or_spf_pass_is_authenticated(string header)
+    {
+        Assert.Equal(AuthStatus.Authenticated, ClassifyFirma(header).AuthStatus);
+    }
+
+    // Case 29: control, without such a check the foreign DMARC pass leaves the status unknown
+    [Theory]
+    [InlineData("mx.test; dmarc=pass header.from=evil.com.pl")]
+    [InlineData("mx.test; dmarc=pass header.from=evil.com.pl; dkim=pass header.d=evil.com.pl")]
+    public void Foreign_dmarc_pass_alone_is_unknown(string header)
+    {
+        ClassificationResult result = ClassifyFirma(header);
+
+        Assert.Equal(AuthStatus.Unknown, result.AuthStatus);
+        Assert.NotEqual(SpamTier.TrustedContact, result.Tier);
+    }
+
+    // Case 29 (decision): a DMARC pass without header.from stays authenticated
+    [Fact]
+    public void Dmarc_pass_without_header_from_is_authenticated()
+    {
+        ClassificationResult result = ClassifyFirma("mx.test; dmarc=pass");
+
+        Assert.Equal(AuthStatus.Authenticated, result.AuthStatus);
+        Assert.Equal(SpamTier.TrustedContact, result.Tier);
+    }
+
     // Case 21: two sibling sub-domains are not related
     [Fact]
     public void Dkim_pass_for_a_sibling_sub_domain_is_not_authenticated()
