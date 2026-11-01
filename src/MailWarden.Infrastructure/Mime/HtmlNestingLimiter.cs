@@ -9,7 +9,8 @@ namespace MailWarden.Infrastructure.Mime;
 /// <param name="Html">The rewritten HTML.</param>
 /// <param name="WasReduced">
 /// True when markup was dropped because of a limit. Removing raw-text elements does not count: they would be removed later
-/// anyway, and nearly every newsletter has a <c>style</c> element.
+/// anyway, and nearly every newsletter has a <c>style</c> element. Only such an element without an end tag that would
+/// have shown text counts, because the rest of the mail goes with it.
 /// </param>
 internal readonly record struct LimitedHtml(string Html, bool WasReduced);
 
@@ -25,8 +26,8 @@ internal readonly record struct LimitedHtml(string Html, bool WasReduced);
 /// The scan can only stand in for the parser where both read the text the same way. Raw text is where they would differ:
 /// a comment start or a quote inside <c>script</c> means nothing to the parser but would hide the tags behind it from the
 /// scan. Therefore raw-text elements are removed here, so the parser never enters a raw-text state, and the rest is plain
-/// HTML that the scan follows like the tokenizer. What cannot be foreseen here is covered by the time limit of the build
-/// in the reading pane.
+/// HTML that the scan follows like the tokenizer. What cannot be foreseen here is covered by the budget of the parser in
+/// <see cref="MailHtmlSanitizer"/> and the time limit of the build in the reading pane.
 /// </remarks>
 internal static class HtmlNestingLimiter
 {
@@ -50,6 +51,9 @@ internal static class HtmlNestingLimiter
 
     /// <summary>A tag with more attributes is dropped.</summary>
     internal const int MaxAttributesPerTag = 256;
+
+    /// <summary>A tag with a longer attribute value that contains <c>&lt;</c> is dropped, also for <c>data:</c>.</summary>
+    internal const int MaxValueCharsWithLessThan = 64 * 1024;
 
     /// <summary>A longer style value is dropped; the tag stays.</summary>
     internal const int MaxStyleValueChars = 64 * 1024;
@@ -91,14 +95,25 @@ internal static class HtmlNestingLimiter
         "script", "style", "title", "textarea", "iframe", "noembed", "noframes", "noscript", "svg", "math",
     }.ToFrozenSet(StringComparer.Ordinal);
 
+    // Self-closing or without an end tag only the tag goes, because the mail may go on normally behind them (<svg/>).
+    private static readonly FrozenSet<string> ForeignElements = new[] { "svg", "math" }.ToFrozenSet(StringComparer.Ordinal);
+
+    // Without an end tag these take the rest of the mail along, as the parser would. For content a reader would see that
+    // gets a notice; the rest of a script or style is no text anyway.
+    private static readonly FrozenSet<string> HidesTextWithoutEndTag = new[]
+    {
+        "noscript", "textarea", "iframe", "noembed", "noframes",
+    }.ToFrozenSet(StringComparer.Ordinal);
+
     // Also raw text for the parser (or wanted as such), but their content is shown as normal HTML: only the tag goes.
     private static readonly FrozenSet<string> RawTextTagsOnly = new[] { "xmp", "plaintext", "listing" }
         .ToFrozenSet(StringComparer.Ordinal);
 
-    // The elements on the parser's list of active formatting elements.
+    // The elements on the parser's list of active formatting elements, without a and nobr: the parser closes an open one
+    // of these itself when the next one starts.
     private static readonly FrozenSet<string> FormattingElements = new[]
     {
-        "a", "b", "big", "code", "em", "font", "i", "nobr", "s", "small", "strike", "strong", "tt", "u",
+        "b", "big", "code", "em", "font", "i", "s", "small", "strike", "strong", "tt", "u",
     }.ToFrozenSet(StringComparer.Ordinal);
 
     /// <summary>Returns the HTML without raw-text elements, with stray <c>&lt;</c> encoded and within the limits.</summary>
@@ -143,9 +158,7 @@ internal static class HtmlNestingLimiter
         TagScan tag = ScanAttributes(html, tagStart, nameEnd);
         if (RawTextElements.Contains(tagName))
         {
-            int elementEnd = FindRawTextElementEnd(html, tag.End, tagName);
-            rewriter.Drop(tagStart, elementEnd);
-            return elementEnd;
+            return HandleRawTextElement(html, tagStart, tag, tagName, rewriter, state);
         }
 
         if (RawTextTagsOnly.Contains(tagName))
@@ -162,7 +175,8 @@ internal static class HtmlNestingLimiter
             || state.CopiedFormatting + state.OpenFormattingTotal > MaxCopiedFormattingElements
             || tag.AttributeCount > MaxAttributesPerTag
             || state.TagTextChars + tag.CountedChars > MaxTagTextChars
-            || state.LessThanInValues + tag.LessThanInValues > MaxLessThanInAttributeValues;
+            || state.LessThanInValues + tag.LessThanInValues > MaxLessThanInAttributeValues
+            || tag.HasLongValueWithLessThan;
         if (exceedsLimit)
         {
             rewriter.Drop(tagStart, tag.End);
@@ -192,6 +206,28 @@ internal static class HtmlNestingLimiter
         }
 
         return tag.End;
+    }
+
+    private static int HandleRawTextElement(string html, int tagStart, TagScan tag, string tagName, Rewriter rewriter, ScanState state)
+    {
+        bool isForeign = ForeignElements.Contains(tagName);
+        bool isSelfClosing = tag.End >= 2 && html[tag.End - 1] == '>' && html[tag.End - 2] == '/';
+        int elementEnd = isForeign && isSelfClosing ? -1 : FindRawTextElementEnd(html, tag.End, tagName, state);
+        if (elementEnd >= 0)
+        {
+            rewriter.Drop(tagStart, elementEnd);
+            return elementEnd;
+        }
+
+        if (isForeign)
+        {
+            rewriter.Drop(tagStart, tag.End);
+            return tag.End;
+        }
+
+        rewriter.Drop(tagStart, html.Length);
+        state.WasReduced |= HidesTextWithoutEndTag.Contains(tagName);
+        return html.Length;
     }
 
     // Attributes of an end tag mean nothing, but the parser still reads them, so they are removed. A long list of tag
@@ -287,11 +323,14 @@ internal static class HtmlNestingLimiter
             return closing < 0 ? html.Length : closing + 1;
         }
 
-        // Searched from behind "<!" because "<!-->" and "<!--->" are complete comments.
-        int searchStart = start + 2;
-        int normalEnd = html.IndexOf("-->", searchStart, StringComparison.Ordinal);
-        int searchLimit = normalEnd < 0 ? html.Length : normalEnd;
-        int bangEnd = html.IndexOf("--!>", searchStart, searchLimit - searchStart, StringComparison.Ordinal);
+        // As the parser reads it: "<!-->" and "<!--->" are complete comments, so "-->" counts from behind "<!". "--!>" needs
+        // two dashes of its own: in "<!--!>" the comment has only started.
+        int normalEnd = html.IndexOf("-->", start + 2, StringComparison.Ordinal);
+        int bangSearchStart = start + CommentStart.Length;
+        int bangSearchLimit = normalEnd < 0 ? html.Length : normalEnd;
+        int bangEnd = bangSearchLimit > bangSearchStart
+            ? html.IndexOf("--!>", bangSearchStart, bangSearchLimit - bangSearchStart, StringComparison.Ordinal)
+            : -1;
         if (bangEnd >= 0)
         {
             return bangEnd + 4;
@@ -300,9 +339,15 @@ internal static class HtmlNestingLimiter
         return normalEnd < 0 ? html.Length : normalEnd + 3;
     }
 
-    // The position behind the first matching end tag; without one the rest of the input, as the parser would read it.
-    private static int FindRawTextElementEnd(string html, int contentStart, string tagName)
+    // The position behind the first matching end tag, or -1 without one. A name once searched in vain is not searched again,
+    // which keeps the scan linear for a long list of the same unclosed tag.
+    private static int FindRawTextElementEnd(string html, int contentStart, string tagName, ScanState state)
     {
+        if (state.NamesWithoutEndTag.Contains(tagName))
+        {
+            return -1;
+        }
+
         string endTagStart = "</" + tagName;
         int candidate = html.IndexOf(endTagStart, contentStart, StringComparison.OrdinalIgnoreCase);
         while (candidate >= 0)
@@ -316,7 +361,8 @@ internal static class HtmlNestingLimiter
             candidate = html.IndexOf(endTagStart, nameEnd, StringComparison.OrdinalIgnoreCase);
         }
 
-        return html.Length;
+        state.NamesWithoutEndTag.Add(tagName);
+        return -1;
     }
 
     private static void CloseTag(List<string> openTags, string tagName)
@@ -408,6 +454,7 @@ internal static class HtmlNestingLimiter
             (int valueStart, int valueEnd, position) = ReadAttributeValue(html, position);
             ReadOnlySpan<char> attributeName = html.AsSpan(attributeStart, attributeNameEnd - attributeStart);
             ReadOnlySpan<char> value = html.AsSpan(valueStart, valueEnd - valueStart);
+            tag.HasLongValueWithLessThan |= value.Length > MaxValueCharsWithLessThan && value.Contains('<');
             if (attributeName.Equals("style", StringComparison.OrdinalIgnoreCase) && IsOversizedStyle(value))
             {
                 tag.OversizedStyles ??= [];
@@ -477,6 +524,9 @@ internal static class HtmlNestingLimiter
         /// <summary>Number of <c>&lt;</c> inside the values.</summary>
         public int LessThanInValues { get; set; }
 
+        /// <summary>True when one value is over <see cref="MaxValueCharsWithLessThan"/> and contains <c>&lt;</c>.</summary>
+        public bool HasLongValueWithLessThan { get; set; }
+
         /// <summary>Attribute ranges (name and value) to drop; null when there is none.</summary>
         public List<(int Start, int End)>? OversizedStyles { get; set; }
     }
@@ -487,6 +537,8 @@ internal static class HtmlNestingLimiter
         public List<string> OpenTags { get; } = [];
 
         public Dictionary<string, int> OpenFormatting { get; } = new(StringComparer.Ordinal);
+
+        public HashSet<string> NamesWithoutEndTag { get; } = new(StringComparer.Ordinal);
 
         public int OpenFormattingTotal { get; set; }
 

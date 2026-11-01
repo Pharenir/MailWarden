@@ -1,10 +1,16 @@
 using System.Collections.Frozen;
+using System.Diagnostics;
+using System.Net;
 using System.Text;
 using System.Text.RegularExpressions;
 using AngleSharp;
 using AngleSharp.Css.Dom;
+using AngleSharp.Css.Parser;
 using AngleSharp.Dom;
 using AngleSharp.Html.Dom;
+using AngleSharp.Html.Parser;
+using AngleSharp.Html.Parser.Tokens;
+using AngleSharp.Text;
 using Ganss.Xss;
 
 namespace MailWarden.Infrastructure.Mime;
@@ -19,7 +25,8 @@ public sealed record SanitizedHtml(string Html, int BlockedRemoteResourceCount, 
 
 /// <summary>
 /// Cleans the HTML body of a mail with an allow-list. Before parsing, <see cref="HtmlNestingLimiter"/> bounds the work
-/// for crafted input. Then three steps run on one parsed document: remove the dangerous
+/// for crafted input, and the parser itself runs under a budget: nothing has to be predicted there, what it costs is
+/// measured. Then three steps run on one parsed document: remove the dangerous
 /// elements with their content and limit the nesting; let the HtmlSanitizer package apply the allow-lists for elements,
 /// attributes and CSS properties; then apply the rules of this application for link targets, image sources and style URLs.
 /// </summary>
@@ -32,6 +39,11 @@ public static partial class MailHtmlSanitizer
     // One small inline image referenced many times could otherwise multiply into gigabytes. A strict limit, also for a
     // single image: 25 binary megabytes are 34,952,558 characters in Base64 with their prefix.
     private const long MaxInsertedDataUriChars = 34_000_000;
+
+    // Budget of the parser, checked at every token on the thread that parses. Copies of formatting elements are made by the
+    // parser without any token or callback of their own (a 172 KB mail reached over 5 GB), but always during a token.
+    // Largest of 2,664 real mails: 313,586 characters and 882 ms for the whole build.
+    private const long MaxParserAllocationBytes = 256L * 1024 * 1024;
 
     private const string DocumentPrefix = "<!doctype html><html><body>";
 
@@ -71,6 +83,16 @@ public static partial class MailHtmlSanitizer
     private static readonly FrozenSet<string> DataImageTypes =
         new[] { "image/png", "image/jpeg", "image/gif", "image/webp" }.ToFrozenSet(StringComparer.OrdinalIgnoreCase);
 
+    private static readonly TimeSpan MaxParserTime = TimeSpan.FromSeconds(3);
+
+    // With CSS support: the package removes all styles of a document parsed without it.
+    private static readonly IConfiguration ParserConfiguration = Configuration.Default.WithCss(new CssParserOptions
+    {
+        IsIncludingUnknownDeclarations = true,
+        IsIncludingUnknownRules = true,
+        IsToleratingInvalidSelectors = true,
+    });
+
     private static readonly char[] UrlEdgeCharacters = [.. Enumerable.Range(0, 33).Select(code => (char)code)];
 
     // Every position value except "fixed", which could cover the whole reading document.
@@ -99,7 +121,8 @@ public static partial class MailHtmlSanitizer
     /// embed, applet, input, button, select, textarea, link, meta, base, svg, math, video, audio, source, template; form
     /// loses only its tag. Remote images and remote style URLs stay only when <paramref name="allowRemoteImages"/> is
     /// true; otherwise they are removed and counted. Inserted inline images use at most 34,000,000 characters per document;
-    /// images over this budget are removed.
+    /// images over this budget are removed. When parsing exceeds 256 MB of allocation or 3 s, the result is the encoded text
+    /// of the HTML without any markup.
     /// </summary>
     /// <param name="html">Raw HTML of a mail body.</param>
     /// <param name="inlineImages">Content-ID → data URI, the targets of <c>cid:</c> image sources.</param>
@@ -112,7 +135,12 @@ public static partial class MailHtmlSanitizer
         ArgumentNullException.ThrowIfNull(inlineImages);
 
         LimitedHtml limited = HtmlNestingLimiter.Limit(html);
-        using IHtmlDocument document = PackageSanitizer.HtmlParserFactory().ParseDocument(DocumentPrefix + limited.Html);
+        using IHtmlDocument? document = ParseWithinBudget(DocumentPrefix + limited.Html);
+        if (document is null)
+        {
+            return new SanitizedHtml(WebUtility.HtmlEncode(MimeBodyText.ExtractFromHtml(limited.Html)), 0, true);
+        }
+
         IHtmlElement? body = document.Body;
         if (body is null)
         {
@@ -127,6 +155,32 @@ public static partial class MailHtmlSanitizer
             body.ChildNodes.ToHtml(PackageSanitizer.OutputFormatter),
             blockedCount,
             limited.WasReduced || wasFlattened || inlineImageBudget.WasExhausted);
+    }
+
+    // Returns null when the budget ran out. ParseDocument works on the calling thread and so does the callback, so the
+    // counter of this thread is the right one, wherever the build runs; it is only compared with its own start value.
+    private static IHtmlDocument? ParseWithinBudget(string html)
+    {
+        long allocationStart = GC.GetAllocatedBytesForCurrentThread();
+        long timeStart = Stopwatch.GetTimestamp();
+        void CheckBudget(HtmlToken token, TextRange range)
+        {
+            if (GC.GetAllocatedBytesForCurrentThread() - allocationStart > MaxParserAllocationBytes
+                || Stopwatch.GetElapsedTime(timeStart) > MaxParserTime)
+            {
+                throw new ParserBudgetExceededException();
+            }
+        }
+
+        var options = new HtmlParserOptions { OnToken = CheckBudget };
+        try
+        {
+            return new HtmlParser(options, BrowsingContext.New(ParserConfiguration)).ParseDocument(html);
+        }
+        catch (ParserBudgetExceededException)
+        {
+            return null;
+        }
     }
 
     // Iterative on purpose (see MaxNestingDepth). Returns true when something was flattened to text.
@@ -380,6 +434,11 @@ public static partial class MailHtmlSanitizer
     {
         Match match = UrlScheme().Match(StripUrlWhitespace(url));
         return match.Success ? match.Groups[1].Value : null;
+    }
+
+    /// <summary>Ends the parser from inside its token callback.</summary>
+    private sealed class ParserBudgetExceededException : Exception
+    {
     }
 
     /// <summary>
