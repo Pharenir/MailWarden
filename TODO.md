@@ -265,7 +265,7 @@ AP-03 neu geteilt: AP-03b = Abgleich robust/schnell, **AP-03c** = Befehlswartesc
 - [x] Fall 33 erledigt (2026-11-01, `work\AP-07c\requirement.md`): Versand, Ordner anlegen, Verschieben, Schlüssel stabil auf beiden Anbietern. Dennis 2026-11-01: Mails und Ordner erscheinen im Web und in der Outlook-App. Testmails und beide Ordner liegen weiter in Konto 2 und im Google-Konto
 
 ### Vertagt aus AP-07d
-Stand: Verdrahtung, Bremse und Hinweis sind umgesetzt und mit Fakes getestet (S3 <offen>). Noch offen: Fall 17 (Dennis, manuell,
+Stand: Verdrahtung, Bremse und Hinweis sind umgesetzt und mit Fakes getestet (S3 2137/2137). Noch offen: Fall 17 (Dennis, manuell,
 `work\manual-tests.md` Teil 7) und Fall 18 (Planer, `act` auf einer Kopie mit Testmails nach Freigabe von Dennis).
 Erledigt aus AP-07c: D8, J4 (Bremse) und die Sichtbarkeit von `EvaluationFailed` (Hinweis in der App, Logzeile), siehe dort.
 

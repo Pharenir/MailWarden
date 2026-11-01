@@ -228,31 +228,31 @@ Vollständiger Schnittstellenvertrag: `work\AP-04a\requirement.md`.
 
 ### AP-07d Verdrahtung in die App
 Der Durchlauf von AP-07c läuft nach jedem Abgleich in der laufenden App. Standard bleibt nur protokollieren; `Act` ruht
-weiter, solange das Adressbuch leer ist (→ AP-06). Testlauf: S3 <offen> (der Planer trägt die Zahl nach dem Lauf ein).
+weiter, solange das Adressbuch leer ist (→ AP-06). Testlauf: S3 2137/2137 (der Planer trägt die Zahl nach dem Lauf ein).
 Alle Fälle bisher nur mit Fakes bzw. künstlichen Daten, kein echter Server.
 | # | Sollverhalten | Umgesetzt | Getestet |
 |---|---|---|---|
-| 1 | Ein Zyklus je Konto: Abgleich, dann Durchlauf, dann Meldung; Rückgabe ist der Bericht des Abgleichs | ✅ `ClassifyingSyncCycle` (`Composition`), `AccountPipelines` (Durchlauf auf der Verbindung des Zyklus) | ✅ Fall 1 – S3 <offen> |
-| 2 | Hat der Durchlauf Verschiebungen oder Aufbewahrungs-Löschungen eingestellt, läuft der Zyklus des Kontos bald erneut (Befehle laufen sofort); zurückgewiesene Löschungen und Bremse lösen nichts aus | ✅ `ClassifyingSyncCycle` → `MailboxService.TriggerAccount` | ✅ Fall 2 (6 Zeilen) – S3 <offen> |
-| 3 | Wirft der Abgleich, läuft der Durchlauf nicht, kein Logeintrag aus dem Zyklus, die Ausnahme geht weiter | ✅ `ClassifyingSyncCycle` | ✅ Fall 3 – S3 <offen> |
-| 4 | Wirft der Durchlauf, steht eine Zeile mit dem Typnamen im Log (ohne Mail-Daten), die Ausnahme geht weiter (`WaitingAfterError`); Abbruch durch Beenden schreibt nichts | ✅ `ClassifyingSyncCycle` (`ICriticalLog`) | ✅ Fall 4 – S3 <offen> |
-| 5 | Wirft ein Empfänger der Meldung, steht eine Logzeile, der Zyklus ist trotzdem normal | ✅ `ClassifyingSyncCycle` | ✅ Fall 5 – S3 <offen> |
-| 6 | `EvaluationFailed` > 0 oder `BrakeHeld` > 0: eine Logzeile mit Zahlen, ohne Mail-Daten | ✅ `ClassifyingSyncCycle` | ✅ Fall 6 – S3 <offen> |
-| 7 | `classification-policy.json` kennt `maxMovesPerPass` (1 bis 1000, Standard 100); 0, 1001 oder falscher Typ → Fehler mit Schlüsselnamen | ✅ `ClassificationPolicy`, `ClassificationPolicyFile` | ✅ Fall 7 – S3 <offen> |
-| 8 | Bremse: genau der Grenzwert wird verschoben; eine Verschiebung mehr → keine, alle `BrakeHeld`, Warteschlange leer, Marke rückt weiter | ✅ `ClassificationPass` (je Quellordner, über alle Ziele), `ClassificationOutcome.BrakeHeld` | ✅ Fall 8 – S3 <offen> |
-| 9 | Die Bremse gilt je Quellordner: Posteingang verschiebt, Junk wird zurückgehalten (und umgekehrt) | ✅ `ClassificationPass` | ✅ Fall 9 – S3 <offen> |
-| 10 | `RecordOnly` und ruhendes `Act` kennen keine Bremse (200 Mails, kein `BrakeHeld`, kein Befehl) | ✅ `ClassificationPass` | ✅ Fall 10 – S3 <offen> |
-| 11 | Zurückgehaltene Mails werden im nächsten Durchlauf nicht erneut entschieden (`SkippedKnown`) | ✅ `ClassificationPass` | ✅ Fall 11 – S3 <offen> |
-| 12 | Beim Start werden beide Dateien gelesen; ungültige Datei → `InvalidDataException`, Sperre frei, App zeigt Fenster mit Dateinamen; fehlende Dateien → Standardwerte | ✅ `MailWardenRuntime.OpenAsync`, `App.xaml.cs` (`UiText.StartErrorInvalidClassifierFile`) | ✅ Fall 12 (Laufzeit) – S3 <offen>. Ungetestet: das Fehlerfenster selbst (GUI, nur von Hand) |
-| 13 | Die Laufzeit meldet `ClassificationPassCompleted` aus der Dienstschleife, löst Folgezyklen aus und meldet nach dem Beenden nichts mehr | ✅ `MailWardenRuntime` (Ereignis), `OpenWithCycleStepsAsync` (Nahtstelle, ohne Server) | ✅ Fall 13 – S3 <offen> |
-| 14 | Hinweis in der Infoleiste bei `EvaluationFailed` oder `BrakeHeld`, mit Zahlen; unbekannte Konten werden ignoriert | ✅ `ShellViewModel`, `ShellBanner.Classification`, `UiText.BannerClassificationProblems` | ✅ Fall 14 (geändert durch fix.2, siehe 21) – S3 <offen> |
-| 15 | `ActSuspendedNoContacts`: eigener fester Text „wartet auf das Adressbuch“, keine Zahl; ohne `Act` nie ein Hinweis | ✅ `ShellBanner.ClassificationWaiting`, `UiText.BannerClassificationWaiting` | ✅ Fall 15 – S3 <offen> |
-| 16 | Das Ereignis erreicht die Oberfläche über den Dispatcher; ein Fehler im Empfänger wird protokolliert, nicht weitergereicht | ✅ `IMailboxController.ClassificationPassCompleted` | ✅ Fall 16 – S3 <offen> |
+| 1 | Ein Zyklus je Konto: Abgleich, dann Durchlauf, dann Meldung; Rückgabe ist der Bericht des Abgleichs | ✅ `ClassifyingSyncCycle` (`Composition`), `AccountPipelines` (Durchlauf auf der Verbindung des Zyklus) | ✅ Fall 1 – S3 2137/2137 |
+| 2 | Hat der Durchlauf Verschiebungen oder Aufbewahrungs-Löschungen eingestellt, läuft der Zyklus des Kontos bald erneut (Befehle laufen sofort); zurückgewiesene Löschungen und Bremse lösen nichts aus | ✅ `ClassifyingSyncCycle` → `MailboxService.TriggerAccount` | ✅ Fall 2 (6 Zeilen) – S3 2137/2137 |
+| 3 | Wirft der Abgleich, läuft der Durchlauf nicht, kein Logeintrag aus dem Zyklus, die Ausnahme geht weiter | ✅ `ClassifyingSyncCycle` | ✅ Fall 3 – S3 2137/2137 |
+| 4 | Wirft der Durchlauf, steht eine Zeile mit dem Typnamen im Log (ohne Mail-Daten), die Ausnahme geht weiter (`WaitingAfterError`); Abbruch durch Beenden schreibt nichts | ✅ `ClassifyingSyncCycle` (`ICriticalLog`) | ✅ Fall 4 – S3 2137/2137 |
+| 5 | Wirft ein Empfänger der Meldung, steht eine Logzeile, der Zyklus ist trotzdem normal | ✅ `ClassifyingSyncCycle` | ✅ Fall 5 – S3 2137/2137 |
+| 6 | `EvaluationFailed` > 0 oder `BrakeHeld` > 0: eine Logzeile mit Zahlen, ohne Mail-Daten | ✅ `ClassifyingSyncCycle` | ✅ Fall 6 – S3 2137/2137 |
+| 7 | `classification-policy.json` kennt `maxMovesPerPass` (1 bis 1000, Standard 100); 0, 1001 oder falscher Typ → Fehler mit Schlüsselnamen | ✅ `ClassificationPolicy`, `ClassificationPolicyFile` | ✅ Fall 7 – S3 2137/2137 |
+| 8 | Bremse: genau der Grenzwert wird verschoben; eine Verschiebung mehr → keine, alle `BrakeHeld`, Warteschlange leer, Marke rückt weiter | ✅ `ClassificationPass` (je Quellordner, über alle Ziele), `ClassificationOutcome.BrakeHeld` | ✅ Fall 8 – S3 2137/2137 |
+| 9 | Die Bremse gilt je Quellordner: Posteingang verschiebt, Junk wird zurückgehalten (und umgekehrt) | ✅ `ClassificationPass` | ✅ Fall 9 – S3 2137/2137 |
+| 10 | `RecordOnly` und ruhendes `Act` kennen keine Bremse (200 Mails, kein `BrakeHeld`, kein Befehl) | ✅ `ClassificationPass` | ✅ Fall 10 – S3 2137/2137 |
+| 11 | Zurückgehaltene Mails werden im nächsten Durchlauf nicht erneut entschieden (`SkippedKnown`) | ✅ `ClassificationPass` | ✅ Fall 11 – S3 2137/2137 |
+| 12 | Beim Start werden beide Dateien gelesen; ungültige Datei → `InvalidDataException`, Sperre frei, App zeigt Fenster mit Dateinamen; fehlende Dateien → Standardwerte | ✅ `MailWardenRuntime.OpenAsync`, `App.xaml.cs` (`UiText.StartErrorInvalidClassifierFile`) | ✅ Fall 12 (Laufzeit) – S3 2137/2137. Ungetestet: das Fehlerfenster selbst (GUI, nur von Hand) |
+| 13 | Die Laufzeit meldet `ClassificationPassCompleted` aus der Dienstschleife, löst Folgezyklen aus und meldet nach dem Beenden nichts mehr | ✅ `MailWardenRuntime` (Ereignis), `OpenWithCycleStepsAsync` (Nahtstelle, ohne Server) | ✅ Fall 13 – S3 2137/2137 |
+| 14 | Hinweis in der Infoleiste bei `EvaluationFailed` oder `BrakeHeld`, mit Zahlen; unbekannte Konten werden ignoriert | ✅ `ShellViewModel`, `ShellBanner.Classification`, `UiText.BannerClassificationProblems` | ✅ Fall 14 (geändert durch fix.2, siehe 21) – S3 2137/2137 |
+| 15 | `ActSuspendedNoContacts`: eigener fester Text „wartet auf das Adressbuch“, keine Zahl; ohne `Act` nie ein Hinweis | ✅ `ShellBanner.ClassificationWaiting`, `UiText.BannerClassificationWaiting` | ✅ Fall 15 – S3 2137/2137 |
+| 16 | Das Ereignis erreicht die Oberfläche über den Dispatcher; ein Fehler im Empfänger wird protokolliert, nicht weitergereicht | ✅ `IMailboxController.ClassificationPassCompleted` | ✅ Fall 16 – S3 2137/2137 |
 | 17 | Manuell (Dennis): App auf der Datenkopie mit neuer Mail: nichts wandert, kein Hinweis, der Abgleich wird nicht langsamer | ✅ gebaut | **offen – manuell Dennis** (`work\manual-tests.md`, Teil 7) |
 | 18 | Manuell (Planer, Kopie, nur Zählungen): `classification-policy.json` mit `act`, ein Testkontakt, Testmails nur zwischen Konto 2 und Konto 3 nach Freigabe von Dennis → Mails wandern durch den laufenden Dienst, bald nach Ankunft | ✅ gebaut | **offen – manuell Planer** |
-| 19 | Eine Abbruch-Ausnahme, deren eigenes Token nicht abgebrochen ist (z. B. Zeitüberschreitung beim Token), schreibt eine Logzeile mit dem Typnamen und geht weiter | ✅ `ClassifyingSyncCycle` (fix.2, Q1) | ✅ Fall 19 – S3 <offen>. Erledigt damit PLAN AP-07 #4b „Fehler im Log“ (mit Fällen 3, 4) |
-| 20 | Dieselbe Ausnahme mit abgebrochenem eigenem Token: keine Logzeile, geht weiter | ✅ `ClassifyingSyncCycle` (fix.2, Q1) | ✅ Fall 20 – S3 <offen> |
-| 21 | Hinweis-Summen seit App-Start: 2 nicht bewertet, dann ein sauberer Durchlauf, dann 3 zurückgehalten bei einem anderen Konto → Summen bleiben 2, dann 2 und 3; ein sauberer Durchlauf löscht nichts | ✅ `ShellViewModel` (fix.2, Q2), Text beginnt „Spamfilter seit dem Start:“ | ✅ Fall 21 – S3 <offen> |
+| 19 | Eine Abbruch-Ausnahme, deren eigenes Token nicht abgebrochen ist (z. B. Zeitüberschreitung beim Token), schreibt eine Logzeile mit dem Typnamen und geht weiter | ✅ `ClassifyingSyncCycle` (fix.2, Q1) | ✅ Fall 19 – S3 2137/2137. Erledigt damit PLAN AP-07 #4b „Fehler im Log“ (mit Fällen 3, 4) |
+| 20 | Dieselbe Ausnahme mit abgebrochenem eigenem Token: keine Logzeile, geht weiter | ✅ `ClassifyingSyncCycle` (fix.2, Q1) | ✅ Fall 20 – S3 2137/2137 |
+| 21 | Hinweis-Summen seit App-Start: 2 nicht bewertet, dann ein sauberer Durchlauf, dann 3 zurückgehalten bei einem anderen Konto → Summen bleiben 2, dann 2 und 3; ein sauberer Durchlauf löscht nichts | ✅ `ShellViewModel` (fix.2, Q2), Text beginnt „Spamfilter seit dem Start:“ | ✅ Fall 21 – S3 2137/2137 |
 
 Nicht von Tests gedeckt: Fälle 17 und 18 (manuell, offen), das Fehlerfenster bei ungültiger Datei, der Hinweis in der echten
 Oberfläche, jeder Lauf gegen einen echten Server. Bedingungen vor `Act` auf einem echten Konto: `TODO.md`, „Vertagt aus
@@ -296,7 +296,7 @@ Vollständiger Schnittstellenvertrag: `work\AP-07b\requirement.md`.
 | 3 | Domain `qzxkvb73.top`, nicht im Body, Auth fail → `CertainSpam` → Ordner `Quarantine`; Protokoll enthält jedes Signal mit Punkten | AP-07a: Stufe + Signale mit Begründung; Ordner `Quarantine`: AP-07c `ClassificationPass` (#3, #4) | `SpamClassifierTests` (14), `ClassifierSmokeTests`; AP-07c Fall 13 – Anlegen und Verschieben am echten Server ungetestet |
 | 4 | Unbekannter Absender, Auth pass, Domain plausibel → `LikelyLegit` → Ordner `Screener` | AP-07a: Stufe; Ordner `Screener`: AP-07c `ClassificationPass` (#3, #4) | `SpamClassifierTests` (13); AP-07c Fall 13 – am echten Server ungetestet |
 | 4a | Dennis bestätigt Screener-Mail („kein Junk“) → Absender ins Adressbuch, Mail in Posteingang, künftige Mails `TrustedContact` | → AP-08 | |
-| 4b | Fehlt `Screener` oder `Quarantine` auf dem Server, legt die App den Ordner an; schlägt das fehl → Mail bleibt liegen, Fehler im Log, kein Verlust | AP-07c #4: `MailKitFolderProvisioner` | AP-07c Fälle 17, 18 (Fake) und Fall 33 (echte Server, Anlegen); „Fehler im Log“: erledigt mit AP-07d (Fälle 3–4, 19; S3 <offen>), nur mit Fakes |
+| 4b | Fehlt `Screener` oder `Quarantine` auf dem Server, legt die App den Ordner an; schlägt das fehl → Mail bleibt liegen, Fehler im Log, kein Verlust | AP-07c #4: `MailKitFolderProvisioner` | AP-07c Fälle 17, 18 (Fake) und Fall 33 (echte Server, Anlegen); „Fehler im Log“: erledigt mit AP-07d (Fälle 3–4, 19; S3 2137/2137), nur mit Fakes |
 | 5 | Mail ohne `Authentication-Results`-Header → neutral (keine Punkte), nie Absturz | AP-07a `AuthStatusEvaluator`, Parser wirft nie | `SpamClassifierTests` (18), `AuthenticationResultsParserTests` (5) |
 | 6 | Block-Liste schlägt alles, Allow-Liste schlägt alles außer Auth-fail | AP-07a `SpamClassifier` (Entscheidungsreihenfolge) | `SpamClassifierTests` (19, 20) |
 | 7 | Quarantäne: Mails älter als X Tage werden gelöscht; X=0 bedeutet nie automatisch löschen | AP-07c #6: `ClassificationPass` (Aufbewahrung, Standard 0 = nie) | AP-07c Fälle 26–28, 39, 43, 44, 50; Löschen am echten Server ungetestet |
