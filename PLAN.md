@@ -251,7 +251,7 @@ was nur der manuelle Test belegt, steht als „manuell Dennis – offen“ (Fäl
 | 5 | Lesebereich: HTML bereinigt, kein Skript, externe Inhalte blockiert bis „Bilder laden“ je Mail; Links öffnen nur im Standardbrowser | ✅ `Infrastructure\Mime\MailContentReader.cs`, `MailHtmlSanitizer.cs`, `HtmlNestingLimiter.cs`, `ReadingDocumentBuilder.cs`; `Presentation\WebContentPolicy.cs`, `ReadingPaneViewModel.cs` (Hinweis `ContentNotice`); `App\MailWebViewHost.cs`. Schutz gegen präparierte Mails (Grenzen, Parser-Budget, Aufbau im eigenen Thread), Restpunkte in `TODO.md` | ✅ Fälle 2–19, 36, 37 und Zusatzfälle 49–95. Ungetestet: **WebView2-Verdrahtung im WinUI-Control (nur per Probe mit dem WinForms-Control belegt), „Bilder laden“, Klick auf Links, Hinweis bei gekürzten Mails, `mailto:` – manuell Dennis – offen** (Fall 45) |
 | 6 | Fremdtexte ohne Steuer-/Bidi-Zeichen; Logs enthalten nur Typnamen und feste Texte | ✅ `Core\Text\SafeDisplayText.cs`, `Presentation\MailDisplayText.cs`, `Infrastructure\Logging\CriticalFileLog.cs` | ✅ Fälle 1, 7, 22, 28, 36, 38 (Markertext erscheint nie in Anzeige oder Log) |
 | 7 | Keine Änderung am Server durch die Oberfläche (auch Lesen setzt kein `\Seen`) | ✅ `IMailboxReadModel` (nur Lesemember), `IMailboxController` (nur Trigger/Retry) | ✅ Fall 41 (Reflexion, aufgezeichnete Aufrufe, Lesen setzt kein `\Seen`). Ungetestet: **Webmail nach dem Lesen unverändert – manuell Dennis – offen** (Fall 48) |
-| 8 | Hell/Dunkel/System umschaltbar; Mail-Inhalt immer auf hellem Grund | ✅ `Presentation\UiSettings.cs` (`AppTheme`), `MainWindow.xaml` (`RequestedTheme`), `ReadingDocumentBuilder` (heller Grund) | ✅ Fall 40 (Wechsel, Speichern). Ungetestet: **Aussehen beider Designs – manuell Dennis – offen** (Fall 44) |
+| 8 | Hell/Dunkel/System umschaltbar; der Lesebereich folgt dem Design, das die App tatsächlich zeigt: Mail ohne eigene Farben im dunklen Design dunkel, Mail mit eigenen Farben bleibt helles Blatt (AP-04d) | ✅ `Presentation\UiSettings.cs` (`AppTheme`), `MainWindow.xaml` (`RequestedTheme`), `MainWindow.xaml.cs` (`ActualTheme`), `ReadingPaneViewModel.ApplyThemeAsync`, `ReadingDocumentBuilder` (Seitenstil je Design), `OwnColorDetector` (eigene Farben) | ✅ Fall 40 (Wechsel, Speichern). Ungetestet: **Aussehen beider Designs – manuell Dennis – offen** (Fall 44) |
 
 Vollständiger Schnittstellenvertrag: `work\AP-04a\requirement.md`.
 
@@ -341,7 +341,8 @@ Vollständiger Schnittstellenvertrag: `work\AP-07b\requirement.md`.
 - **Gmail-Labels** statt Ordner: Verschieben = Label ändern; `All Mail` ausblenden.
 - **IDLE/Verbindungsabbrüche:** Wiederverbindung mit Backoff; Sync bleibt ohne App nicht aktuell (Filter läuft nur
   bei laufender App).
-- **HTML-Mails im Dark Mode** sehen teils schlecht aus; v1 invertiert nicht, zeigt Hell-Hintergrund im Lesebereich.
+- **HTML-Mails im Dark Mode** sehen teils schlecht aus, ihre Farben werden nie umgeschrieben: eine Mail mit eigenen Farben
+  bleibt als helles Blatt im dunklen Fenster, nur eine Mail ohne eigene Farben wird dunkel (AP-04d).
 - **Öffentliches Repo:** Secrets/Tokens/Maildaten nur über `.gitignore` geschützt; vor jedem Commit `git status`
   gegen die Liste in `CLAUDE.md` prüfen. Test-Fixtures ausschließlich künstlich.
 
