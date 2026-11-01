@@ -1,10 +1,16 @@
 using System.ComponentModel;
+using System.Windows.Input;
 using MailWarden.Infrastructure.Logging;
 using MailWarden.Infrastructure.Storage;
 using MailWarden.Presentation;
+using Microsoft.UI.Input;
 using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Controls;
+using Microsoft.UI.Xaml.Input;
 using Microsoft.UI.Xaml.Media;
+using Windows.Foundation;
+using Windows.System;
+using Windows.UI.Core;
 
 namespace MailWarden.App;
 
@@ -23,10 +29,17 @@ public sealed partial class MainWindow : Window
     // The list never pushes the reading pane below this size.
     private const double MinimumReadingPaneSize = 200;
 
+    // Where the hint with the link target lies relative to the mouse, and its distance from the window edge.
+    private const double LinkHintOffsetX = 12;
+    private const double LinkHintOffsetY = 20;
+    private const double LinkHintEdgeDistance = 8;
+
     // Order of the entries of the theme choice.
     private static readonly AppTheme[] ThemeOrder = [AppTheme.System, AppTheme.Light, AppTheme.Dark];
 
     private readonly MailWebViewHost webViewHost;
+    private readonly WindowPlacementKeeper placementKeeper;
+    private readonly ICriticalLog log;
 
     private ScrollViewer? messageListScroller;
     private double dragStartNavigationWidth;
@@ -35,6 +48,7 @@ public sealed partial class MainWindow : Window
     private bool isBrowserUnavailable;
     private bool isListDragActive;
     private bool isNavigationDragActive;
+    private bool isSyncingListSelection;
 
     /// <summary>Creates the window.</summary>
     /// <param name="viewModel">The shell.</param>
@@ -43,6 +57,7 @@ public sealed partial class MainWindow : Window
     public MainWindow(ShellViewModel viewModel, DataPaths paths, ICriticalLog log)
     {
         ViewModel = viewModel;
+        this.log = log;
         InitializeComponent();
 
         Title = UiText.AppTitle;
@@ -53,9 +68,12 @@ public sealed partial class MainWindow : Window
         ThemeChoice.Items.Add(new ComboBoxItem { Content = UiText.ThemeLight });
         ThemeChoice.Items.Add(new ComboBoxItem { Content = UiText.ThemeDark });
         ThemeChoice.SelectedIndex = Array.IndexOf(ThemeOrder, ViewModel.Theme);
+        ApplyActionTexts();
 
         webViewHost = new MailWebViewHost(ReadingWebView, Path.Combine(paths.Root, BrowserDataDirectoryName), log);
         webViewHost.InitializationFailed += OnBrowserInitializationFailed;
+        webViewHost.StatusTextChanged += OnBrowserStatusTextChanged;
+        placementKeeper = new WindowPlacementKeeper(this, ViewModel);
 
         NavigationSplitter.Dragged += OnNavigationSplitterDragged;
         NavigationSplitter.DragCompleted += OnNavigationSplitterDragCompleted;
@@ -66,6 +84,8 @@ public sealed partial class MainWindow : Window
         ViewModel.Navigation.PropertyChanged += OnNavigationPropertyChanged;
         ViewModel.Messages.PropertyChanged += OnMessagesPropertyChanged;
         ViewModel.Reading.PropertyChanged += OnReadingPropertyChanged;
+        ViewModel.Search.PropertyChanged += OnSearchPropertyChanged;
+        ViewModel.ConfirmationRequested += OnConfirmationRequested;
 
         ApplyTheme();
         ApplyLayout();
@@ -81,6 +101,12 @@ public sealed partial class MainWindow : Window
 
     /// <summary>Ends the browser processes; called when the application shuts down.</summary>
     public void CloseReadingView() => webViewHost.Close();
+
+    /// <summary>Places the window as stored; called once before it is shown.</summary>
+    public void ApplyStoredPlacement() => placementKeeper.ApplyStored();
+
+    /// <summary>Stores size and position of the window; called when it closes.</summary>
+    public void SaveWindowPlacement() => placementKeeper.SaveAndStop();
 
     private static T? FindDescendant<T>(DependencyObject parent)
         where T : DependencyObject
@@ -99,6 +125,32 @@ public sealed partial class MainWindow : Window
         return null;
     }
 
+    private static bool IsKeyDown(VirtualKey key)
+    {
+        return InputKeyboardSource.GetKeyStateForCurrentThread(key).HasFlag(CoreVirtualKeyStates.Down);
+    }
+
+    private void ApplyActionTexts()
+    {
+        MarkReadButton.Content = UiText.MarkRead;
+        MarkUnreadButton.Content = UiText.MarkUnread;
+        ToggleFlagButton.Content = UiText.ToggleFlag;
+        DeleteButton.Content = UiText.Delete;
+        MoveButton.Content = UiText.Move;
+        EmptyFolderButton.Content = UiText.EmptyFolder;
+        SettingsButton.Content = UiText.Settings;
+        MarkReadOnSelectSwitch.Header = UiText.MarkReadOnSelect;
+        FailedActionsButton.Content = UiText.FailedActionsTitle;
+        SearchBox.PlaceholderText = UiText.SearchPlaceholder;
+        ContextMarkRead.Text = UiText.MarkRead;
+        ContextMarkUnread.Text = UiText.MarkUnread;
+        ContextToggleFlag.Text = UiText.ToggleFlag;
+        ContextDelete.Text = UiText.Delete;
+        ContextDeletePermanently.Text = UiText.DeletePermanently;
+        ContextMove.Text = UiText.Move;
+        ContextEmptyFolder.Text = UiText.EmptyFolder;
+    }
+
     private void OnShellPropertyChanged(object? sender, PropertyChangedEventArgs args)
     {
         if (args.PropertyName == nameof(ShellViewModel.Layout))
@@ -113,6 +165,166 @@ public sealed partial class MainWindow : Window
         {
             ApplyBanner();
         }
+        else if (args.PropertyName == nameof(ShellViewModel.MoveTargets))
+        {
+            FillMoveMenu(MoveToolbarMenu.Items);
+            FillMoveMenu(ContextMove.Items);
+        }
+    }
+
+    // A menu can already be open when the targets of a new selection arrive, so it follows the list instead of its opening.
+    private void FillMoveMenu(IList<MenuFlyoutItemBase> menuItems)
+    {
+        menuItems.Clear();
+        foreach (NavigationItem target in ViewModel.MoveTargets)
+        {
+            if (target.View?.FolderId is long targetFolderId)
+            {
+                var menuItem = new MenuFlyoutItem { Text = target.Label };
+                menuItem.Click += (_, _) => ViewModel.MoveCommand.Execute(targetFolderId);
+                menuItems.Add(menuItem);
+            }
+        }
+    }
+
+    // One dialog at a time: the shell asks the next question only after this answer. Everything but the button that goes on is no.
+    private async void OnConfirmationRequested(object? sender, ConfirmationRequest request)
+    {
+        try
+        {
+            var dialog = new ContentDialog
+            {
+                XamlRoot = RootGrid.XamlRoot,
+                RequestedTheme = RootGrid.ActualTheme,
+                Title = UiText.ConfirmationTitle,
+                Content = new TextBlock { Text = request.Text, TextWrapping = TextWrapping.Wrap },
+                PrimaryButtonText = UiText.ConfirmationAccept,
+                CloseButtonText = UiText.ConfirmationCancel,
+                DefaultButton = ContentDialogButton.Close,
+            };
+            ContentDialogResult result = await dialog.ShowAsync();
+            request.Answer.TrySetResult(result == ContentDialogResult.Primary);
+        }
+        catch (Exception exception) when (exception is not OutOfMemoryException)
+        {
+            log.Write(CriticalLogLevel.Critical, "MainWindow.OnConfirmationRequested", $"The confirmation failed: {exception.GetType().Name}");
+            request.Answer.TrySetResult(false);
+        }
+    }
+
+    private void OnDiscardFailedActionClicked(object sender, RoutedEventArgs args)
+    {
+        if ((sender as FrameworkElement)?.DataContext is PendingActionRow row)
+        {
+            ViewModel.DiscardFailedActionCommand.Execute(row);
+        }
+    }
+
+    // Only here: the keys belong to the list and fire neither in the search box nor in a dialog.
+    private void OnMessageListKeyDown(object sender, KeyRoutedEventArgs args)
+    {
+        ICommand? command = args.Key switch
+        {
+            VirtualKey.Delete => IsKeyDown(VirtualKey.Shift) ? ViewModel.DeletePermanentlyCommand : ViewModel.DeleteCommand,
+            VirtualKey.Q when IsKeyDown(VirtualKey.Control) => ViewModel.MarkReadCommand,
+            VirtualKey.U when IsKeyDown(VirtualKey.Control) => ViewModel.MarkUnreadCommand,
+            _ => null,
+        };
+        if (command is null)
+        {
+            return;
+        }
+
+        args.Handled = true;
+        if (command.CanExecute(null))
+        {
+            command.Execute(null);
+        }
+    }
+
+    // As in Outlook: the menu of a row outside the selection works on that row alone.
+    private void OnMessageListContextRequested(UIElement sender, ContextRequestedEventArgs args)
+    {
+        if ((args.OriginalSource as FrameworkElement)?.DataContext is MessageRowViewModel row
+            && !ViewModel.Messages.SelectedRows.Contains(row))
+        {
+            ViewModel.Messages.SelectedRows = [row];
+        }
+    }
+
+    private void OnSearchSubmitted(AutoSuggestBox sender, AutoSuggestBoxQuerySubmittedEventArgs args)
+    {
+        ViewModel.Search.Query = args.QueryText;
+
+        // SearchAsync logs its failures; without a token it does not throw.
+        _ = ViewModel.Search.SearchAsync();
+    }
+
+    // Emptying the box is the way back to the view.
+    private void OnSearchTextChanged(AutoSuggestBox sender, AutoSuggestBoxTextChangedEventArgs args)
+    {
+        if (args.Reason == AutoSuggestionBoxTextChangeReason.UserInput)
+        {
+            ViewModel.Search.Query = sender.Text;
+            if (string.IsNullOrWhiteSpace(sender.Text))
+            {
+                _ = ViewModel.Search.SearchAsync();
+            }
+        }
+    }
+
+    private void OnSearchPropertyChanged(object? sender, PropertyChangedEventArgs args)
+    {
+        if (args.PropertyName == nameof(SearchViewModel.Query) && SearchBox.Text != ViewModel.Search.Query)
+        {
+            SearchBox.Text = ViewModel.Search.Query;
+        }
+        else if (args.PropertyName == nameof(SearchViewModel.IsActive))
+        {
+            ApplyNavigationHighlight();
+        }
+    }
+
+    // During a search the selection of the navigation stays, but it is not what the list shows.
+    private void ApplyNavigationHighlight()
+    {
+        NavigationTree.SelectedItem = ViewModel.Search.IsActive ? null : ViewModel.Navigation.SelectedItem;
+    }
+
+    private void OnBrowserStatusTextChanged(object? sender, string statusText)
+    {
+        ViewModel.Reading.HoverLinkText = statusText;
+    }
+
+    // At the mouse; when Windows reports no position, at the lower left, so that the target stays visible.
+    private void ApplyLinkHint()
+    {
+        string? linkText = ViewModel.Reading.HoverLinkText;
+        LinkHint.Visibility = linkText is null ? Visibility.Collapsed : Visibility.Visible;
+        if (linkText is null)
+        {
+            return;
+        }
+
+        LinkHintText.Text = linkText;
+        LinkHint.Measure(new Size(double.PositiveInfinity, double.PositiveInfinity));
+        Size hintSize = LinkHint.DesiredSize;
+        double left = LinkHintEdgeDistance;
+        double top = RootGrid.ActualHeight - hintSize.Height - LinkHintEdgeDistance;
+        IntPtr windowHandle = WinRT.Interop.WindowNative.GetWindowHandle(this);
+        if (NativeDisplay.TryGetCursorInClient(windowHandle, out int cursorX, out int cursorY))
+        {
+            double scale = RootGrid.XamlRoot.RasterizationScale;
+            double mouseX = cursorX / scale;
+            double mouseY = cursorY / scale;
+            left = Math.Max(LinkHintEdgeDistance, Math.Min(mouseX + LinkHintOffsetX, RootGrid.ActualWidth - hintSize.Width - LinkHintEdgeDistance));
+            top = mouseY + LinkHintOffsetY + hintSize.Height > RootGrid.ActualHeight
+                ? Math.Max(LinkHintEdgeDistance, mouseY - hintSize.Height - LinkHintEdgeDistance)
+                : mouseY + LinkHintOffsetY;
+        }
+
+        Canvas.SetLeft(LinkHint, left);
+        Canvas.SetTop(LinkHint, top);
     }
 
     private void ApplyBanner()
@@ -235,15 +447,24 @@ public sealed partial class MainWindow : Window
     // A parent or account node is not selectable: the tree goes back to the selection of the view model.
     private void OnNavigationItemInvoked(TreeView sender, TreeViewItemInvokedEventArgs args)
     {
-        ViewModel.Navigation.SelectedItem = args.InvokedItem as NavigationItem;
-        NavigationTree.SelectedItem = ViewModel.Navigation.SelectedItem;
+        var invokedItem = args.InvokedItem as NavigationItem;
+        ViewModel.Navigation.SelectedItem = invokedItem;
+
+        // The view that is already selected loads nothing by itself, so a click on it has to end the search here.
+        if (invokedItem?.View is not null && ViewModel.Search.IsActive)
+        {
+            ViewModel.Search.Query = string.Empty;
+            _ = ViewModel.Search.SearchAsync();
+        }
+
+        ApplyNavigationHighlight();
     }
 
     private void OnNavigationPropertyChanged(object? sender, PropertyChangedEventArgs args)
     {
         if (args.PropertyName == nameof(NavigationViewModel.SelectedItem))
         {
-            NavigationTree.SelectedItem = ViewModel.Navigation.SelectedItem;
+            ApplyNavigationHighlight();
         }
     }
 
@@ -266,38 +487,63 @@ public sealed partial class MainWindow : Window
         }
     }
 
-    // Replacing the row object of the selected message makes the control report "nothing selected" for a moment. That is
-    // no user action while the list still has a row of that message, so the pane and its image approval stay. The control
-    // gets its selection back after the collection change, by then the view model holds the new row.
+    // Replacing the row object of a selected message makes the control drop it from the selection for a moment. That is no
+    // user action while the list still has a row of that message, so the pane and its image approval stay. The control gets
+    // its selection back after the collection change, by then the view model holds the new row.
     private void OnMessageListSelectionChanged(object sender, SelectionChangedEventArgs args)
     {
-        MessageRowViewModel? selected = MessageList.SelectedItem as MessageRowViewModel;
-        MessageRowViewModel? current = ViewModel.Messages.SelectedRow;
-        if (selected is null
-            && current is not null
-            && ViewModel.Messages.Items.Any(row => row.Message.Id == current.Message.Id))
+        if (isSyncingListSelection)
         {
-            DispatcherQueue.TryEnqueue(RestoreListSelection);
             return;
         }
 
-        ViewModel.Messages.SelectedRow = selected;
+        IList<MessageRowViewModel> items = ViewModel.Messages.Items;
+        bool isRowReplaced = args.RemovedItems.OfType<MessageRowViewModel>().Any(removedRow =>
+            !items.Contains(removedRow) && items.Any(row => row.Message.Id == removedRow.Message.Id));
+        if (isRowReplaced)
+        {
+            DispatcherQueue.TryEnqueue(SyncListSelection);
+            return;
+        }
+
+        ViewModel.Messages.SelectedRows = MessageList.SelectedItems.OfType<MessageRowViewModel>().ToList();
     }
 
-    private void RestoreListSelection()
+    // Brings the control to the selection of the view model, without reporting that back.
+    private void SyncListSelection()
     {
-        if (MessageList.SelectedItem is null)
+        isSyncingListSelection = true;
+        try
         {
-            MessageList.SelectedItem = ViewModel.Messages.SelectedRow;
+            IReadOnlyList<MessageRowViewModel> wantedRows = ViewModel.Messages.SelectedRows;
+            IList<object> selectedItems = MessageList.SelectedItems;
+            for (int index = selectedItems.Count - 1; index >= 0; index--)
+            {
+                if (selectedItems[index] is not MessageRowViewModel row || !wantedRows.Contains(row))
+                {
+                    selectedItems.RemoveAt(index);
+                }
+            }
+
+            foreach (MessageRowViewModel row in wantedRows)
+            {
+                if (!selectedItems.Contains(row) && ViewModel.Messages.Items.Contains(row))
+                {
+                    selectedItems.Add(row);
+                }
+            }
+        }
+        finally
+        {
+            isSyncingListSelection = false;
         }
     }
 
     private void OnMessagesPropertyChanged(object? sender, PropertyChangedEventArgs args)
     {
-        if (args.PropertyName == nameof(MessageListViewModel.SelectedRow)
-            && !ReferenceEquals(MessageList.SelectedItem, ViewModel.Messages.SelectedRow))
+        if (args.PropertyName == nameof(MessageListViewModel.SelectedRows))
         {
-            MessageList.SelectedItem = ViewModel.Messages.SelectedRow;
+            SyncListSelection();
         }
     }
 
@@ -306,6 +552,10 @@ public sealed partial class MainWindow : Window
         if (args.PropertyName is nameof(ReadingPaneViewModel.State) or nameof(ReadingPaneViewModel.DocumentHtml))
         {
             UpdateReadingView();
+        }
+        else if (args.PropertyName == nameof(ReadingPaneViewModel.HoverLinkText))
+        {
+            ApplyLinkHint();
         }
     }
 
