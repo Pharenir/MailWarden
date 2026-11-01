@@ -11,7 +11,8 @@ namespace MailWarden.Infrastructure.Background;
 /// <summary>
 /// Long-running service that keeps all accounts of one data folder current: one loop per account runs cycles (queued
 /// commands, then a sync pass) on a schedule, after triggers and after IDLE changes of the inbox; one IDLE watcher per
-/// account reports inbox changes. Holds the <see cref="DataFolderLock"/> while running.
+/// account reports inbox changes. Holds the <see cref="DataFolderLock"/> while running, unless the composition already
+/// holds it and passes it in.
 /// </summary>
 /// <remarks>
 /// <para>
@@ -44,6 +45,9 @@ public sealed class MailboxService : IAsyncDisposable
     private readonly IServiceDelay delay;
     private readonly TimeProvider timeProvider;
 
+    // Lock taken by the composition before opening the database; the service then neither acquires nor releases one.
+    private readonly DataFolderLock? heldLock;
+
     // Serialises start, stop and account changes. Never disposed: it holds no wait handle (AvailableWaitHandle unused).
     private readonly SemaphoreSlim lifecycleGate = new(1, 1);
 
@@ -67,7 +71,11 @@ public sealed class MailboxService : IAsyncDisposable
     /// <param name="options">Poll interval, IDLE renewal and trigger debounce.</param>
     /// <param name="delay">Every wait of the service goes through it.</param>
     /// <param name="timeProvider">Clock for <see cref="AccountSyncStatus.NextRunAt"/> and <see cref="AccountSyncStatus.LastSuccessAt"/>.</param>
-    /// <exception cref="ArgumentNullException">A parameter is null.</exception>
+    /// <param name="heldLock">
+    /// Lock the caller already holds and keeps owning. When given, the service neither acquires nor releases the lock;
+    /// when null, the service acquires it in <see cref="StartAsync"/> and releases it in <see cref="StopAsync"/>.
+    /// </param>
+    /// <exception cref="ArgumentNullException">A parameter other than <paramref name="heldLock"/> is null.</exception>
     public MailboxService(
         DataPaths paths,
         IAccountStore accounts,
@@ -76,7 +84,8 @@ public sealed class MailboxService : IAsyncDisposable
         IMailIdleWatcherFactory idleWatchers,
         MailboxServiceOptions options,
         IServiceDelay delay,
-        TimeProvider timeProvider)
+        TimeProvider timeProvider,
+        DataFolderLock? heldLock = null)
     {
         this.paths = paths ?? throw new ArgumentNullException(nameof(paths));
         this.accounts = accounts ?? throw new ArgumentNullException(nameof(accounts));
@@ -86,6 +95,7 @@ public sealed class MailboxService : IAsyncDisposable
         this.options = options ?? throw new ArgumentNullException(nameof(options));
         this.delay = delay ?? throw new ArgumentNullException(nameof(delay));
         this.timeProvider = timeProvider ?? throw new ArgumentNullException(nameof(timeProvider));
+        this.heldLock = heldLock;
     }
 
     /// <summary>
@@ -146,9 +156,12 @@ public sealed class MailboxService : IAsyncDisposable
                 throw new InvalidOperationException("The mailbox service was already started; create a new instance.");
             }
 
-            // Lock first: a second process must fail before any account is read or any loop runs.
-            DataFolderLock acquiredLock = DataFolderLock.TryAcquire(paths)
-                ?? throw new InvalidOperationException("The data folder is in use by another MailWarden instance.");
+            // Lock first: a second process must fail before any account is read or any loop runs. A lock held by the
+            // composition stays with its owner.
+            DataFolderLock? acquiredLock = heldLock is not null
+                ? null
+                : DataFolderLock.TryAcquire(paths)
+                    ?? throw new InvalidOperationException("The data folder is in use by another MailWarden instance.");
             try
             {
                 IReadOnlyList<Account> accountList = await accounts.ListAsync(ct).ConfigureAwait(false);
@@ -163,7 +176,7 @@ public sealed class MailboxService : IAsyncDisposable
             }
             catch
             {
-                acquiredLock.Dispose();
+                acquiredLock?.Dispose();
                 throw;
             }
         }
@@ -214,7 +227,7 @@ public sealed class MailboxService : IAsyncDisposable
             {
                 serviceStop!.Dispose();
                 serviceStop = null;
-                folderLock!.Dispose();
+                folderLock?.Dispose();
                 folderLock = null;
             }
 
