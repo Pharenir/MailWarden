@@ -1,3 +1,4 @@
+using MailWarden.Infrastructure.Background;
 using static MailWarden.Presentation.Tests.TestSupport.ActionsTestHelpers;
 
 namespace MailWarden.Presentation.Tests;
