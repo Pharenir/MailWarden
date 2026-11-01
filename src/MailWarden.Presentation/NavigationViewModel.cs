@@ -14,6 +14,7 @@ public sealed class NavigationItem : ObservableObject
 {
     private int unreadCount;
     private string? statusText;
+    private bool canEmptyFolder;
 
     internal NavigationItem(
         string label,
@@ -35,11 +36,21 @@ public sealed class NavigationItem : ObservableObject
     /// <summary>The view it selects; null when not selectable (account node, tree parent).</summary>
     public MailView? View { get; }
 
-    /// <summary>Number of unread messages of the view; 0 when <see cref="View"/> is null.</summary>
+    /// <summary>Number of unread messages of the view without those on their way out; 0 when <see cref="View"/> is null.</summary>
     public int UnreadCount
     {
         get => unreadCount;
         internal set => SetProperty(ref unreadCount, value);
+    }
+
+    /// <summary>
+    /// True when exactly one folder with role Trash or Junk lies behind <see cref="View"/>, as of the last refresh of the tree. It
+    /// decides whether the entry offers "Ordner leeren"; the action checks again when it runs.
+    /// </summary>
+    public bool CanEmptyFolder
+    {
+        get => canEmptyFolder;
+        internal set => SetProperty(ref canEmptyFolder, value);
     }
 
     /// <summary>Account of the entry; null for group views over all accounts.</summary>
@@ -77,6 +88,7 @@ public sealed class NavigationViewModel : ObservableObject
     private readonly IMailboxController controller;
     private readonly ICriticalLog log;
     private readonly ShellBanner banner;
+    private readonly PendingMailState pendingMail;
     private readonly Dictionary<Guid, NavigationItem> accountItems = [];
     private NavigationItem? selectedItem;
     private int refreshGeneration;
@@ -87,12 +99,14 @@ public sealed class NavigationViewModel : ObservableObject
         IMailboxReadModel readModel,
         IMailboxController controller,
         ICriticalLog log,
-        ShellBanner banner)
+        ShellBanner banner,
+        PendingMailState pendingMail)
     {
         this.readModel = readModel;
         this.controller = controller;
         this.log = log;
         this.banner = banner;
+        this.pendingMail = pendingMail;
     }
 
     /// <summary>Top-level entries.</summary>
@@ -139,10 +153,12 @@ public sealed class NavigationViewModel : ObservableObject
             IReadOnlyList<Account> accounts = await readModel.ListAccountsAsync(token);
             List<NavigationItem> newItems = [.. CreateGroupItems()];
             var newAccountItems = new Dictionary<Guid, NavigationItem>();
+            var allFolders = new List<MailFolder>();
             foreach (Account account in accounts)
             {
                 token.ThrowIfCancellationRequested();
                 IReadOnlyList<MailFolder> folders = await readModel.ListFoldersAsync(account.Id, token);
+                allFolders.AddRange(folders);
                 NavigationItem accountItem = CreateAccountItem(account, folders);
                 newAccountItems.Add(account.Id, accountItem);
                 newItems.Add(accountItem);
@@ -154,7 +170,7 @@ public sealed class NavigationViewModel : ObservableObject
                 return;
             }
 
-            ApplyTree(newItems, newAccountItems, unreadCounts);
+            ApplyTree(newItems, newAccountItems, unreadCounts, allFolders);
             banner.Clear(ShellBanner.BannerSource.Navigation);
             if (accounts.Count == 0)
             {
@@ -177,7 +193,7 @@ public sealed class NavigationViewModel : ObservableObject
                 banner.Set(ShellBanner.BannerSource.Navigation, UiText.BannerNavigationFailed);
                 if (Items.Count == 0)
                 {
-                    ApplyTree(CreateGroupItems(), [], []);
+                    ApplyTree(CreateGroupItems(), [], [], []);
                 }
             }
         }
@@ -289,15 +305,18 @@ public sealed class NavigationViewModel : ObservableObject
         }
     }
 
+    // Hidden mails do not count, in the query and not by subtracting: a mail that is gone after its command has run cannot be taken
+    // off twice. A change of the hidden mails during this pass starts a newer refresh, which replaces this one.
     private async Task<Dictionary<MailView, int>> ReadUnreadCountsAsync(List<NavigationItem> items, CancellationToken ct)
     {
+        IReadOnlyCollection<long>? hiddenIds = pendingMail.HiddenMessageIds;
         var counts = new Dictionary<MailView, int>();
         foreach (NavigationItem item in Flatten(items))
         {
             if (item.View is MailView view)
             {
                 ct.ThrowIfCancellationRequested();
-                counts[view] = await readModel.CountUnreadAsync(view.ToQuery(1, 0), ct);
+                counts[view] = await readModel.CountUnreadAsync(view.ToQuery(1, 0) with { ExcludedMessageIds = hiddenIds }, ct);
             }
         }
 
@@ -308,7 +327,8 @@ public sealed class NavigationViewModel : ObservableObject
     private void ApplyTree(
         List<NavigationItem> newItems,
         Dictionary<Guid, NavigationItem> newAccountItems,
-        Dictionary<MailView, int> unreadCounts)
+        Dictionary<MailView, int> unreadCounts,
+        List<MailFolder> allFolders)
     {
         if (DescribeStructure(Items) != DescribeStructure(newItems) || Items.Count == 0)
         {
@@ -330,6 +350,9 @@ public sealed class NavigationViewModel : ObservableObject
             if (item.View is MailView view)
             {
                 item.UnreadCount = unreadCounts.GetValueOrDefault(view);
+
+                // In place, like the number: a folder can change its role or a second account can get one without a new structure.
+                item.CanEmptyFolder = view.FindEmptyTarget(allFolders) is not null;
             }
         }
 

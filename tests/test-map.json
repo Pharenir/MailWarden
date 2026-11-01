@@ -42,6 +42,7 @@
     "MailWarden.sln": ["FULL"],
     "src/MailWarden.Core/Text/**": ["@feature:ui"],
     "tests/MailWarden.Core.Tests/Text/**": ["@feature:ui"],
+    "src/MailWarden.Infrastructure/Composition/MailboxActions*": ["@feature:ui", "@feature:sync", "@feature:storage"],
     "src/MailWarden.Infrastructure/Composition/**": ["@feature:ui", "@feature:storage", "@feature:sync", "@feature:classifier"],
     "tests/MailWarden.Infrastructure.Tests/Composition/**": ["@feature:ui", "@feature:storage", "@feature:sync", "@feature:classifier"],
     "src/MailWarden.Infrastructure/Logging/**": ["@feature:ui"],

@@ -8,7 +8,9 @@ namespace MailWarden.Presentation;
 /// <summary>
 /// <see cref="IUiSettingsStore"/> on a JSON file. Strict on purpose: a typo in a key or a wrong type is reported, never
 /// silently ignored. Keys: <c>layout</c> ("sideBySide", "listAbove"), <c>theme</c> ("system", "light", "dark"),
-/// <c>navigationWidth</c>, <c>listWidth</c>, <c>listHeight</c> (numbers within the limits of <see cref="UiSettings"/>).
+/// <c>navigationWidth</c>, <c>listWidth</c>, <c>listHeight</c> (numbers within the limits of <see cref="UiSettings"/>),
+/// <c>markReadOnSelect</c>, <c>windowMaximized</c> (booleans), <c>windowWidth</c>, <c>windowHeight</c> (numbers),
+/// <c>windowX</c>, <c>windowY</c> (whole numbers). A window value that is not stored is left out.
 /// </summary>
 public sealed class UiSettingsFile : IUiSettingsStore
 {
@@ -20,6 +22,12 @@ public sealed class UiSettingsFile : IUiSettingsStore
     private const string NavigationWidthKey = "navigationWidth";
     private const string ListWidthKey = "listWidth";
     private const string ListHeightKey = "listHeight";
+    private const string MarkReadOnSelectKey = "markReadOnSelect";
+    private const string WindowWidthKey = "windowWidth";
+    private const string WindowHeightKey = "windowHeight";
+    private const string WindowXKey = "windowX";
+    private const string WindowYKey = "windowY";
+    private const string WindowMaximizedKey = "windowMaximized";
 
     private const string SideBySideValue = "sideBySide";
     private const string ListAboveValue = "listAbove";
@@ -92,6 +100,10 @@ public sealed class UiSettingsFile : IUiSettingsStore
         EnsureSizeInRange(settings.NavigationWidth, NavigationWidthKey);
         EnsureSizeInRange(settings.ListWidth, ListWidthKey);
         EnsureSizeInRange(settings.ListHeight, ListHeightKey);
+        EnsureWindowSizeInRange(settings.WindowWidth, WindowWidthKey);
+        EnsureWindowSizeInRange(settings.WindowHeight, WindowHeightKey);
+        EnsureWindowPositionInRange(settings.WindowX, WindowXKey);
+        EnsureWindowPositionInRange(settings.WindowY, WindowYKey);
 
         using var content = new MemoryStream();
         using (var writer = new Utf8JsonWriter(content, new JsonWriterOptions { Indented = true }))
@@ -102,6 +114,12 @@ public sealed class UiSettingsFile : IUiSettingsStore
             writer.WriteNumber(NavigationWidthKey, settings.NavigationWidth);
             writer.WriteNumber(ListWidthKey, settings.ListWidth);
             writer.WriteNumber(ListHeightKey, settings.ListHeight);
+            writer.WriteBoolean(MarkReadOnSelectKey, settings.MarkReadOnSelect);
+            WriteIfStored(writer, WindowWidthKey, settings.WindowWidth);
+            WriteIfStored(writer, WindowHeightKey, settings.WindowHeight);
+            WriteIfStored(writer, WindowXKey, settings.WindowX);
+            WriteIfStored(writer, WindowYKey, settings.WindowY);
+            writer.WriteBoolean(WindowMaximizedKey, settings.WindowMaximized);
             writer.WriteEndObject();
         }
 
@@ -122,6 +140,32 @@ public sealed class UiSettingsFile : IUiSettingsStore
         AppTheme.Dark => DarkValue,
         _ => throw new ArgumentOutOfRangeException(nameof(theme), theme, "Unknown theme."),
     };
+
+    private static void WriteIfStored(Utf8JsonWriter writer, string key, double? value)
+    {
+        if (value is double number)
+        {
+            writer.WriteNumber(key, number);
+        }
+    }
+
+    private static void WriteIfStored(Utf8JsonWriter writer, string key, int? value)
+    {
+        if (value is int number)
+        {
+            writer.WriteNumber(key, number);
+        }
+    }
+
+    private static bool IsWindowSizeInRange(double size)
+    {
+        return size is >= UiSettings.MinimumWindowSize and <= UiSettings.MaximumWindowSize;
+    }
+
+    private static bool IsWindowPositionInRange(int position)
+    {
+        return position is >= -UiSettings.MaximumWindowPosition and <= UiSettings.MaximumWindowPosition;
+    }
 
     private static bool IsSizeInRange(double size)
     {
@@ -151,6 +195,12 @@ public sealed class UiSettingsFile : IUiSettingsStore
                 NavigationWidthKey => settings with { NavigationWidth = ReadSize(property) },
                 ListWidthKey => settings with { ListWidth = ReadSize(property) },
                 ListHeightKey => settings with { ListHeight = ReadSize(property) },
+                MarkReadOnSelectKey => settings with { MarkReadOnSelect = ReadBoolean(property) },
+                WindowWidthKey => settings with { WindowWidth = ReadWindowSize(property) },
+                WindowHeightKey => settings with { WindowHeight = ReadWindowSize(property) },
+                WindowXKey => settings with { WindowX = ReadWindowPosition(property) },
+                WindowYKey => settings with { WindowY = ReadWindowPosition(property) },
+                WindowMaximizedKey => settings with { WindowMaximized = ReadBoolean(property) },
                 _ => throw InvalidKey(property.Name, "is not a known setting"),
             };
         }
@@ -194,6 +244,62 @@ public sealed class UiSettingsFile : IUiSettingsStore
         }
 
         return IsSizeInRange(size) ? size : throw OutOfRange(property.Name);
+    }
+
+    private bool ReadBoolean(JsonProperty property)
+    {
+        return property.Value.ValueKind switch
+        {
+            JsonValueKind.True => true,
+            JsonValueKind.False => false,
+            _ => throw InvalidKey(property.Name, "must be true or false"),
+        };
+    }
+
+    private double ReadWindowSize(JsonProperty property)
+    {
+        if (property.Value.ValueKind != JsonValueKind.Number || !property.Value.TryGetDouble(out double size))
+        {
+            throw InvalidKey(property.Name, "must be a number");
+        }
+
+        return IsWindowSizeInRange(size) ? size : throw WindowSizeOutOfRange(property.Name);
+    }
+
+    private int ReadWindowPosition(JsonProperty property)
+    {
+        if (property.Value.ValueKind != JsonValueKind.Number || !property.Value.TryGetInt32(out int position))
+        {
+            throw InvalidKey(property.Name, "must be a whole number");
+        }
+
+        return IsWindowPositionInRange(position) ? position : throw WindowPositionOutOfRange(property.Name);
+    }
+
+    private void EnsureWindowSizeInRange(double? size, string key)
+    {
+        if (size is double value && !IsWindowSizeInRange(value))
+        {
+            throw WindowSizeOutOfRange(key);
+        }
+    }
+
+    private void EnsureWindowPositionInRange(int? position, string key)
+    {
+        if (position is int value && !IsWindowPositionInRange(value))
+        {
+            throw WindowPositionOutOfRange(key);
+        }
+    }
+
+    private UiSettingsException WindowSizeOutOfRange(string key)
+    {
+        return InvalidKey(key, $"must be between {UiSettings.MinimumWindowSize:0} and {UiSettings.MaximumWindowSize:0}");
+    }
+
+    private UiSettingsException WindowPositionOutOfRange(string key)
+    {
+        return InvalidKey(key, $"must be between {-UiSettings.MaximumWindowPosition} and {UiSettings.MaximumWindowPosition}");
     }
 
     private void EnsureSizeInRange(double size, string key)

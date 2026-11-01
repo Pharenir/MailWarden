@@ -121,8 +121,8 @@ internal sealed class RejectingMoveQueue(IMailCommandQueue inner) : IMailCommand
         return inner.EnqueueDeletePermanentlyAsync(folderId, expectedUidValidity, uids, ct);
     }
 
-    public Task<MailCommand?> EnqueueEmptyFolderAsync(long folderId, CancellationToken ct = default) =>
-        inner.EnqueueEmptyFolderAsync(folderId, ct);
+    public Task<MailCommand?> EnqueueEmptyFolderAsync(long folderId, uint confirmedUidValidity, IReadOnlyCollection<uint> confirmedUids, CancellationToken ct = default) =>
+        inner.EnqueueEmptyFolderAsync(folderId, confirmedUidValidity, confirmedUids, ct);
 
     public Task<IReadOnlyList<MailCommand>> ListAsync(Guid accountId, CancellationToken ct = default) =>
         inner.ListAsync(accountId, ct);
@@ -180,8 +180,8 @@ internal sealed class FailedStatusQueue(IMailCommandQueue inner) : IMailCommandQ
     public Task<MailCommand> EnqueueDeletePermanentlyAsync(long folderId, uint expectedUidValidity, IReadOnlyCollection<uint> uids, CancellationToken ct = default) =>
         inner.EnqueueDeletePermanentlyAsync(folderId, expectedUidValidity, uids, ct);
 
-    public Task<MailCommand?> EnqueueEmptyFolderAsync(long folderId, CancellationToken ct = default) =>
-        inner.EnqueueEmptyFolderAsync(folderId, ct);
+    public Task<MailCommand?> EnqueueEmptyFolderAsync(long folderId, uint confirmedUidValidity, IReadOnlyCollection<uint> confirmedUids, CancellationToken ct = default) =>
+        inner.EnqueueEmptyFolderAsync(folderId, confirmedUidValidity, confirmedUids, ct);
 
     public async Task<IReadOnlyList<MailCommand>> ListAsync(Guid accountId, CancellationToken ct = default) =>
         (await inner.ListAsync(accountId, ct)).Select(command => command with { Status = MailCommandStatus.Failed }).ToList();

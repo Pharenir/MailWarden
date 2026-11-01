@@ -34,6 +34,18 @@ internal sealed class ShellBanner
 
         /// <summary>The filter waits for the address book.</summary>
         ClassificationWaiting,
+
+        /// <summary>The queued actions could not be read.</summary>
+        ActionsRead,
+
+        /// <summary>Queued actions have failed; the text names their number.</summary>
+        Actions,
+
+        /// <summary>The last action could not be stored in the queue.</summary>
+        ActionRejected,
+
+        /// <summary>A permanent delete has probably only reached the Trash.</summary>
+        DeleteReachedTrash,
     }
 
     /// <summary>All current texts joined, or null when nothing is to report.</summary>

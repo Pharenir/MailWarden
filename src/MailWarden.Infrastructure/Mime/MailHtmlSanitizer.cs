@@ -82,7 +82,7 @@ public static partial class MailHtmlSanitizer
     [
         "abbr", "align", "alt", "bgcolor", "border", "cellpadding", "cellspacing", "char", "charoff", "class", "clear", "color",
         "cols", "colspan", "compact", "datetime", "dir", "face", "headers", "height", "href", "hspace", "lang", "noshade",
-        "nowrap", "reversed", "rows", "rowspan", "scope", "size", "span", "src", "start", "style", "summary", "title", "type",
+        "nowrap", "reversed", "rows", "rowspan", "scope", "size", "span", "src", "start", "style", "summary", "type",
         "valign", "value", "vspace", "width",
     ];
 

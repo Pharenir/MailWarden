@@ -36,18 +36,39 @@ public enum AppTheme
 /// <param name="NavigationWidth">Width of the navigation.</param>
 /// <param name="ListWidth">Width of the message list in the layout side by side.</param>
 /// <param name="ListHeight">Height of the message list in the layout list above.</param>
+/// <param name="MarkReadOnSelect">True when a mail shown long enough is marked as read.</param>
+/// <param name="WindowWidth">Width of the window in device-independent pixels; null when not stored.</param>
+/// <param name="WindowHeight">Height of the window in device-independent pixels; null when not stored.</param>
+/// <param name="WindowX">Left edge of the window in screen pixels; null when not stored.</param>
+/// <param name="WindowY">Top edge of the window in screen pixels; null when not stored.</param>
+/// <param name="WindowMaximized">True when the window was maximised; the other values then describe its normal size.</param>
 public sealed record UiSettings(
     ReadingPaneLayout Layout,
     AppTheme Theme,
     double NavigationWidth,
     double ListWidth,
-    double ListHeight)
+    double ListHeight,
+    bool MarkReadOnSelect = false,
+    double? WindowWidth = null,
+    double? WindowHeight = null,
+    int? WindowX = null,
+    int? WindowY = null,
+    bool WindowMaximized = false)
 {
     /// <summary>Smallest allowed value of the sizes.</summary>
     public const double MinimumSize = 150;
 
     /// <summary>Largest allowed value of the sizes.</summary>
     public const double MaximumSize = 2000;
+
+    /// <summary>Smallest allowed width and height of the window.</summary>
+    public const double MinimumWindowSize = 400;
+
+    /// <summary>Largest allowed width and height of the window.</summary>
+    public const double MaximumWindowSize = 20000;
+
+    /// <summary>Largest allowed distance of the window position from 0, in both directions.</summary>
+    public const int MaximumWindowPosition = 20000;
 
     /// <summary>SideBySide, System, 280, 420, 320.</summary>
     public static UiSettings Default { get; } = new(ReadingPaneLayout.SideBySide, AppTheme.System, 280, 420, 320);

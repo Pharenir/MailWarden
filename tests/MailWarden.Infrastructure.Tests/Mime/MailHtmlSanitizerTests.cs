@@ -172,7 +172,7 @@ public sealed class MailHtmlSanitizerTests
     {
         await Task.Yield();
         const string html =
-            "<div onclick=\"x()\" ONMOUSEOVER=\"y()\" OnLoAd=\"z()\" target=\"_blank\" background=\"a.png\" title=\"keep_title\">div_marker</div>" +
+            "<div onclick=\"x()\" ONMOUSEOVER=\"y()\" OnLoAd=\"z()\" target=\"_blank\" background=\"a.png\" class=\"keep_class\">div_marker</div>" +
             "<img src=\"data:image/png;base64,AAAA\" onerror=\"x()\" srcset=\"a.png 1x, b.png 2x\" alt=\"keep_alt\">" +
             "<a href=\"https://example.test/\" target=\"_blank\" ping=\"https://tracker.test/p\" onclick=\"x()\">link_marker</a>" +
             "<table background=\"a.png\"><tr><td background=\"b.png\" onfocus=\"x()\">cell_marker</td></tr></table>" +
@@ -192,7 +192,7 @@ public sealed class MailHtmlSanitizerTests
         }
 
         // Positive controls: harmless attributes and the elements themselves stay.
-        Assert.Equal("keep_title", document.QuerySelector("div")?.GetAttribute("title"));
+        Assert.Equal("keep_class", document.QuerySelector("div")?.GetAttribute("class"));
         Assert.Equal("https://example.test/", document.QuerySelector("a")?.GetAttribute("href"));
         Assert.Equal("keep_alt", document.QuerySelector("img")?.GetAttribute("alt"));
         Assert.Contains("link_marker", document.Body!.TextContent, StringComparison.Ordinal);
@@ -475,5 +475,48 @@ public sealed class MailHtmlSanitizerTests
 
         Assert.Empty(Parse(result).QuerySelectorAll("img"));
         Assert.Contains("keep_marker", result.Html, StringComparison.Ordinal);
+    }
+
+    // ---- AP-04b Y-a: a mail must not place its own text into the link hint, so title is gone ---------------
+
+    // Y-a: title on the link is removed, href stays.
+    [Fact]
+    public void Y_a_title_on_a_link_is_removed_and_the_href_stays()
+    {
+        SanitizedHtml result = Sanitize("<p><a href=\"https://evil.example.test/\" title=\"https://www.bank.example.test/login\">Text_marker</a></p>");
+
+        IElement link = Parse(result).QuerySelector("a")!;
+        Assert.False(link.HasAttribute("title"));
+        Assert.Equal("https://evil.example.test/", link.GetAttribute("href"));
+        Assert.Equal("Text_marker", link.TextContent);
+        Assert.DoesNotContain("bank.example.test", result.Html, StringComparison.Ordinal);
+    }
+
+    // Y-a: title on an element inside the link is removed too.
+    [Fact]
+    public void Y_a_title_on_a_span_inside_a_link_is_removed()
+    {
+        SanitizedHtml result = Sanitize("<a href=\"https://evil.example.test/\"><span title=\"https://www.bank.example.test/login\">Text_marker</span></a>");
+
+        IHtmlDocument document = Parse(result);
+        Assert.Equal("https://evil.example.test/", document.QuerySelector("a")!.GetAttribute("href"));
+        Assert.Equal("Text_marker", document.QuerySelector("span")!.TextContent);
+        Assert.Empty(document.QuerySelectorAll("[title]"));
+        Assert.DoesNotContain("bank.example.test", result.Html, StringComparison.Ordinal);
+    }
+
+    // Y-a: title on any element and in any case is gone; the text stays.
+    [Theory]
+    [InlineData("<p title=\"t_marker\" class=\"keep_class\">body_marker</p>")]
+    [InlineData("<div TITLE=\"t_marker\" class=\"keep_class\">body_marker</div>")]
+    [InlineData("<table><tr><td title=\"t_marker\" class=\"keep_class\">body_marker</td></tr></table>")]
+    public void Y_a_title_is_removed_on_every_element(string html)
+    {
+        SanitizedHtml result = Sanitize(html);
+
+        IHtmlDocument document = Parse(result);
+        Assert.Empty(document.QuerySelectorAll("[title]"));
+        Assert.DoesNotContain("t_marker", result.Html, StringComparison.Ordinal);
+        Assert.Contains("body_marker", result.Html, StringComparison.Ordinal);
     }
 }

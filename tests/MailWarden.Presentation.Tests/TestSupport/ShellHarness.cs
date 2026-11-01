@@ -12,16 +12,33 @@ internal sealed class ShellHarness
     {
         ReadModel = new FakeMailboxReadModel();
         Controller = new FakeMailboxController();
+        Actions = new FakeMailboxActions(ReadModel);
         Dispatcher = new FakeUiDispatcher();
         Settings = new FakeUiSettingsStore { Stored = initialSettings ?? UiSettings.Default };
         Log = new FakeCriticalLog();
         Clock = clock ?? new FixedClock(FixedNow);
-        Shell = new ShellViewModel(ReadModel, Controller, Dispatcher, Settings, Log, Clock, documentBuilder);
+        Shell = new ShellViewModel(ReadModel, Controller, Actions, Dispatcher, Settings, Log, Clock, documentBuilder);
+        Shell.ConfirmationRequested += OnConfirmationRequested;
     }
 
     public FakeMailboxReadModel ReadModel { get; }
 
     public FakeMailboxController Controller { get; }
+
+    /// <summary>AP-04b actions fake (assumed: passed to the shell right after the controller; see test-plan question Q2).</summary>
+    public FakeMailboxActions Actions { get; }
+
+    /// <summary>
+    /// How the harness answers <see cref="ShellViewModel.ConfirmationRequested"/>: true = yes, false = no, null = never
+    /// answers (the request stays open).
+    /// </summary>
+    public bool? ConfirmationAnswer { get; set; } = true;
+
+    /// <summary>Called with the 1-based request number just before a request is answered (to change data between preview and answer).</summary>
+    public Action<int>? BeforeAnswer { get; set; }
+
+    /// <summary>Texts of all confirmation requests, in order.</summary>
+    public List<string> ConfirmationTexts { get; } = [];
 
     public FakeUiDispatcher Dispatcher { get; }
 
@@ -32,6 +49,22 @@ internal sealed class ShellHarness
     public TimeProvider Clock { get; }
 
     public ShellViewModel Shell { get; }
+
+    /// <summary>Seeds one account with Inbox and Trash; the Inbox holds <paramref name="messageCount"/> messages.</summary>
+    public (Account Account, MailFolder Inbox, MailFolder Trash) SeedInboxAndTrash(string displayName = "Account_A", int messageCount = 3)
+    {
+        (Account account, MailFolder inbox) = SeedInbox(displayName, messageCount);
+        MailFolder trash = ReadModel.AddFolder(account, FolderRole.Trash, "Trash");
+        return (account, inbox, trash);
+    }
+
+    /// <summary>Initialises the shell, waits for the inbox list and returns once the first load settled.</summary>
+    public async Task InitializeAndWaitForListAsync(int expectedRows)
+    {
+        await Shell.InitializeAsync();
+        await Wait.UntilAsync(() => Shell.Messages.Items.Count == expectedRows, "initial list");
+        await Wait.NegativeWindowAsync();
+    }
 
     /// <summary>Seeds one account with an Inbox holding <paramref name="messageCount"/> messages and returns both.</summary>
     public (Account Account, MailFolder Inbox) SeedInbox(string displayName = "Account_A", int messageCount = 3)
@@ -52,4 +85,24 @@ internal sealed class ShellHarness
     /// <summary>Finds a top-level navigation node of an account.</summary>
     public NavigationItem AccountNode(Guid accountId) =>
         Shell.Navigation.Items.Single(item => item.AccountId == accountId && item.View is null);
+
+    private void OnConfirmationRequested(object? sender, ConfirmationRequest request)
+    {
+        lock (ConfirmationTexts)
+        {
+            ConfirmationTexts.Add(request.Text);
+        }
+
+        int number;
+        lock (ConfirmationTexts)
+        {
+            number = ConfirmationTexts.Count;
+        }
+
+        BeforeAnswer?.Invoke(number);
+        if (ConfirmationAnswer is { } answer)
+        {
+            request.Answer.TrySetResult(answer);
+        }
+    }
 }
