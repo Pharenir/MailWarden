@@ -77,7 +77,7 @@ Original-Headern (Outlook.com); 1.870 ohne Header (vermutlich IMAP-/Gmail-Ordner
   zu secure M2 AP-03a und AP-02a-ACL-Punkt, 2026-10-31) → bewusst akzeptiert, keine Änderung
 
 ## Testzähler
-Testzähler: 0/4 seit letztem S3 (zuletzt 2026-11-01: S3 auf `feat/ap-06-address-book` vor dem Merge nach `main`, 2406/2406; seither nur Doku geändert, Code gleich dem Stand auf `main`)
+Testzähler: 0/4 seit letztem S3 (zuletzt 2026-11-01: S3 auf `feat/ap-04b-ui-actions` vor dem Merge nach `main`, 2655/2655, mit AP-06; seither nur Doku geändert, Code gleich dem Stand auf `main`)
 
 ## Session 4 (2026-11-01)
 - Entscheidungen Dennis: AP-04a und AP-07c **parallel**; HTML-Bereinigung mit Paket HtmlSanitizer; Liste und Lesebereich
