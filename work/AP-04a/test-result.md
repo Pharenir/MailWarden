@@ -1,23 +1,23 @@
-# AP-04a – Testergebnis (verify.1)
+# AP-04a – Testergebnis (verify.2, nach fix.2)
 
 ```
 Stufe:        S3
 Auswahl nach: voll
-Ergebnis:     1349 von 1349 Tests grün (Core 393, Infrastructure 793, Presentation 163)
+Ergebnis:     1488 von 1488 Tests grün (Core 430, Infrastructure 818, Presentation 240)
 Fehlschläge:  –
 Nicht gelaufen: Fälle 42-48 (manuell, Dennis)
-Laufzeit:     8,2 s (keine Historie für diese Suite)
+Laufzeit:     14,7 s (keine belastbare Historie)
 Abbruch:      –
-Auffällig:    Very_deep_nesting (5000 Ebenen, offen und geschlossen) lief durch, Testhost stabil.
+Auffällig:    Fall 49 (1.023 und 5.000 verschachtelte Teile, multipart und message/rfc822, Reader und Sync) lief ohne Prozessende.
+              Fall 64 (langsamer Remote-Bild-Rebuild) war in 3 zusätzlichen Einzelläufen stabil (3/3 grün je Lauf); kein Flakiness-Hinweis.
 ```
 
-Stand: `feat/ap-04a-ui-read` nach Merge von `test/ap-04a-ui-read` (Commit 9164d29), Build `-warnaserror` grün.
+Stand: `feat/ap-04a-ui-read` nach Merge von `test/ap-04a-ui-read`, Build `-warnaserror` grün.
 
-## Erster Lauf (vor Korrektur): 1334 grün, 15 rot, alle Einordnung (a) eigener Testfehler
-- 12x Sanitizer-Farbtests (`Dangerous_inline_style_...`, `Harmless_inline_style_stays`, `Remote_css_url_...`): Farbe wurde zu `rgba(255, 0, 0, 1)` normalisiert, Test suchte "red". Fix: `IsRed` akzeptiert alle Schreibweisen.
-- `ReadingDocumentBuilderTests.Html_with_images_blocked_...`: Test erwartete das Attribut `id` am `<p>`; der Sanitizer entfernt `id` (kein Vertragsbestandteil). Fix: Element statt id geprüft.
-- `ReadingPaneViewModelTests.Cancellation_...`: Test warf eine OCE ohne Token des Aufrufers; Entscheidung des Planers gilt nur für den Token des Aufrufers. Fix: Token wird im Fake abgebrochen, erwartet wird propagierte OCE, Zustand nicht Error, kein Log.
-Zweiter Lauf: alles grün, keine weiteren Versuche nötig.
-
-## Erneute Prüfung der Planer-Festlegungen
-Tests passen zu allen Punkten (MailContentException nur bei nicht lesbarem Stream, UiSettingsFile-Pfad = Datei, Setter ohne Await, Abbruch, background-image, tiefe Verschachtelung, StatusText/Banner nur grob).
+## Verlauf verify.2 (alle Fehlschläge Einordnung a, eigener Testfehler)
+Lauf 1: 1484 grün, 4 rot.
+- `Sanitize_mailto_of_something_else_...`: Test erwartete "kein attach im Ergebnis"; Planer-Festlegung: Nicht-mailto kommt unverändert zurück. Test auf Gleichheit umgestellt.
+- `Load_remote_images_rebuilds_...`, `Slow_remote_image_rebuild_arrives_...`: `CanLoadRemoteImages` wird sofort false, der Rebuild läuft danach. Test wartet jetzt per Polling auf das neue Dokument.
+- `Status_event_is_marshalled_through_the_dispatcher`: Fake-Controller aktualisierte `CurrentStatus` nicht; der durch K15 ausgelöste Reload baute die Navigation mit altem Status neu. Fake wie der echte Controller angepasst.
+Lauf 2: 1 rot (`Slow_remote_image_rebuild_arrives_...`, Timeout): das 2,3-MB-Dokument lief in das Gesamtbudget des Limiters, die Bilder am Ende gingen verloren. Fixture: Bilder vor dem Füllmaterial. Lauf 3: alles grün.
+Zusätzlich verschärft (Planer-Antworten): `Shorten` exakt max + "…", Absender im Lesebereich: Adresse sichtbar, Name gekürzt.
