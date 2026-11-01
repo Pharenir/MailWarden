@@ -289,6 +289,8 @@ Erledigt aus AP-07c: D8, J4 (Bremse) und die Sichtbarkeit von `EvaluationFailed`
 - [ ] Eine neue Mail in Junk löst keinen Zyklus aus: Im Fall 18 (4-Minuten-Lauf) gab es keinen Zyklus, denn IDLE überwacht nur den Posteingang. Die Rettung wartet bis zum nächsten Abruf. Vor `Act` entscheiden, ob Junk kürzer abgefragt wird
 
 **Ohne Bedingung:**
+- [ ] Die Rückfrage von „Ordner leeren“ nennt die Rolle, nicht den Ordnernamen vom Server; ein vom Server falsch als Papierkorb markierter Ordner wäre so nicht erkennbar (AP-04b, secure.4 L3)
+- [ ] Falls die Ungelesen-Zahl bei großen Postfächern spürbar spät fällt: eine Abfrage mit `GROUP BY folder_id` für den ganzen Baum statt einer Zählung je Eintrag (AP-04b, Y3)
 - [ ] `\Deleted` kann auf dem Server stehen bleiben, wenn nach einem Absturz ein Lösch-Befehl scheitert und verworfen wird; ein anderer Client entfernt die Mail dann (AP-04b, secure.3 N3)
 - [ ] `MailArrivedText` sagt „neue Mail“ auch bei geändertem UIDVALIDITY oder anderer UID (AP-04b, review.4 N)
 - [ ] Ein dauerhafter Fehler des Durchlaufs bremst den Abgleich des Kontos auf höchstens alle 30 Minuten (review S3)

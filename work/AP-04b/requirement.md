@@ -211,3 +211,19 @@ Dennis tested cases 21, 22, 32: everything as expected, with one wish: "Ordner l
 | X-k | Read mail, Del | Number unchanged |
 | X-l | Empty folder with unread mails beyond the loaded page, or not in the current list | Number 0 once the command is stored |
 | X-m | The command has run | Number stays correct, not subtracted twice |
+
+## Decisions after review.5 and secure.4 (planner, 2026-11-01)
+- Y1 (secure.4 M1): `title` leaves the allowed attributes of the sanitizer. With the status bar off, the hint at the mouse is the only display of a link target, and a mail must not place its own text there.
+- Y2 (secure.4 L2): the link hint fits a narrow window: `MaxWidth` is the smaller of 600 and the window width minus both edge distances.
+- Y3 (review.5 S1): in the role view of one account the filter uses `f.account_id` instead of `m.account_id`, so the recount of X3 takes the moment it should. Counts stay the same.
+- Y4: secure.4 L3 (the question names the role, not the folder name) goes to `TODO.md`; the rule "never a folder name from the server" stays for now.
+- Y5: Status bar off needs its own manual proof: bar off, link text differs from the target, the hint shows the true target. Without it no merge.
+
+### Additional test cases (Y)
+| # | Situation | Expected |
+|---|---|---|
+| Y-a | `<a href="https://evil.example.test/" title="https://www.bank.example.test/login">`, also `title` on a `<span>` inside the link | No `title` in the sanitized HTML, the `href` stays |
+| Y-b | Same counts as before for folder, role and account plus role views, with and without excluded ids, on SQLite | Equal to a count over the same rows |
+| Y-c | Manual, Dennis: link with a different text, status bar off, window wide and narrow | Hint shows the true target, wholly readable |
+
+Y3 kept (planner, 2026-11-01). Measured on the real driver with 180,000 artificial mails, the recount of the role entries goes from about 319 ms to 55 ms when most mail lies in normal folders, which is how Dennis's mailbox is distributed, and from about 320 ms to 450-500 ms when most mail lies in the role folders. Opening an empty role view goes from about 500 ms to 0. If the number is still felt as late, one `GROUP BY folder_id` query for the whole tree is the next step (`TODO.md`).

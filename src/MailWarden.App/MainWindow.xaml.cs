@@ -35,6 +35,10 @@ public sealed partial class MainWindow : Window
     private const double LinkHintOffsetY = 20;
     private const double LinkHintEdgeDistance = 8;
 
+    // The hint wraps within the window, so that no part of a long target is cut off. Below the smaller value it would be unreadable anyway.
+    private const double LinkHintMaximumWidth = 600;
+    private const double LinkHintMinimumWidth = 100;
+
     // Order of the entries of the theme choice.
     private static readonly AppTheme[] ThemeOrder = [AppTheme.System, AppTheme.Light, AppTheme.Dark];
 
@@ -346,6 +350,7 @@ public sealed partial class MainWindow : Window
         }
 
         LinkHintText.Text = linkText;
+        LinkHint.MaxWidth = Math.Max(LinkHintMinimumWidth, Math.Min(LinkHintMaximumWidth, RootGrid.ActualWidth - (2 * LinkHintEdgeDistance)));
         LinkHint.Measure(new Size(double.PositiveInfinity, double.PositiveInfinity));
         Size hintSize = LinkHint.DesiredSize;
         double left = LinkHintEdgeDistance;

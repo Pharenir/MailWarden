@@ -287,7 +287,6 @@
     <Canvas Grid.RowSpan="3" IsHitTestVisible="False">
       <Border
           x:Name="LinkHint"
-          MaxWidth="600"
           Padding="8,4"
           Background="{ThemeResource SolidBackgroundFillColorBaseBrush}"
           BorderBrush="{ThemeResource CardStrokeColorDefaultBrush}"
