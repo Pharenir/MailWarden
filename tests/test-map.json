@@ -15,9 +15,9 @@
     "src/MailWarden.Infrastructure/Commands/**": ["@feature:sync", "@feature:storage"],
     "src/MailWarden.Core/Sync/**": ["@feature:sync", "@feature:storage"],
     "src/MailWarden.Infrastructure/Sync/**": ["@feature:sync"],
-    "src/MailWarden.Infrastructure/Mime/**": ["@feature:sync"],
+    "src/MailWarden.Infrastructure/Mime/**": ["@feature:sync", "@feature:ui"],
     "tests/MailWarden.Infrastructure.Tests/Sync/**": ["@feature:sync"],
-    "tests/MailWarden.Infrastructure.Tests/Mime/**": ["@feature:sync"],
+    "tests/MailWarden.Infrastructure.Tests/Mime/**": ["@feature:sync", "@feature:ui"],
     "src/MailWarden.Infrastructure/Background/**": ["@feature:sync", "@feature:storage"],
     "tests/MailWarden.Infrastructure.Tests/Background/**": ["@feature:sync", "@feature:storage"],
     "src/MailWarden.Core/Accounts/**": ["@feature:accounts"],
@@ -30,6 +30,14 @@
     "*.csproj": ["FULL"],
     "*.runsettings": ["FULL"],
     "MailWarden.sln": ["FULL"],
-    "src/MailWarden.App/**": []
+    "src/MailWarden.Core/Text/**": ["@feature:ui"],
+    "tests/MailWarden.Core.Tests/Text/**": ["@feature:ui"],
+    "src/MailWarden.Infrastructure/Composition/**": ["@feature:ui", "@feature:storage", "@feature:sync"],
+    "tests/MailWarden.Infrastructure.Tests/Composition/**": ["@feature:ui", "@feature:storage", "@feature:sync"],
+    "src/MailWarden.Infrastructure/Logging/**": ["@feature:ui"],
+    "tests/MailWarden.Infrastructure.Tests/Logging/**": ["@feature:ui"],
+    "src/MailWarden.Presentation/**": ["@feature:ui"],
+    "tests/MailWarden.Presentation.Tests/**": ["@feature:ui"],
+    "src/MailWarden.App/**": ["@feature:ui"]
   }
 }
