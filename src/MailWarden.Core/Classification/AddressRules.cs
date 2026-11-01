@@ -133,7 +133,7 @@ public static class AddressRules
     // The label is lower-case here. A label IdnMapping refuses stays as it is and cannot become a listed name either.
     private static bool IsStableLabel(string label)
     {
-        return label.StartsWith(PunycodeLabelPrefix, StringComparison.Ordinal)
+        return label.StartsWith(PunycodeLabelPrefix, StringComparison.Ordinal) && System.Text.Ascii.IsValid(label)
             || string.Equals(NormalizeDomain(label), label, StringComparison.Ordinal);
     }
 

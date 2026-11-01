@@ -198,3 +198,6 @@ Binding; they change R2 and R5.
 | 29 | Contact `person_a@firma.com.pl`: `dmarc=pass header.from=evil.com.pl`; `header.from=firma.com.pl`; `header.from=mail.firma.com.pl`; From on a child with `header.from` on the parent | not authenticated; yes; yes; yes |
 | 30 | `RemoveContactAsync(" a@x.test ")` | removed |
 | 31 | Harvest with own From: each marker of T5; positive control: plain mail, `Precedence: list`, `text/calendar` with `method=REQUEST` | skipped; read |
+
+## Decision after review.3 (planner, 2026-11-01)
+Review.3 APPROVE. The `xn--` exception of `IsExactSender` holds only for pure ASCII labels, so `xn--mller-kv` with a full-width `a` is not exact (planner's one-line fix). Added to case 27.
