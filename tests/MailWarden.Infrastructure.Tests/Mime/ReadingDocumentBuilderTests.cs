@@ -2,6 +2,7 @@ using AngleSharp.Dom;
 using AngleSharp.Html.Dom;
 using AngleSharp.Html.Parser;
 using MailWarden.Infrastructure.Mime;
+using MimeKit;
 
 namespace MailWarden.Infrastructure.Tests.Mime;
 
@@ -17,18 +18,15 @@ public sealed class ReadingDocumentBuilderTests
     private const string CspAllowed =
         "default-src 'none'; img-src data: http: https:; style-src 'unsafe-inline'; font-src data:; form-action 'none'; base-uri 'none'";
 
-    private static MailContent ContentWith(string? html, string plainText = "plain_text") =>
-        new(
-            "subject_a",
-            "Sender A <sender_a@example.test>",
-            ["Recipient B <recipient_b@example.test>"],
-            [],
-            ReadingEml.MessageDate,
-            html,
-            plainText,
-            new Dictionary<string, string>(),
-            []);
-
+    // Built by the real reader so that every member of MailContent is consistent; html and plain text are then set directly.
+    private static MailContent ContentWith(string? html, string plainText = "plain_text")
+    {
+        MimeMessage message = ReadingEml.NewMessage("subject_a");
+        message.Body = new TextPart("plain") { Text = "reader text" };
+        using MemoryStream stream = ReadingEml.ToStream(message);
+        MailContent read = MailContentReader.ReadAsync(stream).GetAwaiter().GetResult();
+        return read with { Html = html, PlainText = plainText };
+    }
     private static IHtmlDocument Parse(ReadingDocument document) => new HtmlParser().ParseDocument(document.Html);
 
     private static IReadOnlyList<string?> CspValues(IHtmlDocument document) =>
