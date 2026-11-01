@@ -22,3 +22,16 @@ Duration 25.9 s (no soft limit exceeded). Cases 1-20 automated, 21-22 manual (De
 - `EmptyFolder_with_2500_mails...`: AP-03c has no 1,000 UID limit for EmptyFolder; test asserts coverage only.
 
 No product defect found. Open: nothing automated for cases 21 and 22.
+
+# verify.2 (fix.2, cases 23-31)
+
+Result: PASS. S3 via watchdog on `feat/ap-04b-ui-actions` (fix.2 merged), build `-warnaserror` clean, 27.2 s.
+
+| Project | Tests | Passed |
+|---|---|---|
+| Core.Tests | 511 | 511 |
+| Presentation.Tests | 507 | 507 |
+| Infrastructure.Tests | 1310 | 1310 |
+| Total | 2328 | 2328 |
+
+Only test-side fixes needed before the run: xUnit1031 (blocking `GetResult` replaced by `await`), case 24 reduced to the gated variant (an ungated double Del is correct behaviour), case 27 uses `MailboxActions.PartlyDoneText`, case 29 sharpened to the `host | text` format with at most 501 characters. No product defect. Not automated: U8 (key repeat), U9 (window placement, focus), cases 21, 22, 32.
