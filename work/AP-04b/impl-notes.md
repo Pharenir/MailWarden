@@ -1,4 +1,4 @@
-STEP-RESULT: done (fix.3: V1-V4 done, see section "fix.3"; fix.2: U1-U9; implement.1 with the coordinator's precisions of 2026-11-01)
+STEP-RESULT: done (fix.4: W1-W6 done, see section "fix.4"; fix.3: V1-V4; fix.2: U1-U9; implement.1 with the coordinator's precisions of 2026-11-01)
 
 # AP-04b - Implementation notes (Builder, implement.1)
 
@@ -124,7 +124,7 @@ Items 3 and 10 of "Deviations and decisions" and the question on `CountForEmptyA
 - Banner on a partial rejection: the text of the exception. A fake has to throw its own text; only the real `MailboxActions` produces `PartlyDoneText`, the shell only for the mixed Del.
 
 ### Remaining limits
-- U3: replaced by V1, see section "fix.3".
+- U3: replaced by V1 and then by W2, see section "fix.4".
 - U5: a target above 65,519 characters cannot be parsed by `Uri`, so it has no host in front.
 - U5: the host in front is `Uri.IdnHost` (punycode), not `Uri.Host` as the decision says (commit `6bb0491`): a Unicode host cannot pass as another one.
 
@@ -147,8 +147,8 @@ Build: `MailWarden.Presentation` and `MailWarden.App` with `-warnaserror`: 0 err
 3. **The discard in V1 runs with `CancellationToken.None`:** a cancelled caller must not leave the command behind.
 
 ### Remaining limits
-- V1: a cycle already running can list the command between its insert and its discard. No trigger comes from here, and the window is the time of one `DELETE`; closing it needs a transaction in the queue.
-- V4 covers `BeginRemoval` only. `ChangeFlagAsync` has the same order around `BeginFlagChange`, not changed: V4 does not name it, and a failure there can only come from a subscriber of a row. In-flight flags would stay until the next action.
+- V1: closed by W2, see section "fix.4".
+- V4 as first built covered `BeginRemoval` only; the addendum below extends it to `ChangeFlagAsync`, so both now have `try`/`finally`.
 
 ### Getting a result
 **Tested (self-check, no proof; `_scratch\ap04bprobe`, artificial data):** V1 before enqueuing (a lower UID arrives, count above the confirmed one; fewer goes ahead), V2 with an SQLite trigger that fails the second group (`PartlyDoneText`, type name in the log), V3, V4 (no event after `Dispose`). All passed.
@@ -157,3 +157,28 @@ Build: `MailWarden.Presentation` and `MailWarden.App` with `-warnaserror`, see t
 
 ## fix.3 addendum (planner, 2026-11-01)
 `ChangeFlagAsync` gets the same `try`/`finally` around `BeginFlagChange` as `RemoveRowsAsync`: the builder reported the same order and the planner decided to treat both alike. `EndAction` does nothing when the action has already ended.
+
+## fix.4 (W1-W6 of `requirement.md`, section "Decisions fix.4")
+| # | Where | What |
+|---|---|---|
+| W1 | `IMailboxActions.cs`, `EmptyFolderPreview` | `(uint UidValidity, IReadOnlySet<uint> Uids)`, `Count` computed from the set, so that the two cannot disagree. `HighestUid` is gone. |
+| W2 | `SqliteMailCommandQueue.EnqueueEmptyFolderAsync` | `BeginTransaction(deferred: false)` (`BEGIN IMMEDIATE`) before the first read; folder, local UIDs and insert in it. Equal UIDVALIDITY, local UIDs a subset of the confirmed ones, else `EmptyFolderChangedException`. The old overload is gone: `MailboxActions` was its only production caller. |
+| W3 | `MailboxActions.EmptyFolderAsync` | Both checks and the `DiscardAsync` call removed. `RequireEmptiableFolderAsync` stays. `DiscardAsync` stays for the failed-actions list. |
+| W4 | `ShellViewModel.EmptyFolderAsync` | `preview.HasSameContent(confirmed)`. |
+| W5 | `MailboxActions.TryGetPartlyDone` | The one place of the rule, used by `MailboxActions` and `ShellViewModel`. Log text and log source unchanged. |
+| W6 | `MailboxActions.PartlyDoneText` | "... für einen Teil der Mails konnte sie nicht gespeichert werden." |
+
+### How the mismatch is reported
+A new exception `EmptyFolderChangedException` in `MailWarden.Core.Commands`, and null stays "nothing to delete". It is not an `ArgumentException` or `InvalidOperationException` on purpose: the mapping of `CallQueueAsync` cannot turn it into another text, and a caller that forgets it gets a failure with nothing stored.
+
+### The reads run in the transaction
+`SqliteFolderStore` and `SqliteMessageStore` of the queue hold the same `SqliteDatabase`, and `SqliteConnection.CreateCommand` hands the open transaction to each new command. Checked at runtime, see below: while a second connection holds the write lock and changes a UID, the call waits and then sees the change.
+
+### Remaining limits
+- `RequireEmptiableFolderAsync` (pending move, U2) runs before the transaction. A classifier pass on its own connection could store a move in between. Not in the decisions; open question in the report.
+- `BeginTransaction` blocks its thread while another connection holds the write lock, up to the default command timeout. `MailboxActions` runs on the thread pool, so the UI does not wait; the timeout ends as `StorageException` with nothing stored. Ich bin mir unsicher about the exact length of the timeout, not measured.
+- The message of `MailArrivedText` also covers a changed UIDVALIDITY, as W2 asks; the text then says more than is known.
+
+### Getting a result
+**Tested (self-check, no proof; `_scratch\ap04bprobe`, artificial data):** W-a to W-e on the real queue through `MailboxActions`, W-f and W-g on fakes, and the ordering check on two connections to a file database in `_scratch`. All passed.
+**Not run:** S1-S3, tests, GUI. `tests\` not read, not built.
