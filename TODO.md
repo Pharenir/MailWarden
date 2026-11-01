@@ -278,6 +278,7 @@ Stand: Verdrahtung, Bremse und Hinweis sind umgesetzt und mit Fakes getestet (S3
 Erledigt aus AP-07c: D8, J4 (Bremse) und die Sichtbarkeit von `EvaluationFailed` (Hinweis in der App, Logzeile), siehe dort.
 
 **Bedingungen vor `Act` auf einem echten Konto:**
+- [ ] „Ordner leeren“ gegen Rettung aus Junk (AP-04b, review.4 S1, secure.3 L1): Eine bestätigte, mitgezählte Mail geht verloren, wenn der Filter sie im selben Zeitfenster als `TrustedContact` retten will. Dennis entscheidet vor `Act`: bestätigtes Löschen hat Vorrang (so ist es jetzt) oder die Rettung
 - [ ] `BrakeHeld` ist endgültig: eine Salve über dem Grenzwert bleibt unsortiert (secure M1). AP-08 soll „zurückgehaltene
   Mails nachträglich sortieren“ anbieten; das Protokoll behält Aktion und UID. Dennis legt `maxMovesPerPass` mit diesem
   Wissen fest
@@ -288,6 +289,8 @@ Erledigt aus AP-07c: D8, J4 (Bremse) und die Sichtbarkeit von `EvaluationFailed`
 - [ ] Fall 18 bestanden (Planer)
 
 **Ohne Bedingung:**
+- [ ] `\Deleted` kann auf dem Server stehen bleiben, wenn nach einem Absturz ein Lösch-Befehl scheitert und verworfen wird; ein anderer Client entfernt die Mail dann (AP-04b, secure.3 N3)
+- [ ] `MailArrivedText` sagt „neue Mail“ auch bei geändertem UIDVALIDITY oder anderer UID (AP-04b, review.4 N)
 - [ ] Ein dauerhafter Fehler des Durchlaufs bremst den Abgleich des Kontos auf höchstens alle 30 Minuten (review S3)
 - [ ] Zurück von `act` auf `recordOnly` stoppt bereits eingestellte Befehle nicht (review N2)
 - [ ] Scheitert der zweite Ordner (Junk) eines Durchlaufs, erreichen die Zahlen des ersten weder Hinweis noch Logzeile; die
