@@ -86,6 +86,7 @@ public sealed partial class MainWindow : Window
         ViewModel.Reading.PropertyChanged += OnReadingPropertyChanged;
         ViewModel.Search.PropertyChanged += OnSearchPropertyChanged;
         ViewModel.ConfirmationRequested += OnConfirmationRequested;
+        ViewModel.ActionRowsRemoved += OnActionRowsRemoved;
 
         ApplyTheme();
         ApplyLayout();
@@ -212,6 +213,41 @@ public sealed partial class MainWindow : Window
         }
     }
 
+    // After the collection change, when the control has settled on the next row.
+    private void OnActionRowsRemoved(object? sender, EventArgs args)
+    {
+        DispatcherQueue.TryEnqueue(FocusMessageList);
+    }
+
+    // So that the next key goes to the list again. Someone typing in the search box keeps the focus there.
+    private void FocusMessageList()
+    {
+        if (IsFocusInSearchBox())
+        {
+            return;
+        }
+
+        DependencyObject? selectedContainer = ViewModel.Messages.SelectedRow is MessageRowViewModel row ? MessageList.ContainerFromItem(row) : null;
+        UIElement focusTarget = selectedContainer as UIElement ?? MessageList;
+        focusTarget.Focus(FocusState.Programmatic);
+    }
+
+    private bool IsFocusInSearchBox()
+    {
+        DependencyObject? element = FocusManager.GetFocusedElement(RootGrid.XamlRoot) as DependencyObject;
+        while (element is not null)
+        {
+            if (ReferenceEquals(element, SearchBox))
+            {
+                return true;
+            }
+
+            element = VisualTreeHelper.GetParent(element);
+        }
+
+        return false;
+    }
+
     private void OnDiscardFailedActionClicked(object sender, RoutedEventArgs args)
     {
         if ((sender as FrameworkElement)?.DataContext is PendingActionRow row)
@@ -236,7 +272,9 @@ public sealed partial class MainWindow : Window
         }
 
         args.Handled = true;
-        if (command.CanExecute(null))
+
+        // Holding a key acts once: repeats must not walk through the list and delete.
+        if (!args.KeyStatus.WasKeyDown && command.CanExecute(null))
         {
             command.Execute(null);
         }

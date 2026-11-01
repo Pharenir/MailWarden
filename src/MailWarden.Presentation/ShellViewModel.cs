@@ -28,14 +28,15 @@ public sealed record ConfirmationRequest(string Text, TaskCompletionSource<bool>
 /// <summary>
 /// Root view model of the main window: connects navigation, message list, reading pane, search and background service, and
 /// keeps the settings. Its commands only store commands in the queue (<see cref="IMailboxActions"/>); it never changes
-/// anything on a server itself. Actions run one after the other in the order of their start, each on the current selection.
+/// anything on a server itself. Actions run one after the other in the order of their start, each on a copy of the selection
+/// from its keystroke: whatever is selected by the time it runs is never touched.
 /// </summary>
 public sealed class ShellViewModel : ObservableObject, IDisposable
 {
     // How long a mail must be shown before the switch marks it as read.
     private static readonly TimeSpan ReadOnSelectDelay = TimeSpan.FromSeconds(1.5);
 
-    // How often "Ordner leeren" asks again when new mail keeps arriving during the question.
+    // How often "Ordner leeren" asks when new mail keeps arriving during the question.
     private const int MaxEmptyConfirmations = 3;
 
     private const int MaxMoveTargetCharacters = 200;
@@ -78,6 +79,10 @@ public sealed class ShellViewModel : ObservableObject, IDisposable
     private int moveTargetGeneration;
     private MailFolder? emptyTarget;
     private int emptyTargetGeneration;
+
+    // The row a running removal has selected by itself, until its commands are stored: the user has not chosen it yet, so no further
+    // removal may reach it. Read, unread and flag can be undone and may.
+    private long? rowSelectedByRunningRemoval;
 
     // The tail of the running actions; it never faults.
     private Task actionTail = Task.CompletedTask;
@@ -136,12 +141,12 @@ public sealed class ShellViewModel : ObservableObject, IDisposable
         Reading = new ReadingPaneViewModel(readModel, log, timeProvider, documentBuilder ?? ReadingDocumentBuilder.Build);
         toggleLayoutCommand = new RelayCommand(ToggleLayout);
         refreshCommand = new RelayCommand(Refresh);
-        markReadCommand = new RelayCommand(() => StartUserAction(() => ChangeSeenAsync(Messages.SelectedRows, true)), HasSelection);
-        markUnreadCommand = new RelayCommand(() => StartUserAction(() => ChangeSeenAsync(Messages.SelectedRows, false)), HasSelection);
-        toggleFlagCommand = new RelayCommand(() => StartUserAction(ToggleFlagAsync), HasSelection);
-        deleteCommand = new RelayCommand(() => StartUserAction(DeleteAsync), HasSelection);
-        deletePermanentlyCommand = new RelayCommand(() => StartUserAction(DeletePermanentlyAsync), HasSelection);
-        emptyFolderCommand = new RelayCommand(() => StartUserAction(EmptyFolderAsync), () => CanEmptyFolder);
+        markReadCommand = new RelayCommand(() => StartOnSelection(rows => ChangeSeenAsync(rows, true)), HasSelection);
+        markUnreadCommand = new RelayCommand(() => StartOnSelection(rows => ChangeSeenAsync(rows, false)), HasSelection);
+        toggleFlagCommand = new RelayCommand(() => StartOnSelection(ToggleFlagAsync), HasSelection);
+        deleteCommand = new RelayCommand(() => StartRemovalOnSelection(DeleteAsync), HasSelection);
+        deletePermanentlyCommand = new RelayCommand(() => StartRemovalOnSelection(DeletePermanentlyAsync), HasSelection);
+        emptyFolderCommand = new RelayCommand(ExecuteEmptyFolder, () => CanEmptyFolder);
         moveCommand = new ParameterRelayCommand(ExecuteMove, _ => CanMove);
         discardFailedActionCommand = new ParameterRelayCommand(ExecuteDiscardFailedAction, parameter => parameter is PendingActionRow);
 
@@ -306,6 +311,9 @@ public sealed class ShellViewModel : ObservableObject, IDisposable
 
     /// <summary>Raised on the caller's context before something that cannot be undone; without a subscriber nothing happens.</summary>
     public event EventHandler<ConfirmationRequest>? ConfirmationRequested;
+
+    /// <summary>Raised after an action has taken rows out of the list; the window gives the focus back to the list.</summary>
+    public event EventHandler? ActionRowsRemoved;
 
     /// <summary>
     /// Subscribes to the status of the service, builds the navigation and loads the default view (group Inbox).
@@ -691,9 +699,15 @@ public sealed class ShellViewModel : ObservableObject, IDisposable
 
     private bool HasSelection() => Messages.SelectedRows.Count > 0;
 
-    private Guid? SingleAccountOfSelection()
+    private Guid? SingleAccountOfSelection() => SingleAccountOf(Messages.SelectedRows);
+
+    private static int CountAccounts(IEnumerable<MessageRowViewModel> rows)
     {
-        IReadOnlyList<MessageRowViewModel> rows = Messages.SelectedRows;
+        return rows.Select(row => row.Message.AccountId).Distinct().Count();
+    }
+
+    private static Guid? SingleAccountOf(IReadOnlyList<MessageRowViewModel> rows)
+    {
         if (rows.Count == 0)
         {
             return null;
@@ -745,9 +759,9 @@ public sealed class ShellViewModel : ObservableObject, IDisposable
     }
 
     // Exactly one folder with role Trash or Junk behind the view, or none: this is what the button offers and the command empties.
-    private async Task<MailFolder?> FindEmptyTargetAsync()
+    private async Task<MailFolder?> FindEmptyTargetAsync(MailView? view)
     {
-        if (Messages.IsShowingSearch || Messages.CurrentView is not MailView view)
+        if (view is null)
         {
             return null;
         }
@@ -770,10 +784,13 @@ public sealed class ShellViewModel : ObservableObject, IDisposable
         return candidates is [{ Role: FolderRole.Trash or FolderRole.Junk } target] ? target : null;
     }
 
+    // The search decides, not the list: its state changes first, and the list follows only with the load it starts.
+    private MailView? ViewBehindEmptyCommand() => Search.IsActive ? null : Messages.CurrentView;
+
     private async Task UpdateEmptyTargetAsync()
     {
         int generation = ++emptyTargetGeneration;
-        MailFolder? target = await FindEmptyTargetAsync();
+        MailFolder? target = await FindEmptyTargetAsync(ViewBehindEmptyCommand());
         if (generation != emptyTargetGeneration || isDisposed || target == emptyTarget)
         {
             return;
@@ -822,8 +839,31 @@ public sealed class ShellViewModel : ObservableObject, IDisposable
         StartAction(work);
     }
 
-    // One after the other: a second Del during the first works on the row the first has selected. Up to the first real wait
-    // this runs synchronously, so a row changes at once.
+    // The selection is copied here, at the keystroke, and only this copy reaches the action: when the action gets its turn, the
+    // list may long select another row. Rows that an earlier action has hidden by then drop out, so a second Del on the same row
+    // does nothing instead of hitting the next one.
+    private void StartOnSelection(Func<IReadOnlyList<MessageRowViewModel>, Task> work)
+    {
+        StartOnRows(Messages.SelectedRows.ToList(), work);
+    }
+
+    // For delete, permanent delete and move: also the next row stays out while the first Del is still being stored.
+    private void StartRemovalOnSelection(Func<IReadOnlyList<MessageRowViewModel>, Task> work)
+    {
+        StartOnRows(Messages.SelectedRows.Where(row => row.Message.Id != rowSelectedByRunningRemoval).ToList(), work);
+    }
+
+    private void StartOnRows(List<MessageRowViewModel> rowsAtKeystroke, Func<IReadOnlyList<MessageRowViewModel>, Task> work)
+    {
+        StartUserAction(() => work(WithoutHiddenRows(rowsAtKeystroke)));
+    }
+
+    private List<MessageRowViewModel> WithoutHiddenRows(IEnumerable<MessageRowViewModel> rows)
+    {
+        return rows.Where(row => !pendingMail.IsHidden(row.Message.Id)).ToList();
+    }
+
+    // One after the other, in the order of the keystrokes. Up to the first real wait this runs synchronously, so a row changes at once.
     private void StartAction(Func<Task> work)
     {
         if (!isDisposed)
@@ -894,9 +934,8 @@ public sealed class ShellViewModel : ObservableObject, IDisposable
         return ChangeFlagAsync(rows, MessageFlags.Seen, seen, messages => actions.SetSeenAsync(messages, seen));
     }
 
-    private Task ToggleFlagAsync()
+    private Task ToggleFlagAsync(IReadOnlyList<MessageRowViewModel> rows)
     {
-        IReadOnlyList<MessageRowViewModel> rows = Messages.SelectedRows;
         bool flagged = rows.Any(row => !row.IsFlagged);
         return ChangeFlagAsync(rows, MessageFlags.Flagged, flagged, messages => actions.SetFlaggedAsync(messages, flagged));
     }
@@ -914,13 +953,18 @@ public sealed class ShellViewModel : ObservableObject, IDisposable
         }
 
         List<MailMessage> messages = MessagesOf(rows);
-        pendingMail.BeginFlagChange(messages.Select(message => message.Id), flag, isSet);
-        foreach (MessageRowViewModel row in rows)
+        HashSet<long> messageIds = messages.Select(message => message.Id).ToHashSet();
+        pendingMail.BeginFlagChange(messageIds, flag, isSet);
+        try
         {
-            row.ShowFlags(pendingMail.ShownFlags(row.Message));
+            Messages.ShowWantedFlags(messageIds);
+            await EnqueueAsync(() => enqueue(messages));
         }
-
-        await EnqueueAsync(() => enqueue(messages));
+        finally
+        {
+            // Does nothing when EnqueueAsync has ended the action; otherwise a failure before it would keep the flags as wanted.
+            pendingMail.EndAction(isStored: false);
+        }
     }
 
     // Rows go at once and the next row takes over; nothing below this reports the action as done before it is stored.
@@ -928,13 +972,37 @@ public sealed class ShellViewModel : ObservableObject, IDisposable
     {
         HashSet<long> messageIds = rows.Select(row => row.Message.Id).ToHashSet();
         pendingMail.BeginRemoval(messageIds);
-        Messages.RemoveRows(messageIds);
-        await EnqueueAsync(enqueue);
+        try
+        {
+            MessageRowViewModel? rowBefore = Messages.SelectedRow;
+            Messages.RemoveRows(messageIds);
+            rowSelectedByRunningRemoval = ReferenceEquals(Messages.SelectedRow, rowBefore) ? null : Messages.SelectedRow?.Message.Id;
+            if (!isDisposed)
+            {
+                ActionRowsRemoved?.Invoke(this, EventArgs.Empty);
+            }
+
+            await EnqueueAsync(enqueue);
+        }
+        finally
+        {
+            rowSelectedByRunningRemoval = null;
+
+            // Does nothing when EnqueueAsync has ended the action; otherwise a failure before it would hide these rows for good.
+            pendingMail.EndAction(isStored: false);
+        }
     }
 
-    // After a refusal the queue decides what stays hidden: what was stored before it stays, everything else comes back.
+    // After a refusal the queue decides what stays hidden: what was stored before it stays, everything else comes back. Dispose can
+    // have come during any await before this point; from then on nothing is stored.
     private async Task EnqueueAsync(Func<Task> enqueue)
     {
+        if (isDisposed)
+        {
+            pendingMail.EndAction(isStored: false);
+            return;
+        }
+
         try
         {
             await enqueue();
@@ -960,9 +1028,8 @@ public sealed class ShellViewModel : ObservableObject, IDisposable
         return roles;
     }
 
-    private async Task DeleteAsync()
+    private async Task DeleteAsync(IReadOnlyList<MessageRowViewModel> rows)
     {
-        List<MessageRowViewModel> rows = [.. Messages.SelectedRows];
         if (rows.Count == 0)
         {
             return;
@@ -971,7 +1038,7 @@ public sealed class ShellViewModel : ObservableObject, IDisposable
         Dictionary<long, FolderRole?> roles = await ReadFolderRolesAsync(rows);
         List<MessageRowViewModel> trashRows = rows.Where(row => roles[row.Message.FolderId] == FolderRole.Trash).ToList();
         List<MessageRowViewModel> otherRows = rows.Except(trashRows).ToList();
-        if (trashRows.Count > 0 && !await ConfirmAsync(UiText.ConfirmDeleteFromTrash(trashRows.Count, otherRows.Count)))
+        if (trashRows.Count > 0 && !await ConfirmAsync(UiText.ConfirmDeleteFromTrash(trashRows.Count, otherRows.Count, CountAccounts(rows))))
         {
             return;
         }
@@ -985,17 +1052,35 @@ public sealed class ShellViewModel : ObservableObject, IDisposable
                     await actions.MoveToTrashAsync(MessagesOf(otherRows));
                 }
 
-                if (trashRows.Count > 0)
+                if (trashRows.Count > 0 && !isDisposed)
                 {
-                    await actions.DeletePermanentlyAsync(MessagesOf(trashRows));
+                    await DeleteTrashRowsAfterMoveAsync(trashRows, otherRows.Count > 0);
                 }
             });
     }
 
-    private async Task DeletePermanentlyAsync()
+    // The two steps of a mixed selection are one action for the user: a failure of the second means it was done only partly.
+    private async Task DeleteTrashRowsAfterMoveAsync(List<MessageRowViewModel> trashRows, bool hasMovedOtherRows)
     {
-        List<MessageRowViewModel> rows = [.. Messages.SelectedRows];
-        if (rows.Count == 0 || !await ConfirmAsync(UiText.ConfirmDeletePermanently(rows.Count)))
+        try
+        {
+            await actions.DeletePermanentlyAsync(MessagesOf(trashRows));
+        }
+        catch (Exception exception) when (hasMovedOtherRows
+            && exception is not (OperationCanceledException or ObjectDisposedException or OutOfMemoryException))
+        {
+            if (exception is not MailActionException)
+            {
+                log.Write(CriticalLogLevel.Critical, "ShellViewModel.DeleteTrashRowsAfterMoveAsync", $"Storing a command failed after others were stored: {exception.GetType().Name}");
+            }
+
+            throw new MailActionException(MailboxActions.PartlyDoneText);
+        }
+    }
+
+    private async Task DeletePermanentlyAsync(IReadOnlyList<MessageRowViewModel> rows)
+    {
+        if (rows.Count == 0 || !await ConfirmAsync(UiText.ConfirmDeletePermanently(rows.Count, CountAccounts(rows))))
         {
             return;
         }
@@ -1008,36 +1093,47 @@ public sealed class ShellViewModel : ObservableObject, IDisposable
         permanentDeleteWatcher.Add(messages.Where(message => roles[message.FolderId] is not (FolderRole.Trash or FolderRole.Junk)));
     }
 
-    // The count of the question must stay true: when new mail arrived during the question, the user is asked again. The queue
-    // takes its snapshot in the next step, so only mail arriving in that moment can still be part of it.
-    private async Task EmptyFolderAsync()
+    // Like the selection, the view is the one of the keystroke.
+    private void ExecuteEmptyFolder()
     {
-        if (await FindEmptyTargetAsync() is not MailFolder folder)
+        MailView? viewAtKeystroke = ViewBehindEmptyCommand();
+        StartUserAction(() => EmptyFolderAsync(viewAtKeystroke));
+    }
+
+    // The question must stay true: the actions refuse when a mail has arrived that the user has not seen. A new preview tells that
+    // apart from any other refusal, and he is asked again with the new count. An unchanged preview means another reason.
+    private async Task EmptyFolderAsync(MailView? view)
+    {
+        if (await FindEmptyTargetAsync(view) is not MailFolder folder)
         {
             return;
         }
 
-        int count = await actions.CountForEmptyAsync(folder.Id);
-        bool isConfirmedCount = false;
-        for (int question = 0; question < MaxEmptyConfirmations && !isConfirmedCount; question++)
+        string accountLabel = await ReadAccountLabelAsync(folder.AccountId);
+        EmptyFolderPreview preview = await actions.PreviewEmptyAsync(folder.Id);
+        for (int question = 1; preview.Count > 0; question++)
         {
-            if (count == 0 || !await ConfirmAsync(UiText.ConfirmEmptyFolder(folder.Role, count)))
+            if (!await ConfirmAsync(UiText.ConfirmEmptyFolder(folder.Role, preview.Count, accountLabel)))
             {
                 return;
             }
 
-            int countNow = await actions.CountForEmptyAsync(folder.Id);
-            isConfirmedCount = countNow <= count;
-            count = countNow;
+            EmptyFolderPreview confirmed = preview;
+            try
+            {
+                List<MessageRowViewModel> rows = Messages.Items.Where(row => row.Message.FolderId == folder.Id).ToList();
+                await RemoveRowsAsync(rows, () => actions.EmptyFolderAsync(folder.Id, confirmed));
+                break;
+            }
+            catch (MailActionException) when (question < MaxEmptyConfirmations)
+            {
+                preview = await actions.PreviewEmptyAsync(folder.Id);
+                if (preview == confirmed)
+                {
+                    throw;
+                }
+            }
         }
-
-        if (!isConfirmedCount)
-        {
-            return;
-        }
-
-        List<MessageRowViewModel> rows = Messages.Items.Where(row => row.Message.FolderId == folder.Id).ToList();
-        await RemoveRowsAsync(rows, () => actions.EmptyFolderAsync(folder.Id));
 
         // Rows beyond the loaded pages only stay out after a reload.
         if (Messages.HasMore)
@@ -1046,23 +1142,31 @@ public sealed class ShellViewModel : ObservableObject, IDisposable
         }
     }
 
+    private async Task<string> ReadAccountLabelAsync(Guid accountId)
+    {
+        IReadOnlyList<Account> accounts = await readModel.ListAccountsAsync();
+        Account? account = accounts.FirstOrDefault(candidate => candidate.Id == accountId);
+        return account is null
+            ? string.Empty
+            : SafeDisplayText.Shorten(NavigationViewModel.AccountLabel(account), MailDisplayText.MaxSenderCharacters);
+    }
+
     private void ExecuteMove(object? parameter)
     {
         if (parameter is long targetFolderId)
         {
-            StartUserAction(() => MoveAsync(targetFolderId));
+            StartRemovalOnSelection(rows => MoveAsync(rows, targetFolderId));
         }
     }
 
     // Refused here already when the target is no folder of this account; the queue would refuse it as well.
-    private async Task MoveAsync(long targetFolderId)
+    private async Task MoveAsync(IReadOnlyList<MessageRowViewModel> rows, long targetFolderId)
     {
-        if (SingleAccountOfSelection() is not Guid accountId)
+        if (SingleAccountOf(rows) is not Guid accountId)
         {
             return;
         }
 
-        List<MessageRowViewModel> rows = [.. Messages.SelectedRows];
         IReadOnlyList<MailFolder> folders = await readModel.ListFoldersAsync(accountId);
         if (!folders.Any(folder => folder.Id == targetFolderId && IsMoveTarget(folder)))
         {
@@ -1144,7 +1248,7 @@ public sealed class ShellViewModel : ObservableObject, IDisposable
 
         if (markReadOnSelect && Messages.SelectedRow is { IsUnread: true } row && row.Message.Id == messageId)
         {
-            StartAction(() => ChangeSeenAsync([row], true));
+            StartAction(() => ChangeSeenAsync(WithoutHiddenRows([row]), true));
         }
     }
 

@@ -1,5 +1,6 @@
 using MailWarden.Core.Commands;
 using MailWarden.Core.Model;
+using MailWarden.Infrastructure.Logging;
 using MailWarden.Infrastructure.Storage;
 
 namespace MailWarden.Infrastructure.Composition;
@@ -11,12 +12,22 @@ namespace MailWarden.Infrastructure.Composition;
 /// <param name="database">Initialised connection used by nothing else.</param>
 /// <param name="triggerAccount">Schedules a cycle of an account after commands were stored.</param>
 /// <param name="timeProvider">Clock of the queue.</param>
-public sealed class MailboxActions(SqliteDatabase database, Action<Guid> triggerAccount, TimeProvider timeProvider) : IMailboxActions
+/// <param name="log">Critical log, for the type name of a failure after stored commands; null means no logging.</param>
+public sealed class MailboxActions(
+    SqliteDatabase database,
+    Action<Guid> triggerAccount,
+    TimeProvider timeProvider,
+    ICriticalLog? log = null) : IMailboxActions
 {
+    /// <summary>Fixed text of a rejection after commands were already stored.</summary>
+    public const string PartlyDoneText = "Die Aktion wurde nur teilweise ausgeführt, ein Teil der Mails wurde abgelehnt.";
+
     private const string RejectedText = "Die Aktion wurde abgelehnt, die Ansicht ist vermutlich nicht mehr aktuell.";
     private const string UnknownFolderText = "Der Ordner dieser Aktion ist nicht mehr bekannt.";
     private const string NoTrashFolderText = "Dieses Konto hat keinen Papierkorb.";
     private const string CannotEmptyFolderText = "Nur der Papierkorb und der Junk-Ordner können geleert werden.";
+    private const string MailsLeavingFolderText = "Der Ordner kann noch nicht geleert werden, weil gerade Mails aus ihm verschoben werden.";
+    private const string MailArrivedText = "Der Ordner wurde nicht geleert, weil inzwischen eine neue Mail angekommen ist.";
 
     private readonly SemaphoreSlim connectionGate = new(1, 1);
     private readonly SqliteMailCommandQueue queue = new(database, timeProvider);
@@ -66,31 +77,47 @@ public sealed class MailboxActions(SqliteDatabase database, Action<Guid> trigger
     }
 
     /// <inheritdoc />
-    public Task<int> CountForEmptyAsync(long folderId, CancellationToken ct = default)
+    public Task<EmptyFolderPreview> PreviewEmptyAsync(long folderId, CancellationToken ct = default)
     {
         return RunSerialisedAsync(
             async token =>
             {
                 await RequireEmptiableFolderAsync(folderId, token).ConfigureAwait(false);
                 IReadOnlyDictionary<uint, MessageFlags> localMessages = await messageStore.GetUidFlagsAsync(folderId, token).ConfigureAwait(false);
-                return localMessages.Count;
+                return new EmptyFolderPreview(localMessages.Count, HighestUid(localMessages));
             },
             ct);
     }
 
     /// <inheritdoc />
-    public Task EmptyFolderAsync(long folderId, CancellationToken ct = default)
+    public Task EmptyFolderAsync(long folderId, EmptyFolderPreview confirmed, CancellationToken ct = default)
     {
+        ArgumentNullException.ThrowIfNull(confirmed);
         return RunSerialisedAsync(
             async token =>
             {
                 await RequireEmptiableFolderAsync(folderId, token).ConfigureAwait(false);
-                MailCommand? command = await CallQueueAsync(() => queue.EnqueueEmptyFolderAsync(folderId, token)).ConfigureAwait(false);
-                if (command is not null)
+                IReadOnlyDictionary<uint, MessageFlags> localMessages = await messageStore.GetUidFlagsAsync(folderId, token).ConfigureAwait(false);
+                if (HighestUid(localMessages) > confirmed.HighestUid || localMessages.Count > confirmed.Count)
                 {
-                    triggerAccount(command.AccountId);
+                    throw new MailActionException(MailArrivedText);
                 }
 
+                MailCommand? command = await CallQueueAsync(() => queue.EnqueueEmptyFolderAsync(folderId, token)).ConfigureAwait(false);
+                if (command is null)
+                {
+                    return true;
+                }
+
+                // The sync runs on another connection, so a mail can arrive after the check above. The command holds what the queue
+                // really took; it goes again before a cycle is scheduled, also when the caller has cancelled in the meantime.
+                if (command.Uids[^1] > confirmed.HighestUid || command.Uids.Count > confirmed.Count)
+                {
+                    await queue.DiscardAsync(command.Id, CancellationToken.None).ConfigureAwait(false);
+                    throw new MailActionException(MailArrivedText);
+                }
+
+                triggerAccount(command.AccountId);
                 return true;
             },
             ct);
@@ -152,6 +179,11 @@ public sealed class MailboxActions(SqliteDatabase database, Action<Guid> trigger
         {
             connectionGate.Release();
         }
+    }
+
+    private static uint HighestUid(IReadOnlyDictionary<uint, MessageFlags> localMessages)
+    {
+        return localMessages.Keys.DefaultIfEmpty(0u).Max();
     }
 
     private static PendingAction ToPendingAction(MailCommand command, IReadOnlyDictionary<uint, long> messageIds)
@@ -230,6 +262,16 @@ public sealed class MailboxActions(SqliteDatabase database, Action<Guid> trigger
                         }
                     }
                 }
+                catch (Exception exception) when (accountsWithNewCommands.Count > 0
+                    && exception is not (OperationCanceledException or ObjectDisposedException or OutOfMemoryException))
+                {
+                    if (exception is not MailActionException)
+                    {
+                        log?.Write(CriticalLogLevel.Critical, "MailboxActions.EnqueuePerFolderAsync", $"Storing a command failed after others were stored: {exception.GetType().Name}");
+                    }
+
+                    throw new MailActionException(PartlyDoneText);
+                }
                 finally
                 {
                     foreach (Guid accountId in accountsWithNewCommands)
@@ -265,6 +307,15 @@ public sealed class MailboxActions(SqliteDatabase database, Action<Guid> trigger
         if (folder.Role is not (FolderRole.Trash or FolderRole.Junk))
         {
             throw new MailActionException(CannotEmptyFolderText);
+        }
+
+        // Also a command waiting after a failed attempt: it will run again. A permanently failed one takes nothing away.
+        IReadOnlyList<MailCommand> commands = await queue.ListAsync(folder.AccountId, ct).ConfigureAwait(false);
+        if (commands.Any(command => command.FolderId == folderId
+            && command.Status == MailCommandStatus.Pending
+            && command.Kind is MailCommandKind.Move or MailCommandKind.MoveToTrash))
+        {
+            throw new MailActionException(MailsLeavingFolderText);
         }
     }
 

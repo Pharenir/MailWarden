@@ -27,6 +27,9 @@ internal static class MailDisplayText
     /// <summary>Attachment names listed before "und N weitere".</summary>
     public const int MaxAttachmentNames = 50;
 
+    // No valid host name is longer.
+    private const int MaxLinkHostCharacters = 255;
+
     // No file system allows longer names, so only crafted names are cut.
     private const int MaxAttachmentNameCharacters = 260;
 
@@ -63,6 +66,31 @@ internal static class MailDisplayText
 
         string line = DescribeSender(senders[0]);
         return senders.Count == 1 ? line : $"{line} {UiText.MoreSenders(senders.Count - 1)}";
+    }
+
+    /// <summary>
+    /// The target of a link for one display line. Beyond the limit an absolute http or https target starts with the host of the
+    /// parsed address: user info in front of the host, or a long path, cannot hide it.
+    /// </summary>
+    /// <param name="target">Raw target.</param>
+    /// <returns>The cleaned text, at most <see cref="MaxLinkCharacters"/> characters plus "…".</returns>
+    public static string LinkTarget(string target)
+    {
+        string collapsed = SafeDisplayText.Shorten(target, int.MaxValue);
+        if (collapsed.Length <= MaxLinkCharacters)
+        {
+            return collapsed;
+        }
+
+        if (Uri.TryCreate(collapsed, UriKind.Absolute, out Uri? address)
+            && (address.Scheme == Uri.UriSchemeHttp || address.Scheme == Uri.UriSchemeHttps)
+            && address.IdnHost.Length > 0)
+        {
+            string hostPrefix = $"{SafeDisplayText.Shorten(address.IdnHost, MaxLinkHostCharacters)} | ";
+            return hostPrefix + SafeDisplayText.Shorten(collapsed, MaxLinkCharacters - hostPrefix.Length);
+        }
+
+        return SafeDisplayText.Shorten(collapsed, MaxLinkCharacters);
     }
 
     /// <summary>Cuts an address in the middle: everything from the last '@' on stays, as far as it fits.</summary>

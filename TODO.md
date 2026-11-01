@@ -53,6 +53,14 @@ Original-Headern (Outlook.com); 1.870 ohne Header (vermutlich IMAP-/Gmail-Ordner
 - Freigabe Dennis 2026-10-31: zur Feinabstimmung der Filter darf die Probe auch Mail-Bodys auswerten, solange davon
   nichts ins Repo gelangt (nur anonymisierte Kennzahlen bzw. daraus abgeleitete künstliche Fixtures).
 
+### Vertagt aus AP-04b (fix.2)
+- [ ] Wiederholte gleiche Flag-Befehle (mehrfach „Gelesen“ auf derselben Mail) nicht erneut einreihen
+- [ ] `SyncListSelection` bei Strg+A (viele Zeilen) auf Laufzeit prüfen
+- [ ] Gelesen-Timer gegen manuelles „Ungelesen“ im selben Zeitfenster
+- [ ] `ToPendingAction` ignoriert UIDVALIDITY beim Auflösen der Mail-IDs
+- [ ] Text von `InvalidOperationException` in `MailboxActions` (derzeit immer „kein Papierkorb“)
+- [ ] Grund-Enum statt deutscher Texte in Infrastructure (`MailActionException`)
+
 ## Entschieden (2026-10-31)
 - Name/Ablage `K:\Projekte\Windows-Tools\MailWarden`, Lizenz PolyForm Noncommercial 1.0.0
 - **Mit Git**: öffentliches GitHub-Repo `Pharenir/MailWarden` (Google verlangt Homepage-, Datenschutz- und

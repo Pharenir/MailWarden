@@ -338,6 +338,16 @@ public sealed class MessageListViewModel : ObservableObject
         }
     }
 
+    /// <summary>Shows the wanted flags on the current rows of these messages; a reload can have replaced the row of a selection.</summary>
+    /// <param name="messageIds">Messages whose flags are wanted differently.</param>
+    internal void ShowWantedFlags(IReadOnlySet<long> messageIds)
+    {
+        foreach (MessageRowViewModel row in Items.Where(row => messageIds.Contains(row.Message.Id)))
+        {
+            row.ShowFlags(pendingMail.ShownFlags(row.Message));
+        }
+    }
+
     /// <summary>Ends the running load without a further read or log line; later calls do nothing.</summary>
     internal void Close()
     {
