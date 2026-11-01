@@ -105,9 +105,22 @@ public sealed class EmptyFromTreeTests
             }
         }
 
-        Assert.All(
-            otherFolders,
-            folder => Assert.False(setup.Harness.Shell.EmptyFolderOfViewCommand.CanExecute(MailView.Folder(folder.AccountId, folder.Id))));
+        // The command only needs a MailView; the emptiable check runs at execution. Executing it must do nothing,
+        // also when the folder holds a real mail (so it cannot pass just because the folder is empty).
+        foreach (MailFolder folder in otherFolders)
+        {
+            if ((await setup.Harness.ReadModel.ListMessagesAsync(new MessageQuery(FolderId: folder.Id, Limit: 10))).Count == 0)
+            {
+                setup.Harness.ReadModel.AddMessage(folder, $"marker_subject_in_{folder.FullName}", fromName: "marker_sender_x");
+            }
+
+            setup.Harness.Shell.EmptyFolderOfViewCommand.Execute(MailView.Folder(folder.AccountId, folder.Id));
+        }
+
+        await Wait.NegativeWindowAsync();
+        Assert.Empty(setup.Harness.ConfirmationTexts);
+        Assert.Empty(setup.Harness.Actions.CallsNamed("EmptyFolder"));
+        Assert.Empty(setup.Harness.Actions.Calls);
         NavigationItem accountNode = setup.Harness.AccountNode(setup.AccountA.Id);
         Assert.False(accountNode.CanEmptyFolder);
         Assert.NotEmpty(accountNode.Children);
@@ -141,8 +154,14 @@ public sealed class EmptyFromTreeTests
         NavigationItem junkGroup = Assert.Single(NodesOf(setup.Harness, MailView.Group(FolderRole.Junk)));
 
         Assert.False(junkGroup.CanEmptyFolder);
-        Assert.False(setup.Harness.Shell.EmptyFolderOfViewCommand.CanExecute(MailView.Group(FolderRole.Junk)));
-        Assert.False(setup.Harness.Shell.EmptyFolderOfViewCommand.CanExecute(MailView.Group(FolderRole.Trash)));
+
+        // CanExecute only says the parameter is a MailView; executing on a view that cannot be emptied must do nothing.
+        setup.Harness.Shell.EmptyFolderOfViewCommand.Execute(MailView.Group(FolderRole.Junk));
+        setup.Harness.Shell.EmptyFolderOfViewCommand.Execute(MailView.Group(FolderRole.Trash));
+        await Wait.NegativeWindowAsync();
+
+        Assert.Empty(setup.Harness.ConfirmationTexts);
+        Assert.Empty(setup.Harness.Actions.Calls);
     }
 
     // X-d / refresh: the flag follows the accounts on every refresh and raises PropertyChanged.

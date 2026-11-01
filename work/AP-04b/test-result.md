@@ -93,3 +93,20 @@ New: `EmptyFromTreeTests` (X-a to X-g, X-i to X-m, `CanEmptyFolder` refresh and 
 - X-h and X4 (status bar off) are manual (WinUI code).
 - X-e on the real queue: the Presentation tests use the actions fake; the stored UIDs of an empty are covered on the real queue by W-c (`MailboxActionsTests`).
 - Mark read/unread and the number: the requirement says they are not part of X3, so nothing is asserted.
+
+## verify.5 update (planner decision on the 2 red tests)
+
+First result: FAIL, 2641 of 2643 (X-d and X-b, both on `EmptyFolderOfViewCommand.CanExecute`).
+
+Decision (planner): contract gap, not a product fault. `CanEmptyFolder` on the tree entry decides the menu; `CanExecute` only says the parameter is a `MailView`; the emptiable check runs at execution; the safety property is that executing on a non-emptiable view does nothing.
+
+Tests corrected (stricter on behaviour): X-d executes the command on `MailView.Group(Junk)` and `Group(Trash)` with two accounts, asserts no question and no call. X-b keeps all `CanEmptyFolder == false` assertions and executes on Inbox, Sent, Archive and the custom folder, each holding a real mail, asserts no question and no call.
+
+Rerun: PASS. Build clean, S3 28.9 s.
+
+| Project | Tests | Passed |
+|---|---|---|
+| Core.Tests | 536 | 536 |
+| Presentation.Tests | 532 | 532 |
+| Infrastructure.Tests | 1575 | 1575 |
+| Total | 2643 | 2643 |
