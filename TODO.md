@@ -3,6 +3,7 @@
 ## Offen
 - [ ] **Dennis: manuelle Tests nach `work\manual-tests.md`** (AP-02a Fälle 28–30, AP-03a Fall 28,
   Begründungstexte AP-07a/b) – ersetzt die Einzelpunkte unten; „fertig“ erst danach
+- [ ] Wunsch Dennis 2026-11-01: je Ordner eine Grenze für Archivierung und eine eigene für Löschung einstellbar (gehört zu AP-08/AP-09; offen beim Planen: Grenze nach Alter, Anzahl oder Größe; Löschen nur über die Warteschlange, Standard aus)
 - [ ] AP-13: `.ico` aus `assets\mailwarden-512.png` erzeugen (Exe-Icon, Installer)
 - [ ] AP-13: WindowsAppSDK-Metapaket zieht ~38 MB KI-Komponenten (onnxruntime/DirectML) → nur benötigte Teilpakete? (Paketentscheidung Dennis)
 - [ ] AP-04: ungültiges `MAILWARDEN_DATA_DIR` beendet die App beim Start stumm → Logger + Meldungsfenster
