@@ -1067,14 +1067,9 @@ public sealed class ShellViewModel : ObservableObject, IDisposable
             await actions.DeletePermanentlyAsync(MessagesOf(trashRows));
         }
         catch (Exception exception) when (hasMovedOtherRows
-            && exception is not (OperationCanceledException or ObjectDisposedException or OutOfMemoryException))
+            && MailboxActions.TryGetPartlyDone(exception, log, "ShellViewModel.DeleteTrashRowsAfterMoveAsync", out MailActionException? partlyDone))
         {
-            if (exception is not MailActionException)
-            {
-                log.Write(CriticalLogLevel.Critical, "ShellViewModel.DeleteTrashRowsAfterMoveAsync", $"Storing a command failed after others were stored: {exception.GetType().Name}");
-            }
-
-            throw new MailActionException(MailboxActions.PartlyDoneText);
+            throw partlyDone;
         }
     }
 
@@ -1128,7 +1123,7 @@ public sealed class ShellViewModel : ObservableObject, IDisposable
             catch (MailActionException) when (question < MaxEmptyConfirmations)
             {
                 preview = await actions.PreviewEmptyAsync(folder.Id);
-                if (preview == confirmed)
+                if (preview.HasSameContent(confirmed))
                 {
                     throw;
                 }
