@@ -26,8 +26,10 @@ internal readonly record struct HeaderToken(HeaderTokenKind Kind, string Text, b
 
 /// <summary>
 /// Hand-written single-pass tokenizer (no regex, linear time) for untrusted header values. Comments "(...)" are
-/// dropped (nested, with backslash escapes, quoted strings inside them opaque), quoted strings become one Word with escapes resolved, whitespace and
-/// control characters (incl. folded line breaks) separate tokens. Unterminated comments/quotes end at the input end.
+/// dropped (nested, with backslash escapes, quoted strings inside them opaque), quoted strings become one Word with escapes resolved, ASCII whitespace and
+/// ASCII control characters (incl. folded line breaks) separate tokens. Everything else stays in the word: the value comes
+/// from Latin-1 raw bytes, and a sender must not be able to split a value with bytes such as 0xA0 or 0x80-0x9F, which .NET
+/// counts as whitespace or control characters. Unterminated comments/quotes end at the input end.
 /// </summary>
 internal static class AuthenticationResultsTokenizer
 {
@@ -68,7 +70,7 @@ internal static class AuthenticationResultsTokenizer
                 separatorPending = false;
                 position++;
             }
-            else if (char.IsWhiteSpace(character) || char.IsControl(character))
+            else if (IsSeparator(character))
             {
                 FlushWord(tokens, currentWord, currentWordIsJoined);
                 separatorPending = true;
@@ -90,6 +92,9 @@ internal static class AuthenticationResultsTokenizer
         FlushWord(tokens, currentWord, currentWordIsJoined);
         return tokens;
     }
+
+    // ASCII whitespace and control characters only (0x00-0x20, 0x7F).
+    private static bool IsSeparator(char character) => character <= ' ' || character == '\x7F';
 
     private static void FlushWord(List<HeaderToken> tokens, StringBuilder currentWord, bool isJoinedToPrevious)
     {
