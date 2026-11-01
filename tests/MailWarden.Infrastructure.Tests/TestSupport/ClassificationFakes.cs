@@ -1,3 +1,4 @@
+using MailWarden.Core.Classification;
 using MailWarden.Core.Commands;
 using MailWarden.Core.Sync;
 
@@ -224,4 +225,15 @@ internal sealed class ThrowingStream : Stream
     public override void SetLength(long value) => throw new NotSupportedException();
 
     public override void Write(byte[] buffer, int offset, int count) => throw new NotSupportedException();
+}
+
+/// <summary>A signal that always fails with an exception carrying <see cref="FailureMarker"/>.</summary>
+internal sealed class ThrowingSignal : ISpamSignal
+{
+    public const string FailureMarker = "marker_signal_failure_text";
+
+    public string Id => "throwing-signal";
+
+    public SignalResult? Evaluate(ClassificationInput input, ClassificationContext context) =>
+        throw new InvalidOperationException(FailureMarker);
 }

@@ -139,3 +139,19 @@ Fragen an den Planer:
    Quoted-Printable). Liest MimeKit sie ohnehin ohne Ausnahme, beweist der Test nur "Schlüssel stimmt".
 4. **Fall 51:** der Test geht über den Klassifizierer, weil `AuthenticationResultsTokenizer` nicht öffentlich ist; ein direkter
    Tokenizer-Test bräuchte `InternalsVisibleTo`.
+
+## author.3 (Decisions fix.4, J1-J6) - ungelaufen
+| Fall | Test |
+|---|---|
+| 52 | `ClassificationPassEvaluationTests`: `Throwing_signal_gives_evaluation_failed_and_moves_nothing` (Inbox, Kontakt-Mail, Junk; Queue per `ListAsync` leer, Marker angehoben, `EvaluationFailed` = 3, `Classified`/`ReadFailed` 0), `Exception_text_of_the_signal_is_in_no_entry_and_not_in_the_report`, `..._in_record_only_mode...`, `Senderless_mail_still_goes_to_junk_while_a_signal_throws` |
+| 53 | `Same_mails_again_after_the_signal_is_fixed_are_known_and_stay` |
+| 54 | `Same_setup_without_the_throwing_signal_classifies_and_moves`, `Explicit_default_signals_behave_like_the_default` |
+| 55 | `NestedMimeReaderTests` (eigene Klasse; 1023 und 5000 Ebenen `multipart/mixed` und `message/rfc822`, `ReadMessageAsync` und `ReadTopReceivedAsync`, Kontrolle flache Verschachtelung) |
+| - | Core: `ClassificationOutcome.EvaluationFailed == 7` |
+
+Harness: `CreatePass(..., signals:)`; Fake `ThrowingSignal` (Marker `marker_signal_failure_text`).
+
+Fragen an den Planer:
+1. Angenommen: `ClassificationPassReport.EvaluationFailed` (int), Enum-Wert `EvaluationFailed = 7`, Parameter heißt `signals`.
+2. Fall 52: Der Eintrag einer fehlgeschlagenen Auswertung hat `PlannedAction None`; `Score`, `AuthStatus`, `Override` werden nicht geprüft (nicht im Vertrag).
+3. Fall 55: 5000 Ebenen zusätzlich zu 1023; ein Absturz des Testprozesses wäre das Fehlersignal (nicht als einzelner Testfehler fangbar).

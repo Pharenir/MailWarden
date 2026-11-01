@@ -96,5 +96,6 @@ public sealed class ClassificationRoutingTests
         Assert.Equal(4, (int)ClassificationOutcome.TargetMissing);
         Assert.Equal(5, (int)ClassificationOutcome.EnqueueFailed);
         Assert.Equal(6, (int)ClassificationOutcome.ReadFailed);
+        Assert.Equal(7, (int)ClassificationOutcome.EvaluationFailed);
     }
 }
