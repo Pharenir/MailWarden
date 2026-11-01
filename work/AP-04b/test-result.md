@@ -71,3 +71,25 @@ New: W-a, W-b (D1 and queue level, queue asserted empty), W-c, W-d, W-e (trigger
 One test changed because it was red: `W_e_...` first asserted that the caller's exception text hides the SQLite message. That assertion was my own, not part of W-e; the raw storage error reaches the caller (as W-e says), so it was removed. All other W assertions are unsoftened.
 
 Not tested: `MailboxActions.MailArrivedText` is not public, so the refusal text is checked as fixed, non-empty, different from `PartlyDoneText`, and free of mail data; `TryGetPartlyDone` (semantics of the return value not in the contract given to me); `MaxEmptyConfirmations`.
+
+# verify.5 (feat with X1-X4 and main/AP-06 merged into the test branch)
+
+Result: **FAIL** (2 red tests, no test softened, no production code touched). Build `-warnaserror` clean; S3 via watchdog 28.8 s.
+
+| Project | Tests | Passed |
+|---|---|---|
+| Core.Tests | 536 | 536 |
+| Presentation.Tests | 532 | 530 |
+| Infrastructure.Tests | 1575 | 1575 |
+| Total | 2643 | 2641 |
+
+New: `EmptyFromTreeTests` (X-a to X-g, X-i to X-m, `CanEmptyFolder` refresh and PropertyChanged, `ActionRowsRemoved` fires only when rows left the list, answer "no"), `SqliteMessageStoreExcludedIdsTests` (real SQLite: folder view, role view, account+role, null, empty, unknown, seen, all, 40,000 ids, duplicates). `FakeMailboxReadModel` honours `ExcludedMessageIds`.
+
+## Red tests
+1. `X_d_group_junk_and_trash_with_two_accounts_cannot_be_emptied` (EmptyFromTreeTests.cs line 144). Two accounts that both have Trash and Junk: the Junk group item has `CanEmptyFolder == false` (passes), but `EmptyFolderOfViewCommand.CanExecute(MailView.Group(FolderRole.Trash))` returns **true**. Expected false (X-d: group Trash with two accounts cannot be emptied; X-c: for Trash the rule is tested on the group view). Repro: seed two accounts with Trash and Junk, initialise, query that CanExecute. Class: product or contract (the command's CanExecute does not apply the "exactly one folder behind the view" rule for Trash).
+2. `X_b_other_folders_account_nodes_and_parents_cannot_be_emptied`: all tree items report `CanEmptyFolder == false` for Inbox, Sent, Archive, custom, account node and parent (passes), but `EmptyFolderOfViewCommand.CanExecute(MailView.Folder(account, folder))` returns **true** for Inbox, Sent, Archive and the custom folder (4 of 4). The entry flag is right; the command is enabled for views that cannot be emptied. Whether Execute then does nothing is not checked by this test. Class: product (CanExecute too permissive) or an unwritten contract detail; planner to decide. The CanExecute assertion is my reading of X1 ("only when that entry can be emptied").
+
+## Not tested
+- X-h and X4 (status bar off) are manual (WinUI code).
+- X-e on the real queue: the Presentation tests use the actions fake; the stored UIDs of an empty are covered on the real queue by W-c (`MailboxActionsTests`).
+- Mark read/unread and the number: the requirement says they are not part of X3, so nothing is asserted.

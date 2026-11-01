@@ -601,6 +601,12 @@ internal sealed class FakeMailboxReadModel : IMailboxReadModel
             }
         }
 
+        if (query.ExcludedMessageIds is { Count: > 0 } excluded)
+        {
+            HashSet<long> excludedSet = [.. excluded];
+            result = result.Where(message => !excludedSet.Contains(message.Id));
+        }
+
         return result.OrderByDescending(message => message.Date).ThenByDescending(message => message.Id).ToList();
     }
 }
