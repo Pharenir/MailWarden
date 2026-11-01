@@ -196,7 +196,7 @@ public sealed class MailWardenRuntime : IAsyncDisposable
                 timeProvider,
                 folderLock);
             var mailboxReadModel = new MailboxReadModel(readDatabase, new FileEmlStore(paths));
-            var mailboxActions = new MailboxActions(actionsDatabase, service.TriggerAccount, timeProvider);
+            var mailboxActions = new MailboxActions(actionsDatabase, service.TriggerAccount, timeProvider, criticalLog);
             runtime = new MailWardenRuntime(paths, folderLock, connections, service, mailboxReadModel, mailboxActions, criticalLog);
             return runtime;
         }

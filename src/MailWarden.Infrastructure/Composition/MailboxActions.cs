@@ -1,5 +1,6 @@
 using MailWarden.Core.Commands;
 using MailWarden.Core.Model;
+using MailWarden.Infrastructure.Logging;
 using MailWarden.Infrastructure.Storage;
 
 namespace MailWarden.Infrastructure.Composition;
@@ -11,7 +12,12 @@ namespace MailWarden.Infrastructure.Composition;
 /// <param name="database">Initialised connection used by nothing else.</param>
 /// <param name="triggerAccount">Schedules a cycle of an account after commands were stored.</param>
 /// <param name="timeProvider">Clock of the queue.</param>
-public sealed class MailboxActions(SqliteDatabase database, Action<Guid> triggerAccount, TimeProvider timeProvider) : IMailboxActions
+/// <param name="log">Critical log, for the type name of a failure after stored commands; null means no logging.</param>
+public sealed class MailboxActions(
+    SqliteDatabase database,
+    Action<Guid> triggerAccount,
+    TimeProvider timeProvider,
+    ICriticalLog? log = null) : IMailboxActions
 {
     /// <summary>Fixed text of a rejection after commands were already stored.</summary>
     public const string PartlyDoneText = "Die Aktion wurde nur teilweise ausgeführt, ein Teil der Mails wurde abgelehnt.";
@@ -92,17 +98,26 @@ public sealed class MailboxActions(SqliteDatabase database, Action<Guid> trigger
             {
                 await RequireEmptiableFolderAsync(folderId, token).ConfigureAwait(false);
                 IReadOnlyDictionary<uint, MessageFlags> localMessages = await messageStore.GetUidFlagsAsync(folderId, token).ConfigureAwait(false);
-                if (HighestUid(localMessages) > confirmed.HighestUid)
+                if (HighestUid(localMessages) > confirmed.HighestUid || localMessages.Count > confirmed.Count)
                 {
                     throw new MailActionException(MailArrivedText);
                 }
 
                 MailCommand? command = await CallQueueAsync(() => queue.EnqueueEmptyFolderAsync(folderId, token)).ConfigureAwait(false);
-                if (command is not null)
+                if (command is null)
                 {
-                    triggerAccount(command.AccountId);
+                    return true;
                 }
 
+                // The sync runs on another connection, so a mail can arrive after the check above. The command holds what the queue
+                // really took; it goes again before a cycle is scheduled, also when the caller has cancelled in the meantime.
+                if (command.Uids[^1] > confirmed.HighestUid || command.Uids.Count > confirmed.Count)
+                {
+                    await queue.DiscardAsync(command.Id, CancellationToken.None).ConfigureAwait(false);
+                    throw new MailActionException(MailArrivedText);
+                }
+
+                triggerAccount(command.AccountId);
                 return true;
             },
             ct);
@@ -247,8 +262,14 @@ public sealed class MailboxActions(SqliteDatabase database, Action<Guid> trigger
                         }
                     }
                 }
-                catch (MailActionException) when (accountsWithNewCommands.Count > 0)
+                catch (Exception exception) when (accountsWithNewCommands.Count > 0
+                    && exception is not (OperationCanceledException or ObjectDisposedException or OutOfMemoryException))
                 {
+                    if (exception is not MailActionException)
+                    {
+                        log?.Write(CriticalLogLevel.Critical, "MailboxActions.EnqueuePerFolderAsync", $"Storing a command failed after others were stored: {exception.GetType().Name}");
+                    }
+
                     throw new MailActionException(PartlyDoneText);
                 }
                 finally

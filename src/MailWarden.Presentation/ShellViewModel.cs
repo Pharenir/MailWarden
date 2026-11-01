@@ -80,7 +80,8 @@ public sealed class ShellViewModel : ObservableObject, IDisposable
     private MailFolder? emptyTarget;
     private int emptyTargetGeneration;
 
-    // The row a running removal has selected by itself, until its commands are stored: the user has not chosen it yet.
+    // The row a running removal has selected by itself, until its commands are stored: the user has not chosen it yet, so no further
+    // removal may reach it. Read, unread and flag can be undone and may.
     private long? rowSelectedByRunningRemoval;
 
     // The tail of the running actions; it never faults.
@@ -143,8 +144,8 @@ public sealed class ShellViewModel : ObservableObject, IDisposable
         markReadCommand = new RelayCommand(() => StartOnSelection(rows => ChangeSeenAsync(rows, true)), HasSelection);
         markUnreadCommand = new RelayCommand(() => StartOnSelection(rows => ChangeSeenAsync(rows, false)), HasSelection);
         toggleFlagCommand = new RelayCommand(() => StartOnSelection(ToggleFlagAsync), HasSelection);
-        deleteCommand = new RelayCommand(() => StartOnSelection(DeleteAsync), HasSelection);
-        deletePermanentlyCommand = new RelayCommand(() => StartOnSelection(DeletePermanentlyAsync), HasSelection);
+        deleteCommand = new RelayCommand(() => StartRemovalOnSelection(DeleteAsync), HasSelection);
+        deletePermanentlyCommand = new RelayCommand(() => StartRemovalOnSelection(DeletePermanentlyAsync), HasSelection);
         emptyFolderCommand = new RelayCommand(ExecuteEmptyFolder, () => CanEmptyFolder);
         moveCommand = new ParameterRelayCommand(ExecuteMove, _ => CanMove);
         discardFailedActionCommand = new ParameterRelayCommand(ExecuteDiscardFailedAction, parameter => parameter is PendingActionRow);
@@ -840,13 +841,21 @@ public sealed class ShellViewModel : ObservableObject, IDisposable
 
     // The selection is copied here, at the keystroke, and only this copy reaches the action: when the action gets its turn, the
     // list may long select another row. Rows that an earlier action has hidden by then drop out, so a second Del on the same row
-    // does nothing instead of hitting the next one; the same goes for the next row itself while that Del is still being stored.
+    // does nothing instead of hitting the next one.
     private void StartOnSelection(Func<IReadOnlyList<MessageRowViewModel>, Task> work)
     {
-        List<MessageRowViewModel> selectedAtKeystroke = Messages.SelectedRows
-            .Where(row => row.Message.Id != rowSelectedByRunningRemoval)
-            .ToList();
-        StartUserAction(() => work(WithoutHiddenRows(selectedAtKeystroke)));
+        StartOnRows(Messages.SelectedRows.ToList(), work);
+    }
+
+    // For delete, permanent delete and move: also the next row stays out while the first Del is still being stored.
+    private void StartRemovalOnSelection(Func<IReadOnlyList<MessageRowViewModel>, Task> work)
+    {
+        StartOnRows(Messages.SelectedRows.Where(row => row.Message.Id != rowSelectedByRunningRemoval).ToList(), work);
+    }
+
+    private void StartOnRows(List<MessageRowViewModel> rowsAtKeystroke, Func<IReadOnlyList<MessageRowViewModel>, Task> work)
+    {
+        StartUserAction(() => work(WithoutHiddenRows(rowsAtKeystroke)));
     }
 
     private List<MessageRowViewModel> WithoutHiddenRows(IEnumerable<MessageRowViewModel> rows)
@@ -955,17 +964,24 @@ public sealed class ShellViewModel : ObservableObject, IDisposable
     {
         HashSet<long> messageIds = rows.Select(row => row.Message.Id).ToHashSet();
         pendingMail.BeginRemoval(messageIds);
-        MessageRowViewModel? rowBefore = Messages.SelectedRow;
-        Messages.RemoveRows(messageIds);
-        rowSelectedByRunningRemoval = ReferenceEquals(Messages.SelectedRow, rowBefore) ? null : Messages.SelectedRow?.Message.Id;
-        ActionRowsRemoved?.Invoke(this, EventArgs.Empty);
         try
         {
+            MessageRowViewModel? rowBefore = Messages.SelectedRow;
+            Messages.RemoveRows(messageIds);
+            rowSelectedByRunningRemoval = ReferenceEquals(Messages.SelectedRow, rowBefore) ? null : Messages.SelectedRow?.Message.Id;
+            if (!isDisposed)
+            {
+                ActionRowsRemoved?.Invoke(this, EventArgs.Empty);
+            }
+
             await EnqueueAsync(enqueue);
         }
         finally
         {
             rowSelectedByRunningRemoval = null;
+
+            // Does nothing when EnqueueAsync has ended the action; otherwise a failure before it would hide these rows for good.
+            pendingMail.EndAction(isStored: false);
         }
     }
 
@@ -1035,15 +1051,21 @@ public sealed class ShellViewModel : ObservableObject, IDisposable
             });
     }
 
-    // The two steps of a mixed selection are one action for the user: a refusal of the second means it was done only partly.
+    // The two steps of a mixed selection are one action for the user: a failure of the second means it was done only partly.
     private async Task DeleteTrashRowsAfterMoveAsync(List<MessageRowViewModel> trashRows, bool hasMovedOtherRows)
     {
         try
         {
             await actions.DeletePermanentlyAsync(MessagesOf(trashRows));
         }
-        catch (MailActionException) when (hasMovedOtherRows)
+        catch (Exception exception) when (hasMovedOtherRows
+            && exception is not (OperationCanceledException or ObjectDisposedException or OutOfMemoryException))
         {
+            if (exception is not MailActionException)
+            {
+                log.Write(CriticalLogLevel.Critical, "ShellViewModel.DeleteTrashRowsAfterMoveAsync", $"Storing a command failed after others were stored: {exception.GetType().Name}");
+            }
+
             throw new MailActionException(MailboxActions.PartlyDoneText);
         }
     }
@@ -1125,7 +1147,7 @@ public sealed class ShellViewModel : ObservableObject, IDisposable
     {
         if (parameter is long targetFolderId)
         {
-            StartOnSelection(rows => MoveAsync(rows, targetFolderId));
+            StartRemovalOnSelection(rows => MoveAsync(rows, targetFolderId));
         }
     }
 

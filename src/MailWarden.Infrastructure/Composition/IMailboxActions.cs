@@ -35,7 +35,8 @@ public sealed record EmptyFolderPreview(int Count, uint HighestUid);
 /// <remarks>
 /// Messages are grouped per folder, at most 1,000 UIDs per command, UIDVALIDITY as stored now. A rejection stops the call
 /// with a <see cref="MailActionException"/>; commands stored before it stay, their accounts are still triggered, and the text
-/// of the exception then says that the action was only partly done.
+/// of the exception then says that the action was only partly done. The same goes for any other failure after stored commands,
+/// except cancellation, <see cref="ObjectDisposedException"/> and <see cref="OutOfMemoryException"/>.
 /// </remarks>
 public interface IMailboxActions
 {
@@ -96,8 +97,8 @@ public interface IMailboxActions
     /// <returns>A task that completes when the command is stored.</returns>
     /// <exception cref="ArgumentNullException"><paramref name="confirmed"/> is null.</exception>
     /// <exception cref="MailActionException">
-    /// As for <see cref="PreviewEmptyAsync"/>, or a mail has arrived that the user has not seen: the local highest UID is above the
-    /// confirmed one.
+    /// As for <see cref="PreviewEmptyAsync"/>, or a mail has arrived that the user has not seen: the highest UID or the number of
+    /// mails is above the confirmed one, now or in the stored command, which is then discarded again before any cycle is scheduled.
     /// </exception>
     Task EmptyFolderAsync(long folderId, EmptyFolderPreview confirmed, CancellationToken ct = default);
 
