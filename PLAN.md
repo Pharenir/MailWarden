@@ -134,7 +134,7 @@ Spalten *Umgesetzt* / *Getestet* geführt. Vorab festgelegt:
 | 5 | Ältere Schema-Version → Migration läuft; unbekannte höhere Version → `SchemaVersionException` vor jedem Schreibzugriff (fail fast) | `SqliteDatabase` (Migration 0→1; v2 existiert noch nicht) | `SqliteDatabaseTests` (2, 3) – Migration aus echter Altversion erst mit v2 testbar |
 | 6 | `ListAsync(MessageQuery)` liefert Mails nach Ordner-Rolle über alle Konten oder gefiltert auf ein Konto, neueste zuerst, mit Limit/Offset – Grundlage der Gruppenansichten | `SqliteMessageStore.ListAsync`, Ausdrucksindizes (D4) | `SqliteMessageStoreTests` (12–16, 15a) |
 | 7 | Fremdschlüssel: Mail für unbekannten Ordner → `StorageException`; Konto löschen entfernt Ordner und Mails (Cascade) | Schema v1 + `MessageSearchIndex` | `SqliteAccountStoreTests`, `SqliteFolderStoreTests` (11, 22, 23, D16) |
-| 8 | WinUI-3-Leer-App baut mit `dotnet build` ohne Visual Studio und startet unpackaged (Fenster „MailWarden“, folgt dem Windows-Farbschema) | `src\MailWarden.App` (baut) | manuell Dennis – offen |
+| 8 | WinUI-3-Leer-App baut mit `dotnet build` ohne Visual Studio und startet unpackaged (Fenster „MailWarden“, folgt dem Windows-Farbschema) | `src\MailWarden.App` (baut) | ✔ Dennis 2026-11-01: startet, Ordner `data\` entsteht, Hell/Dunkel folgt Windows |
 
 Vollständiger Schnittstellenvertrag: `work\AP-01\requirement.md`.
 

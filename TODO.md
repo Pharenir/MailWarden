@@ -1,7 +1,7 @@
 # TODO – MailWarden
 
 ## Offen
-- [ ] **Dennis: manuelle Tests nach `work\manual-tests.md`** (AP-01 Fall 30, AP-02a Fälle 28–30, AP-03a Fall 28,
+- [ ] **Dennis: manuelle Tests nach `work\manual-tests.md`** (AP-02a Fälle 28–30, AP-03a Fall 28,
   Begründungstexte AP-07a/b) – ersetzt die Einzelpunkte unten; „fertig“ erst danach
 - [ ] AP-13: `.ico` aus `assets\mailwarden-512.png` erzeugen (Exe-Icon, Installer)
 - [ ] AP-13: WindowsAppSDK-Metapaket zieht ~38 MB KI-Komponenten (onnxruntime/DirectML) → nur benötigte Teilpakete? (Paketentscheidung Dennis)
@@ -73,7 +73,7 @@ Testzähler: 0/4 seit letztem S3 (zuletzt 2026-10-31: S3 auf `main` @ `3f74af0` 
 ## Session 4 (2026-11-01)
 - Entscheidungen Dennis: AP-04a und AP-07c **parallel**; HTML-Bereinigung mit Paket HtmlSanitizer; Liste und Lesebereich
   umschaltbar nebeneinander/untereinander, Navigation immer links.
-- Planer-Entscheidung AP-07c (von Dennis noch zu bestätigen): Standard nur protokollieren, Altbestand nie automatisch,
+- Planer-Entscheidung AP-07c (von Dennis 2026-11-01 vorerst bestätigt): Standard nur protokollieren, Altbestand nie automatisch,
   Handeln ruht bei leerem Adressbuch (`work\AP-07c\requirement.md`). Folge: AP-06 (mindestens Sammeln aus Gesendet) ist
   Voraussetzung, damit der Filter wirklich verschiebt.
 - Reihenfolge danach: AP-04a und AP-07c mergen, D8 von AP-07c (Verdrahtung in `MailWardenRuntime`), dann AP-04b / AP-06.
