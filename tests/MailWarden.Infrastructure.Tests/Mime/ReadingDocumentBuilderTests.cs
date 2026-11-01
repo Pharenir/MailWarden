@@ -181,4 +181,83 @@ public sealed class ReadingDocumentBuilderTests
 
         Assert.Equal(CspBlocked, Assert.Single(CspValues(Parse(document))));
     }
-}
+
+    // ---- Case 98 (P3) --------------------------------------------------------------------------------------
+
+    private const string CspNoImages =
+        "default-src 'none'; img-src 'none'; style-src 'unsafe-inline'; font-src data:; form-action 'none'; base-uri 'none'";
+
+    private static string ImageMailHtml =>
+        "<p>body_marker</p><img src=\"data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNkYPhfDwAChwGA60e6kgAAAABJRU5ErkJggg==\">" +
+        "<img src=\"https://tracker.test/a.gif\">";
+
+    // Case 98
+    [Fact(Timeout = TestTimeouts.PerTestMilliseconds)]
+    public async Task Embedded_images_off_without_remote_images_gets_the_csp_without_any_image_source()
+    {
+        await Task.Yield();
+
+        ReadingDocument document = ReadingDocumentBuilder.Build(ContentWith(ImageMailHtml), allowRemoteImages: false, allowEmbeddedImages: false);
+
+        Assert.Equal(CspNoImages, Assert.Single(CspValues(Parse(document))));
+        Assert.DoesNotContain("data:image", document.Html, StringComparison.Ordinal);
+        Assert.Equal(2, document.BlockedRemoteResourceCount);
+        Assert.Contains("body_marker", Parse(document).Body!.TextContent, StringComparison.Ordinal);
+    }
+
+    // Case 98
+    [Fact(Timeout = TestTimeouts.PerTestMilliseconds)]
+    public async Task Embedded_images_off_with_remote_images_allowed_does_not_forbid_images()
+    {
+        await Task.Yield();
+
+        ReadingDocument document = ReadingDocumentBuilder.Build(ContentWith(ImageMailHtml), allowRemoteImages: true, allowEmbeddedImages: false);
+
+        string csp = Assert.Single(CspValues(Parse(document)))!;
+        Assert.DoesNotContain("img-src 'none'", csp, StringComparison.Ordinal);
+        Assert.Contains("http: https:", csp, StringComparison.Ordinal);
+        Assert.DoesNotContain("data:image", document.Html, StringComparison.Ordinal);
+        Assert.Contains("tracker.test", document.Html, StringComparison.Ordinal);
+    }
+
+    // Case 98 positive control: both allowed gives the D3 policy with remote sources, and the images are there.
+    [Fact(Timeout = TestTimeouts.PerTestMilliseconds)]
+    public async Task Both_allowed_keeps_the_d3_policy_and_all_images()
+    {
+        await Task.Yield();
+
+        ReadingDocument document = ReadingDocumentBuilder.Build(ContentWith(ImageMailHtml), allowRemoteImages: true, allowEmbeddedImages: true);
+
+        Assert.Equal(CspAllowed, Assert.Single(CspValues(Parse(document))));
+        Assert.Contains("data:image", document.Html, StringComparison.Ordinal);
+        Assert.Contains("tracker.test", document.Html, StringComparison.Ordinal);
+        Assert.Equal(0, document.BlockedRemoteResourceCount);
+    }
+
+    // Case 98 positive control: the default is unchanged D3 (embedded images shown, remote blocked).
+    [Fact(Timeout = TestTimeouts.PerTestMilliseconds)]
+    public async Task Default_keeps_the_d3_policy_for_blocked_remote_images()
+    {
+        await Task.Yield();
+
+        ReadingDocument document = ReadingDocumentBuilder.Build(ContentWith(ImageMailHtml), allowRemoteImages: false);
+
+        Assert.Equal(CspBlocked, Assert.Single(CspValues(Parse(document))));
+        Assert.Contains("data:image", document.Html, StringComparison.Ordinal);
+        Assert.DoesNotContain("tracker.test", document.Html, StringComparison.Ordinal);
+        Assert.Equal(1, document.BlockedRemoteResourceCount);
+    }
+
+    // Case 98: plain-text documents are unaffected by the switch.
+    [Fact(Timeout = TestTimeouts.PerTestMilliseconds)]
+    public async Task Plain_text_document_is_unaffected_by_the_embedded_images_switch()
+    {
+        await Task.Yield();
+
+        ReadingDocument off = ReadingDocumentBuilder.Build(ContentWith(null, "plain body"), allowRemoteImages: false, allowEmbeddedImages: false);
+        ReadingDocument on = ReadingDocumentBuilder.Build(ContentWith(null, "plain body"), allowRemoteImages: false, allowEmbeddedImages: true);
+
+        Assert.Equal(CspBlocked, Assert.Single(CspValues(Parse(off))));
+        Assert.Equal(on.Html, off.Html);
+        Assert.Equal(0, off.BlockedRemoteResourceCount);
+    }}

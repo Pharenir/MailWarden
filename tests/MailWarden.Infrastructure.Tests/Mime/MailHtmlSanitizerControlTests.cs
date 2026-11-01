@@ -505,6 +505,10 @@ public sealed class MailHtmlSanitizerControlTests
     }
     // ---- Case 92 (N1): positive controls for the parenthesis limit -----------------------------------------
 
+    private static bool IsRed(string styles) =>
+        styles.Contains("red", StringComparison.OrdinalIgnoreCase) ||
+        Regex.IsMatch(styles, @"rgba?\(\s*255\s*,\s*0\s*,\s*0", RegexOptions.CultureInvariant);
+
     private static string StylesOf(SanitizedHtml result) =>
         string.Concat(Parse(result).All.Select(element => element.GetAttribute("style")).Where(value => value is not null));
 
@@ -561,6 +565,77 @@ public sealed class MailHtmlSanitizerControlTests
         Assert.Equal(600, Regex.Matches(result.Html, @"<td[\s>]").Count);
         Assert.Equal(200, Regex.Matches(result.Html, @"<tr[\s>]").Count);
         Assert.Equal(600, Regex.Matches(result.Html, "cell_text").Count);
+    }
+    // ---- Case 97 (P3): embedded images can be switched off ---------------------------------------------------
+
+    private const string EmbeddedCid = "logo@example.test";
+
+    private static readonly IReadOnlyDictionary<string, string> EmbeddedImages =
+        new Dictionary<string, string> { [EmbeddedCid] = KnownDataUri };
+
+    private static string EmbeddedImageMail(string remoteImage) =>
+        $"<p>text_marker</p><img src=\"cid:{EmbeddedCid}\"><img src=\"{KnownDataUri}\">" +
+        $"<div style=\"background-image: url({KnownDataUri}); color: red\">styled_marker</div>" +
+        $"<img src=\"{remoteImage}\">";
+
+    private static Task<SanitizedHtml> SanitizeEmbeddedAsync(string html, bool allowRemoteImages, bool? allowEmbeddedImages) =>
+        Task.Run(() => allowEmbeddedImages is { } embedded
+            ? MailHtmlSanitizer.Sanitize(html, EmbeddedImages, allowRemoteImages, allowEmbeddedImages: embedded)
+            : MailHtmlSanitizer.Sanitize(html, EmbeddedImages, allowRemoteImages));
+
+    // Case 97
+    [Fact(Timeout = TestTimeouts.PerTestMilliseconds)]
+    public async Task Embedded_images_off_removes_cid_data_css_and_remote_images_and_counts_them()
+    {
+        SanitizedHtml result = await SanitizeEmbeddedAsync(EmbeddedImageMail("https://tracker.test/a.gif"), allowRemoteImages: false, allowEmbeddedImages: false);
+
+        IHtmlDocument document = Parse(result);
+        Assert.DoesNotContain(document.QuerySelectorAll("img"), image => !string.IsNullOrEmpty(image.GetAttribute("src")));
+        Assert.DoesNotContain("data:image", result.Html, StringComparison.OrdinalIgnoreCase);
+        Assert.DoesNotContain("tracker.test", result.Html, StringComparison.Ordinal);
+        Assert.Equal(4, result.BlockedRemoteResourceCount);
+        string text = document.Body!.TextContent;
+        Assert.Contains("text_marker", text, StringComparison.Ordinal);
+        Assert.Contains("styled_marker", text, StringComparison.Ordinal);
+        Assert.True(IsRed(StylesOf(result)), "the harmless colour of the styled element was lost");
+    }
+
+    // Case 97 positive control: with the default the cid and data images stay; only the remote one is counted.
+    [Fact(Timeout = TestTimeouts.PerTestMilliseconds)]
+    public async Task Embedded_images_stay_with_the_default()
+    {
+        SanitizedHtml result = await SanitizeEmbeddedAsync(EmbeddedImageMail("https://tracker.test/a.gif"), allowRemoteImages: false, allowEmbeddedImages: null);
+
+        IElement[] images = [.. Parse(result).QuerySelectorAll("img[src]")];
+        Assert.Equal(2, images.Length);
+        Assert.All(images, image => Assert.Equal(KnownDataUri, image.GetAttribute("src")));
+        Assert.Contains("data:image", StylesOf(result), StringComparison.OrdinalIgnoreCase);
+        Assert.DoesNotContain("tracker.test", result.Html, StringComparison.Ordinal);
+        Assert.Equal(1, result.BlockedRemoteResourceCount);
+        Assert.False(result.WasReduced);
+    }
+
+    // Case 97 positive control: the explicit true is the default.
+    [Fact(Timeout = TestTimeouts.PerTestMilliseconds)]
+    public async Task Explicit_true_for_embedded_images_equals_the_default()
+    {
+        SanitizedHtml explicitTrue = await SanitizeEmbeddedAsync(EmbeddedImageMail("https://tracker.test/a.gif"), allowRemoteImages: false, allowEmbeddedImages: true);
+        SanitizedHtml defaulted = await SanitizeEmbeddedAsync(EmbeddedImageMail("https://tracker.test/a.gif"), allowRemoteImages: false, allowEmbeddedImages: null);
+
+        Assert.Equal(defaulted.Html, explicitTrue.Html);
+        Assert.Equal(defaulted.BlockedRemoteResourceCount, explicitTrue.BlockedRemoteResourceCount);
+    }
+
+    // Case 97: with both approvals off the remote image is kept only when remote images are allowed; embedded ones stay removed.
+    [Fact(Timeout = TestTimeouts.PerTestMilliseconds)]
+    public async Task Embedded_images_off_with_remote_images_allowed_keeps_only_the_remote_image()
+    {
+        SanitizedHtml result = await SanitizeEmbeddedAsync(EmbeddedImageMail("https://tracker.test/a.gif"), allowRemoteImages: true, allowEmbeddedImages: false);
+
+        IElement[] images = [.. Parse(result).QuerySelectorAll("img[src]")];
+        Assert.Equal("https://tracker.test/a.gif", Assert.Single(images).GetAttribute("src"));
+        Assert.DoesNotContain("data:image", result.Html, StringComparison.OrdinalIgnoreCase);
+        Assert.Equal(3, result.BlockedRemoteResourceCount);
     }
     // Guards the helper pattern itself so that the other tests cannot pass vacuously.
     [Fact]
