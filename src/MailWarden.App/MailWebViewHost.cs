@@ -14,7 +14,6 @@ namespace MailWarden.App;
 /// </summary>
 internal sealed class MailWebViewHost
 {
-    private const string LogLevel = "CRITICAL";
     private const string DocumentHeaders = "Content-Type: text/html; charset=utf-8\r\nCache-Control: no-store";
 
     private readonly WebView2 webView;
@@ -26,6 +25,7 @@ internal sealed class MailWebViewHost
     private string? documentHtml;
     private bool allowRemoteImages;
     private bool isInitializing;
+    private bool isClosed;
 
     /// <summary>Creates the host. The browser starts with the first document.</summary>
     /// <param name="webView">The control of the window.</param>
@@ -46,7 +46,7 @@ internal sealed class MailWebViewHost
     /// <param name="remoteImagesAllowed">True when the user approved remote images for this message.</param>
     public void Show(string html, bool remoteImagesAllowed)
     {
-        if (html == documentHtml && remoteImagesAllowed == allowRemoteImages)
+        if (isClosed || (html == documentHtml && remoteImagesAllowed == allowRemoteImages))
         {
             return;
         }
@@ -65,9 +65,16 @@ internal sealed class MailWebViewHost
         }
     }
 
-    /// <summary>Forgets the document; a later request for it is refused.</summary>
+    /// <summary>
+    /// Forgets the document; a later request for it is refused. Cookies of remote images end with their message.
+    /// </summary>
     public void Clear()
     {
+        if (documentHtml is not null && !isClosed)
+        {
+            core?.CookieManager.DeleteAllCookies();
+        }
+
         documentHtml = null;
         documentBytes = null;
         allowRemoteImages = false;
@@ -76,7 +83,13 @@ internal sealed class MailWebViewHost
     /// <summary>Ends the browser processes of this control.</summary>
     public void Close()
     {
+        if (isClosed)
+        {
+            return;
+        }
+
         Clear();
+        isClosed = true;
         webView.Close();
     }
 
@@ -89,11 +102,11 @@ internal sealed class MailWebViewHost
     {
         try
         {
-            await Launcher.LaunchUriAsync(new Uri(uri));
+            await Launcher.LaunchUriAsync(new Uri(WebContentPolicy.SanitizeMailto(uri)));
         }
         catch (Exception exception) when (exception is not OutOfMemoryException)
         {
-            log.Write(LogLevel, "MailWebViewHost.LaunchAsync", $"Opening a link failed: {exception.GetType().Name}");
+            log.Write(CriticalLogLevel.Critical, "MailWebViewHost.LaunchAsync", $"Opening a link failed: {exception.GetType().Name}");
         }
     }
 
@@ -111,6 +124,11 @@ internal sealed class MailWebViewHost
             CoreWebView2ControllerOptions controllerOptions = environment.CreateCoreWebView2ControllerOptions();
             controllerOptions.IsInPrivateModeEnabled = true;
             await webView.EnsureCoreWebView2Async(environment, controllerOptions);
+            if (isClosed)
+            {
+                return;
+            }
+
             core = webView.CoreWebView2;
             Configure(core);
             if (documentHtml is not null)
@@ -120,8 +138,12 @@ internal sealed class MailWebViewHost
         }
         catch (Exception exception) when (exception is not OutOfMemoryException)
         {
-            log.Write(LogLevel, "MailWebViewHost.InitializeAsync", $"Starting the browser failed: {exception.GetType().Name}");
-            InitializationFailed?.Invoke(this, EventArgs.Empty);
+            // Closing the control during the start ends the start with an exception; that is no failure.
+            if (!isClosed)
+            {
+                log.Write(CriticalLogLevel.Critical, "MailWebViewHost.InitializeAsync", $"Starting the browser failed: {exception.GetType().Name}");
+                InitializationFailed?.Invoke(this, EventArgs.Empty);
+            }
         }
     }
 
@@ -171,7 +193,7 @@ internal sealed class MailWebViewHost
 
     private void OnNavigationStarting(CoreWebView2 sender, CoreWebView2NavigationStartingEventArgs args)
     {
-        NavigationDecision decision = WebContentPolicy.DecideNavigation(args.Uri);
+        NavigationDecision decision = WebContentPolicy.DecideNavigation(args.Uri, args.IsUserInitiated);
         if (decision == NavigationDecision.Allow)
         {
             return;
@@ -188,7 +210,7 @@ internal sealed class MailWebViewHost
     private void OnNewWindowRequested(CoreWebView2 sender, CoreWebView2NewWindowRequestedEventArgs args)
     {
         args.Handled = true;
-        if (WebContentPolicy.DecideNavigation(args.Uri) == NavigationDecision.OpenExternally)
+        if (WebContentPolicy.DecideNavigation(args.Uri, args.IsUserInitiated) == NavigationDecision.OpenExternally)
         {
             Launch(args.Uri, log);
         }

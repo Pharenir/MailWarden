@@ -25,12 +25,8 @@
       <ComboBox x:Name="ThemeChoice" SelectionChanged="OnThemeChoiceChanged" />
     </StackPanel>
 
-    <InfoBar
-        Grid.Row="1"
-        IsClosable="False"
-        IsOpen="{x:Bind local:XamlFormat.HasText(ViewModel.Banner), Mode=OneWay}"
-        Message="{x:Bind local:XamlFormat.TextOrEmpty(ViewModel.Banner), Mode=OneWay}"
-        Severity="Warning" />
+    <!-- Set in code-behind: x:Bind function bindings are not called for null, so the bar would never close. -->
+    <InfoBar x:Name="BannerBar" Grid.Row="1" IsClosable="False" Severity="Warning" />
 
     <Grid Grid.Row="2">
       <Grid.ColumnDefinitions>
@@ -59,9 +55,9 @@
                   <TextBlock
                       Style="{StaticResource CaptionTextBlockStyle}"
                       Opacity="0.7"
-                      Text="{x:Bind local:XamlFormat.TextOrEmpty(StatusText), Mode=OneWay}"
+                      Text="{x:Bind StatusText, Mode=OneWay}"
                       TextTrimming="CharacterEllipsis"
-                      Visibility="{x:Bind local:XamlFormat.VisibleWhenText(StatusText), Mode=OneWay}" />
+                      Visibility="{x:Bind HasStatus, Mode=OneWay}" />
                 </StackPanel>
                 <TextBlock
                     Grid.Column="1"
@@ -76,7 +72,7 @@
       <local:PaneSplitter x:Name="NavigationSplitter" Grid.Column="1" />
 
       <!-- List and reading pane: columns or rows; the code-behind moves them without recreating the browser control. -->
-      <Grid x:Name="MessagePanes" Grid.Column="2">
+      <Grid x:Name="MessagePanes" Grid.Column="2" SizeChanged="OnMessagePanesSizeChanged">
         <Grid.ColumnDefinitions>
           <ColumnDefinition x:Name="PaneColumnFirst" />
           <ColumnDefinition x:Name="PaneColumnSplitter" />
@@ -94,6 +90,11 @@
             Loaded="OnMessageListLoaded"
             SelectionChanged="OnMessageListSelectionChanged"
             SelectionMode="Single">
+          <ListView.ItemContainerStyle>
+            <Style TargetType="ListViewItem">
+              <Setter Property="HorizontalContentAlignment" Value="Stretch" />
+            </Style>
+          </ListView.ItemContainerStyle>
           <ListView.ItemTemplate>
             <DataTemplate x:DataType="presentation:MessageRowViewModel">
               <Grid Margin="0,6" ColumnSpacing="8">
@@ -139,37 +140,52 @@
         <Grid x:Name="ReadingPane" Margin="8,0,8,8">
           <Grid.RowDefinitions>
             <RowDefinition Height="Auto" />
+            <RowDefinition Height="Auto" />
             <RowDefinition Height="*" />
           </Grid.RowDefinitions>
 
-          <StackPanel Grid.Row="0" Margin="0,0,0,8" Spacing="2">
-            <TextBlock
-                IsTextSelectionEnabled="True"
-                Style="{StaticResource SubtitleTextBlockStyle}"
-                Text="{x:Bind ViewModel.Reading.Subject, Mode=OneWay}"
-                TextWrapping="Wrap" />
-            <TextBlock IsTextSelectionEnabled="True" Text="{x:Bind local:XamlFormat.FromLine(ViewModel.Reading.From), Mode=OneWay}" TextWrapping="Wrap" Visibility="{x:Bind local:XamlFormat.VisibleWhenText(ViewModel.Reading.From), Mode=OneWay}" />
-            <TextBlock IsTextSelectionEnabled="True" Text="{x:Bind local:XamlFormat.ToLine(ViewModel.Reading.To), Mode=OneWay}" TextWrapping="Wrap" Visibility="{x:Bind local:XamlFormat.VisibleWhenText(ViewModel.Reading.To), Mode=OneWay}" />
-            <TextBlock IsTextSelectionEnabled="True" Text="{x:Bind local:XamlFormat.CcLine(ViewModel.Reading.Cc), Mode=OneWay}" TextWrapping="Wrap" Visibility="{x:Bind local:XamlFormat.VisibleWhenText(ViewModel.Reading.Cc), Mode=OneWay}" />
-            <TextBlock Opacity="0.7" Text="{x:Bind local:XamlFormat.DateLine(ViewModel.Reading.DateText), Mode=OneWay}" Visibility="{x:Bind local:XamlFormat.VisibleWhenText(ViewModel.Reading.DateText), Mode=OneWay}" />
-            <TextBlock
-                IsTextSelectionEnabled="True"
-                Text="{x:Bind local:XamlFormat.AttachmentsLine(ViewModel.Reading.AttachmentNames), Mode=OneWay}"
-                TextWrapping="Wrap"
-                Visibility="{x:Bind local:XamlFormat.VisibleWhenAny(ViewModel.Reading.AttachmentNames), Mode=OneWay}" />
-            <Button
-                Command="{x:Bind ViewModel.Reading.LoadRemoteImagesCommand}"
-                Content="{x:Bind local:XamlFormat.LoadImagesText(ViewModel.Reading.BlockedRemoteResourceCount), Mode=OneWay}"
-                Visibility="{x:Bind ViewModel.Reading.CanLoadRemoteImages, Mode=OneWay}" />
-          </StackPanel>
+          <!-- Header lines are limited in the view model; the height limit keeps the document reachable for long lists. -->
+          <ScrollViewer Grid.Row="0" MaxHeight="220" Margin="0,0,0,4" VerticalScrollBarVisibility="Auto">
+            <StackPanel Spacing="2">
+              <TextBlock
+                  IsTextSelectionEnabled="True"
+                  MaxLines="3"
+                  Style="{StaticResource SubtitleTextBlockStyle}"
+                  Text="{x:Bind ViewModel.Reading.Subject, Mode=OneWay}"
+                  TextTrimming="CharacterEllipsis"
+                  TextWrapping="Wrap" />
+              <TextBlock
+                  IsTextSelectionEnabled="True"
+                  MaxLines="2"
+                  Text="{x:Bind local:XamlFormat.FromLine(ViewModel.Reading.From), Mode=OneWay}"
+                  TextTrimming="CharacterEllipsis"
+                  TextWrapping="Wrap"
+                  Visibility="{x:Bind local:XamlFormat.VisibleWhenText(ViewModel.Reading.From), Mode=OneWay}" />
+              <TextBlock IsTextSelectionEnabled="True" Text="{x:Bind local:XamlFormat.ToLine(ViewModel.Reading.To), Mode=OneWay}" TextWrapping="Wrap" Visibility="{x:Bind local:XamlFormat.VisibleWhenText(ViewModel.Reading.To), Mode=OneWay}" />
+              <TextBlock IsTextSelectionEnabled="True" Text="{x:Bind local:XamlFormat.CcLine(ViewModel.Reading.Cc), Mode=OneWay}" TextWrapping="Wrap" Visibility="{x:Bind local:XamlFormat.VisibleWhenText(ViewModel.Reading.Cc), Mode=OneWay}" />
+              <TextBlock Opacity="0.7" Text="{x:Bind local:XamlFormat.DateLine(ViewModel.Reading.DateText), Mode=OneWay}" Visibility="{x:Bind local:XamlFormat.VisibleWhenText(ViewModel.Reading.DateText), Mode=OneWay}" />
+              <TextBlock
+                  IsTextSelectionEnabled="True"
+                  Text="{x:Bind local:XamlFormat.AttachmentsLine(ViewModel.Reading.AttachmentNames), Mode=OneWay}"
+                  TextWrapping="Wrap"
+                  Visibility="{x:Bind local:XamlFormat.VisibleWhenAny(ViewModel.Reading.AttachmentNames), Mode=OneWay}" />
+            </StackPanel>
+          </ScrollViewer>
+
+          <Button
+              Grid.Row="1"
+              Margin="0,0,0,8"
+              Command="{x:Bind ViewModel.Reading.LoadRemoteImagesCommand}"
+              Content="{x:Bind local:XamlFormat.LoadImagesText(ViewModel.Reading.BlockedRemoteResourceCount), Mode=OneWay}"
+              Visibility="{x:Bind ViewModel.Reading.CanLoadRemoteImages, Mode=OneWay}" />
 
           <TextBlock
               x:Name="ReadingStatusText"
-              Grid.Row="1"
+              Grid.Row="2"
               HorizontalAlignment="Center"
               VerticalAlignment="Center"
               TextWrapping="Wrap" />
-          <WebView2 x:Name="ReadingWebView" Grid.Row="1" Visibility="Collapsed" />
+          <WebView2 x:Name="ReadingWebView" Grid.Row="2" Visibility="Collapsed" />
         </Grid>
       </Grid>
     </Grid>

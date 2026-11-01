@@ -20,16 +20,6 @@ public static class XamlFormat
     /// <returns>The visibility.</returns>
     public static Visibility VisibleWhenText(string? text) => string.IsNullOrEmpty(text) ? Visibility.Collapsed : Visibility.Visible;
 
-    /// <summary>True when the text is not empty.</summary>
-    /// <param name="text">Text or null.</param>
-    /// <returns>True when there is text.</returns>
-    public static bool HasText(string? text) => !string.IsNullOrEmpty(text);
-
-    /// <summary>The text, or empty for null.</summary>
-    /// <param name="text">Text or null.</param>
-    /// <returns>The text.</returns>
-    public static string TextOrEmpty(string? text) => text ?? string.Empty;
-
     /// <summary>Text of an unread counter; empty for 0.</summary>
     /// <param name="count">Number of unread messages.</param>
     /// <returns>The text.</returns>

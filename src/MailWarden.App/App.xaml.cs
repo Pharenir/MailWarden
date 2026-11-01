@@ -22,7 +22,6 @@ public partial class App : Application
     public const string DataDirectoryVariable = "MAILWARDEN_DATA_DIR";
 
     private const string DefaultDataDirectoryName = "data";
-    private const string LogLevel = "CRITICAL";
 
     // Stopping waits for running cycles; the operating system releases everything else when the process ends.
     private static readonly TimeSpan ShutdownTimeout = TimeSpan.FromSeconds(15);
@@ -51,6 +50,12 @@ public partial class App : Application
         }
         catch (Exception exception) when (exception is not OutOfMemoryException)
         {
+            // Closing the window during the start disposes the runtime under it; the app is ending anyway.
+            if (isShuttingDown)
+            {
+                return;
+            }
+
             WriteLog("App.OnLaunched", $"Start failed: {exception.GetType().Name}");
 
             // The error window opens first: closing the last window would end the application.
@@ -98,7 +103,10 @@ public partial class App : Application
         mainWindow.Activate();
 
         await shell.InitializeAsync();
-        await runtime.Service.StartAsync();
+        if (!isShuttingDown)
+        {
+            await runtime.Service.StartAsync();
+        }
     }
 
     // Keeps the message loop alive until the runtime is disposed; the window is gone for the user at once.
@@ -114,8 +122,8 @@ public partial class App : Application
         try
         {
             openWindow?.AppWindow.Hide();
-            (openWindow as MainWindow)?.CloseReadingView();
             shell?.Dispose();
+            (openWindow as MainWindow)?.CloseReadingView();
             if (runtime is not null)
             {
                 await runtime.DisposeAsync().AsTask().WaitAsync(ShutdownTimeout);
@@ -133,23 +141,28 @@ public partial class App : Application
     {
         try
         {
-            shell?.Dispose();
-            if (runtime is not null)
+            try
             {
-                await runtime.DisposeAsync().AsTask().WaitAsync(ShutdownTimeout);
+                shell?.Dispose();
+                if (runtime is not null)
+                {
+                    await runtime.DisposeAsync().AsTask().WaitAsync(ShutdownTimeout);
+                }
+            }
+            finally
+            {
+                // An already opened main window must not stay around without a runtime behind it.
+                if (windowOfFailedStart is MainWindow mainWindow)
+                {
+                    isShuttingDown = true;
+                    mainWindow.CloseReadingView();
+                    mainWindow.Close();
+                }
             }
         }
         catch (Exception exception) when (exception is not OutOfMemoryException)
         {
             WriteLog("App.ReleaseAfterFailedStartAsync", $"Release failed: {exception.GetType().Name}");
-        }
-
-        // An already opened main window must not stay around without a runtime behind it.
-        if (windowOfFailedStart is MainWindow mainWindow)
-        {
-            isShuttingDown = true;
-            mainWindow.CloseReadingView();
-            mainWindow.Close();
         }
     }
 
@@ -177,6 +190,6 @@ public partial class App : Application
     // Before the data folder is known there is no log folder; the failure then only shows in the error window.
     private void WriteLog(string source, string message)
     {
-        criticalLog?.Write(LogLevel, source, message);
+        criticalLog?.Write(CriticalLogLevel.Critical, source, message);
     }
 }
