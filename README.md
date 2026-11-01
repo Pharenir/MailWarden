@@ -11,18 +11,19 @@ Status: early development (see `PLAN.md`). Implemented so far: solution skeleton
 database and EML file store), the core of the spam classifier (a library in `MailWarden.Core`, calibrated against real
 message headers and with a settings file loader; not yet connected to any mail), account and sign-in library (OAuth for
 Outlook.com and Gmail, encrypted token storage, provider profiles with a connection check), the one-way sync from the
-server to the local store (folders, messages, flags, deletions; read-only towards the server) and a read-only WinUI 3 user interface (see
-"Using the app"). The sync never changes anything on the server. It fetches missing messages in batches (50 by default), reports progress per folder (number, role,
+server to the local store (folders, messages, flags, deletions; read-only towards the server) and a WinUI 3 user interface with
+actions and search (see "Using the app"). The sync itself never changes anything on the server. It fetches missing messages in batches (50 by default), reports progress per folder (number, role,
 processed/missing; no names), reconnects within a pass if the connection was lost (at most 3 times) and does not sync
 the Gmail folder "Important". A command queue (local to server: flags, move, trash, delete, empty folder; see
 "Command queue") and a background service with schedule and IDLE (see "Background service") are implemented as
-libraries; the app starts the background service. The app only reads: accounts are still added with the AuthProbe
-tool, and actions, search and attachments come with AP-04b. The spam filter runs after every sync in the app, but by
-default it only records its decisions and moves no mail (see "Spam filter").
+libraries; the app starts the background service. The app works on mail through the command queue; accounts are
+still added with the AuthProbe tool, and attachments cannot be opened or saved yet (AP-04c). The spam filter runs after every sync in the app, but by
+default it only records its decisions and moves no mail (see "Spam filter"). The address book fills itself from sent mail (see "Address book").
 
 ## Using the app
-The app shows the mail of all accounts and keeps it current through the background service. It is read-only: opening
-a message does not mark it as read, and nothing is deleted, moved or flagged on the server.
+The app shows the mail of all accounts and keeps it current through the background service. You can mark mail as
+read or unread, flag it, delete it, move it, empty Trash and Junk and search. Every action changes the server through
+the command queue (see "Command queue"). Opening a message does not mark it as read unless you switch that on.
 
 - **Accounts:** they cannot be added in the app yet. Add them with the AuthProbe tool (see `docs\auth-setup.md`).
   Without accounts the window shows a notice.
@@ -33,14 +34,38 @@ a message does not mark it as read, and nothing is deleted, moved or flagged on 
   icons mark attachments and flags. It loads 100 messages at a time and more when you scroll to the end. New mail
   appears after the next sync without any action. "Aktualisieren" starts a sync at once and retries accounts that
   wait after an error.
+- **Selecting:** click a message; Ctrl and Shift select several. The actions apply to all selected messages. With
+  none or several selected, the reading pane stays empty.
 - **Reading pane:** subject, Von, An, Cc, Datum and the names of the attachments, then the message. Attachments can
   only be listed, not opened or saved yet. A message that is not downloaded yet says so.
+- **Actions (toolbar and right-click menu):** "Gelesen", "Ungelesen", "Kennzeichnen" (toggles the flag), "Löschen",
+  "Verschieben" and, in Trash and Junk only, "Ordner leeren". Keys in the message list: Ctrl+Q read, Ctrl+U unread,
+  Del delete, Shift+Del delete permanently. The keys do nothing while the search box or a dialog has the focus, and
+  holding a key acts only once. Messages being moved or deleted disappear from the list at once; read and flag state
+  change at once. After a delete the next message is selected. If the server does not accept a command, the
+  info bar names it and "Fehlgeschlagene Aktionen" lists it; "Verwerfen" removes the entry and the messages come back.
+- **Delete:** Del moves messages to the Trash. In the Trash it asks first and deletes permanently. Shift+Del always
+  asks ("Bitte bestätigen", button "Endgültig löschen") and names only the number of messages (and of accounts, if
+  several), never a sender or subject. If a server only moved a permanently deleted message to the Trash, the info
+  bar says so; delete it there once more.
+- **Move:** "Verschieben" offers the folders of the account. Messages of several accounts cannot be moved together,
+  and a folder of another account is refused.
+- **Empty folder:** "Ordner leeren" works in Trash and Junk only. The confirmation names the account, the folder and
+  the number of messages. Only the messages you were shown are deleted. If a message arrived since (or the folder
+  changed on the server), nothing is deleted, you get a notice and are asked again with the new number. It is also
+  refused while messages are still being moved out of that folder.
+- **Search:** the box "Suchen" searches all local mail (at most 500 hits), shown in the list like a view with the
+  account. Empty text returns to the previous view. Search stays on this computer.
+- **Settings:** the button "Einstellungen" has the switch "Beim Anzeigen als gelesen markieren" (off by default). When
+  it is on, a message shown for at least 1.5 seconds is marked as read; leaving earlier does not.
+- **Window:** size, position and maximised state are stored and restored at the next start. A stored position that
+  is no longer on any monitor is ignored.
 - **Layout:** "Ansicht wechseln" puts the list and the reading pane side by side or the list above the reading
-  pane. The parts can be resized with the splitters. Layout, sizes and theme are kept in `ui-settings.json` in the
-  data folder.
+  pane. The parts can be resized with the splitters. Layout, sizes, theme, window and the switch above are kept in
+  `ui-settings.json` in the data folder.
 - **Design:** System, Hell or Dunkel changes the app. Mail content is always shown on a light background.
 - **Info bar:** shows notices, for example when the settings file is invalid (the defaults apply), a list cannot be
-  loaded or the spam filter has a problem (see "Spam filter").
+  loaded, an action failed or was only partly done, or the spam filter has a problem (see "Spam filter").
 
 Safe display of mail:
 - HTML is cleaned before it is shown. Scripts, forms and similar elements are removed.
@@ -48,7 +73,9 @@ Safe display of mail:
 - Pictures and other content from the internet are blocked. The button "Bilder laden" shows how many were blocked
   and loads them for this message only; the next message is blocked again. Loading pictures tells the sender that you
   opened the mail.
-- Links open only in your default browser (web links and mailto), never inside the app.
+- Links open only in your default browser (web links and mailto), never inside the app. When the mouse is over a
+  link, a tooltip shows the real target (long targets start with the host). The status bar of the web view stays on
+  as well for now.
 - Control and direction-changing characters are removed from names, subjects and folder names.
 - If a message is built unusually (very large, deeply nested or slow to prepare), it is shown in a simplified form or
   as text only. A notice above the message says so. Pictures and links of such a message may be missing.
@@ -65,7 +92,7 @@ with all reasons. Mail that was already there when a folder was first synced is 
   records its decisions. It moves and deletes nothing.
 - **Mode `act`:** only if you set `"mode": "act"` in `classification-policy.json`. Then new mail is moved to Screener,
   Junk or Quarantine through the command queue, soon after it arrived. It pauses while the address book is empty.
-  The address book cannot be filled yet (AP-06), so `act` does not move anything yet.
+  The address book fills itself from sent mail (see "Address book"); there is no screen for it yet.
 - **Brake:** the key `maxMovesPerPass` (whole number 1 to 1000, default 100) limits the moves of one folder in one
   pass. If more mails would be moved, **none** of them is moved. They stay in their folder and are not decided again.
 - **Notice in the app:** the info bar shows "Spamfilter seit dem Start: nicht bewertet N, von der Bremse
@@ -81,6 +108,22 @@ with all reasons. Mail that was already there when a folder was first synced is 
 The filter works on the local copy. On the server it only creates the folders Screener and Quarantine and sends the
 move commands, both only in mode `act`. It has not been tried against a real mail server in the running app yet.
 Details: `docs\classifier.md`.
+
+## Address book
+The address book fills itself, so that the spam filter knows your contacts. There is no screen for it yet (AP-08).
+
+- **Collected automatically:** the recipients (To, Cc, Bcc) of the mails in the Sent folder of each account. A mail
+  counts only if its From is one of your own account addresses. Incoming mail never creates a contact. The first run
+  reads the whole Sent folder, later runs only the new mails. It runs in every cycle after the sync, before the spam
+  filter.
+- **Not collected:** your own addresses, addresses such as `noreply` or `mailer-daemon`, and recipients of automatic
+  mails (automatic replies, delivery reports, calendar replies, bulk mail). There are no contacts from automatic
+  replies. An existing contact is never changed, so a name you entered or imported stays.
+- **A contact alone is not trusted:** a mail from a contact is only rated `TrustedContact` if its sender check
+  (SPF/DKIM/DMARC) passes. Details: `docs\classifier.md`.
+- **Allow and block lists and import** exist, but without a screen: allowed and blocked senders (an address or a whole
+  domain) and the import of vCard and CSV files are used by the program internally and come with AP-08. A domain entry
+  also covers its subdomains.
 
 ## Command queue
 Actions that change the server (flags, move, move to Trash, permanent delete, empty folder) are never executed
@@ -102,7 +145,8 @@ Errors: after a network failure the command is tried again later. If the server 
 delay (1, 2, 4 ... at most 60 minutes) and marked "failed" after 5 attempts. A sign-in failure aborts the run without
 counting an attempt. The sync stays read-only towards the server.
 
-Not available yet: there is no user interface for this (AP-04b). The background service executes the queue.
+The app queues the actions you start (see "Using the app"); the background service executes the queue. Note: until
+a command is confirmed by the server, the app shows the wanted state, but the stored state is still the old one.
 
 ## Background service
 A service keeps all accounts current without user action. The app starts it with the window and stops it when the window closes.
@@ -157,11 +201,11 @@ Layout:
 
 | Entry | Content |
 |---|---|
-| `mailwarden.db` | SQLite database (schema version 5): accounts, folders, message metadata, full-text search index, sync state per folder (initial-window limit and change counter; every message missing locally is fetched on the next sync), command queue, contacts, classification decisions with their reasons. An older database is upgraded automatically on start. |
+| `mailwarden.db` | SQLite database (schema version 6): accounts, folders, message metadata, full-text search index, sync state per folder (initial-window limit and change counter; every message missing locally is fetched on the next sync), command queue, contacts, allow and block lists, progress of the contact collection per folder, classification decisions with their reasons. An older database is upgraded automatically on start. |
 | `mail\` | one `.eml` file per message, stored per account and folder |
 | `credentials\` | DPAPI-encrypted sign-in tokens, one `.bin` file per entry |
 | `auth-config.json` | optional OAuth client configuration (see Environment variables) |
-| `ui-settings.json` | optional window settings (layout, theme, sizes); written by the app when you change them |
+| `ui-settings.json` | optional window settings (layout, theme, sizes, window size and position, read-on-select switch); written by the app when you change them |
 | `mailwarden.lock` | lock file while the app runs (one process per data folder) |
 | `classifier-settings.json` | optional spam classifier settings (thresholds, lists); read once at start, an invalid file stops the start (see `docs\classifier.md`) |
 | `classification-policy.json` | optional policy of the classification pass (`mode`: `recordOnly` (default) or `act`; `quarantineRetentionDays`: 0 = never delete; `maxMovesPerPass`: 1 to 1000, default 100); read once at start, an invalid file stops the start (see "Spam filter" and `docs\classifier.md`) |

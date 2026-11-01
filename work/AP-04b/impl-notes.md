@@ -1,4 +1,4 @@
-STEP-RESULT: done (fix.4: W1-W6 done, see section "fix.4"; fix.3: V1-V4; fix.2: U1-U9; implement.1 with the coordinator's precisions of 2026-11-01)
+STEP-RESULT: done (X1, X2: see section "After the manual test"; fix.4: W1-W6 done, see section "fix.4"; fix.3: V1-V4; fix.2: U1-U9; implement.1 with the coordinator's precisions of 2026-11-01)
 
 # AP-04b - Implementation notes (Builder, implement.1)
 
@@ -126,7 +126,7 @@ Items 3 and 10 of "Deviations and decisions" and the question on `CountForEmptyA
 ### Remaining limits
 - U3: replaced by V1 and then by W2, see section "fix.4".
 - U5: a target above 65,519 characters cannot be parsed by `Uri`, so it has no host in front.
-- U5: the host in front is `Uri.IdnHost` (punycode), not `Uri.Host` as the decision says (commit `6bb0491`): a Unicode host cannot pass as another one.
+- U5: the status bar is off since X4, the hint at the mouse is the only display of a link target. The host in front is `Uri.IdnHost` (punycode), not `Uri.Host` as the decision says (commit `6bb0491`): a Unicode host cannot pass as another one.
 
 ### Getting a result
 **Tested (self-check, no proof; `_scratch\ap04bprobe`, artificial data):** U2, U3, U4 on the real queue; cases 23, 24 (both variants), 26, 28, 29, 30, 31 on fakes. All passed.
@@ -182,3 +182,35 @@ A new exception `EmptyFolderChangedException` in `MailWarden.Core.Commands`, and
 ### Getting a result
 **Tested (self-check, no proof; `_scratch\ap04bprobe`, artificial data):** W-a to W-e on the real queue through `MailboxActions`, W-f and W-g on fakes, and the ordering check on two connections to a file database in `_scratch`. All passed.
 **Not run:** S1-S3, tests, GUI. `tests\` not read, not built.
+
+## After the manual test (X1, X2 of `requirement.md`)
+| # | Where | What |
+|---|---|---|
+| X1 | `MailView.FindEmptyTarget`, `NavigationItem.CanEmptyFolder`, `MainWindow.OnNavigationItemContextRequested` | The rule moved out of the shell into one place, `MailView`; the shell and the tree both use it. The tree has all folders at hand when it refreshes, and sets the property in place like the unread number, because a change of a role does not change the structure of the tree. |
+| X2 | `ShellViewModel.EmptyFolderOfViewCommand` | Parameter `MailView`, through `StartUserAction` into the existing `EmptyFolderAsync(view)`. A command and no method, because view models have no public method with "Empty" in the name. |
+
+### Deviations and decisions
+1. **`ActionRowsRemoved` no longer fires when no row went.** When the emptied folder is not the one in the list, the focus would otherwise jump to the list (X-e: list and selection stay). The toolbar path removes rows whenever the list holds them, so it does not notice.
+2. **`TreeView.ItemFromContainer` instead of `DataContext`** to find the entry of the menu.
+3. **X-c, group Trash:** the tree has no group entry for Trash; `MailView.GroupRoles` does not list it, and a Trash folder appears below its account as a folder entry. The rule itself works for `MailView.Group(FolderRole.Trash)`, and the command takes it.
+4. **`FindEmptyTarget` also filters by `folder.AccountId`**, which the old code got from reading per account. A fake with a wrong account id in its folders now finds nothing.
+
+### Getting a result
+**Tested (self-check, no proof; `_scratch\ap04bprobe`, artificial data, fakes):** X-a to X-g except for the real queue behind X-e; the queue path is unchanged since fix.4.
+**Untested, only Dennis can see it (X-h):** the flyout: whether the `TreeViewItem` raises `ContextRequested` on right click and context key, its position, that the tree selection stays, and that no menu shows on other entries. **Ich bin mir unsicher:** that `ItemFromContainer` answers for child entries; I expect it, since the tree holds its items flat, but it is not checked at runtime. If it answers null, no menu appears at all, never a wrong one.
+**Not run:** S1-S3, tests, GUI.
+
+### X3, X4
+| # | Where | What |
+|---|---|---|
+| X4 | `MailWebViewHost.Configure` | `IsStatusBarEnabled = false`. |
+| X3 | `MessageQuery.ExcludedMessageIds`, `SqliteMessageStore.ApplyViewFilter` | A new optional last member of the query: `NOT IN (SELECT value FROM json_each($excluded_ids))`, one parameter. `ListAsync` honours it as well, since it shares the filter; nothing passes it there. |
+| X3 | `PendingMailState.HiddenMessageIds`, `HiddenChanged` | The current hidden ids, and an event when they may have changed: at `BeginRemoval`, at `EndAction` without a store, and on a refresh with other pending ids. |
+| X3 | `NavigationViewModel.ReadUnreadCountsAsync`, `ShellViewModel.OnHiddenMailChanged` | The counts exclude the hidden ids; a change starts `Navigation.RefreshAsync`, unawaited. |
+| X3 | `ShellViewModel.EmptyFolderAsync` | After the command is stored the queue is read, because its UIDs reach beyond the loaded rows. |
+
+**Why it is not subtracted twice (X-m):** nothing is subtracted. The query counts stored mails that are not hidden; a mail that is gone after its command has run is simply not counted, whether its id is still hidden or not.
+**Why the old number does not flicker back:** `RefreshAsync` of the tree is newest-wins, and a change of the hidden ids always starts a newer one, so a pass with the old ids is dropped. A queue result from before the store is dropped by `EndAction`, as before. The one refresh without an action that still follows a change is harmless: same numbers.
+**Cost:** one more pass over the tree (one count per entry, as after every cycle) per removal, and the ids of a big empty as JSON per count. Not measured with a real database of that size.
+**Read and unread are not in it.** Only half of it would come for free: excluding ids with a wanted Seen covers "read", but "unread" would have to add a mail, which an exclusion cannot do. Not built.
+**Tested (self-check, no proof):** the filter on real SQLite, including 60,000 ids; X-i to X-m on fakes. **Only Dennis can see:** the number in the tree (`UnreadCount` is bound already), the status bar gone, the hint alone showing the link target.

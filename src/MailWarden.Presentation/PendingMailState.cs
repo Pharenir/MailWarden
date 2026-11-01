@@ -27,6 +27,9 @@ internal sealed class PendingMailState(IMailboxActions actions, ICriticalLog log
     /// <summary>Raised after a refresh on the caller's context.</summary>
     public event EventHandler? Refreshed;
 
+    /// <summary>Raised on the caller's context when the hidden messages may have changed: what counts as unread follows them.</summary>
+    public event EventHandler? HiddenChanged;
+
     /// <summary>The commands of the last refresh.</summary>
     public IReadOnlyList<PendingAction> LatestActions
     {
@@ -47,6 +50,20 @@ internal sealed class PendingMailState(IMailboxActions actions, ICriticalLog log
             lock (stateGate)
             {
                 return pendingRemovalIds.Count + inFlightRemovalIds.Count;
+            }
+        }
+    }
+
+    /// <summary>The ids of the hidden messages right now; null when there are none, so that a query stays as it was.</summary>
+    public IReadOnlyCollection<long>? HiddenMessageIds
+    {
+        get
+        {
+            lock (stateGate)
+            {
+                return pendingRemovalIds.Count + inFlightRemovalIds.Count == 0
+                    ? null
+                    : pendingRemovalIds.Union(inFlightRemovalIds).ToList();
             }
         }
     }
@@ -91,6 +108,7 @@ internal sealed class PendingMailState(IMailboxActions actions, ICriticalLog log
             return;
         }
 
+        bool isHiddenChanged;
         lock (stateGate)
         {
             if (isClosed || sequence != refreshSequence)
@@ -98,11 +116,15 @@ internal sealed class PendingMailState(IMailboxActions actions, ICriticalLog log
                 return;
             }
 
-            ApplyListedActions(listedActions);
+            isHiddenChanged = ApplyListedActions(listedActions);
         }
 
         banner.Clear(ShellBanner.BannerSource.ActionsRead);
         Refreshed?.Invoke(this, EventArgs.Empty);
+        if (isHiddenChanged)
+        {
+            HiddenChanged?.Invoke(this, EventArgs.Empty);
+        }
     }
 
     /// <summary>True when a row of this message is to stay out of the lists.</summary>
@@ -133,9 +155,17 @@ internal sealed class PendingMailState(IMailboxActions actions, ICriticalLog log
     /// <param name="messageIds">Message ids.</param>
     public void BeginRemoval(IEnumerable<long> messageIds)
     {
+        bool isHiddenChanged;
         lock (stateGate)
         {
+            int countBefore = inFlightRemovalIds.Count;
             inFlightRemovalIds.UnionWith(messageIds);
+            isHiddenChanged = inFlightRemovalIds.Count != countBefore;
+        }
+
+        if (isHiddenChanged)
+        {
+            HiddenChanged?.Invoke(this, EventArgs.Empty);
         }
     }
 
@@ -165,6 +195,7 @@ internal sealed class PendingMailState(IMailboxActions actions, ICriticalLog log
     /// <param name="isStored">True when the commands are stored.</param>
     public void EndAction(bool isStored)
     {
+        bool isHiddenChanged;
         lock (stateGate)
         {
             if (isStored)
@@ -174,8 +205,15 @@ internal sealed class PendingMailState(IMailboxActions actions, ICriticalLog log
                 refreshSequence++;
             }
 
+            // Stored, the same messages stay hidden, only under another name.
+            isHiddenChanged = !isStored && inFlightRemovalIds.Count > 0;
             inFlightRemovalIds.Clear();
             inFlightFlagIds.Clear();
+        }
+
+        if (isHiddenChanged)
+        {
+            HiddenChanged?.Invoke(this, EventArgs.Empty);
         }
     }
 
@@ -200,9 +238,10 @@ internal sealed class PendingMailState(IMailboxActions actions, ICriticalLog log
     }
 
     // Under the gate. A failed command hides nothing and wants nothing: its rows come back and show the stored flags.
-    private void ApplyListedActions(IReadOnlyList<PendingAction> listedActions)
+    private bool ApplyListedActions(IReadOnlyList<PendingAction> listedActions)
     {
         latestActions = listedActions;
+        var removalIdsBefore = new HashSet<long>(pendingRemovalIds);
         pendingRemovalIds.Clear();
         pendingFlagIds.Clear();
         foreach (PendingAction action in listedActions.Where(action => action.Status == MailCommandStatus.Pending))
@@ -218,6 +257,8 @@ internal sealed class PendingMailState(IMailboxActions actions, ICriticalLog log
                 wantedFlags.Remove(messageId);
             }
         }
+
+        return !removalIdsBefore.SetEquals(pendingRemovalIds);
     }
 
     /// <summary>The flags a user wants added and removed on top of the stored ones.</summary>

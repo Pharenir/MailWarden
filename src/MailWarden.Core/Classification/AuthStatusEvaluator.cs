@@ -6,11 +6,12 @@ namespace MailWarden.Core.Classification;
 /// DMARC fail and Microsoft compauth pass → Unknown (AP-07b E1: the provider's composite authentication overrules
 /// its own DMARC fail, typically for forwarders and mailing lists, so the sender is merely unverified);
 /// DMARC fail otherwise → Failed (an aligned SPF/DKIM pass does not rescue it);
-/// DMARC pass whose header.from is absent or aligned with the From domain → Authenticated;
+/// DMARC pass whose header.from is absent, or is the From domain itself or a real parent or child of it → Authenticated;
 /// otherwise (no DMARC, other verdicts, a pass for another domain, or a header.from without a determinable domain)
-/// DKIM pass for an aligned domain or SPF pass for
-/// an aligned domain → Authenticated; Failed = not Authenticated and (SPF fail, or at least one DKIM result and all of
-/// them fail); Unknown otherwise.
+/// DKIM pass or SPF pass for the From domain itself or a real parent or child of it → Authenticated. The organisational
+/// domain is only an approximation: without a full public suffix list "firma.com.pl" and "evil.com.pl" would count as one,
+/// which is why a sibling is not enough on any of the three paths. Failed = not Authenticated and (SPF fail, or at least one
+/// DKIM result and all of them fail); Unknown otherwise.
 /// </summary>
 internal static class AuthStatusEvaluator
 {
@@ -60,7 +61,7 @@ internal static class AuthStatusEvaluator
                 return "DMARC pass";
             }
 
-            if (dmarc.Domain is not null && IsAligned(dmarc.Domain, fromDomain))
+            if (dmarc.Domain is not null && DomainNames.AreSameOrParentAndChild(dmarc.Domain, fromDomain))
             {
                 return $"DMARC pass for '{ReasonText.Truncate(dmarc.Domain)}'";
             }
@@ -68,14 +69,14 @@ internal static class AuthStatusEvaluator
 
         foreach (var dkim in authentication.Dkim)
         {
-            if (dkim.Verdict == AuthVerdict.Pass && dkim.Domain is not null && IsAligned(dkim.Domain, fromDomain))
+            if (dkim.Verdict == AuthVerdict.Pass && dkim.Domain is not null && DomainNames.AreSameOrParentAndChild(dkim.Domain, fromDomain))
             {
                 return $"DKIM pass for aligned domain '{ReasonText.Truncate(dkim.Domain)}'";
             }
         }
 
         var spf = authentication.Spf;
-        if (spf?.Verdict == AuthVerdict.Pass && spf.Domain is not null && IsAligned(spf.Domain, fromDomain))
+        if (spf?.Verdict == AuthVerdict.Pass && spf.Domain is not null && DomainNames.AreSameOrParentAndChild(spf.Domain, fromDomain))
         {
             return $"SPF pass for aligned domain '{ReasonText.Truncate(spf.Domain)}'";
         }
@@ -105,16 +106,5 @@ internal static class AuthStatusEvaluator
     private static bool IsDmarcFail(AuthenticationResults authentication)
     {
         return authentication.Dmarc?.Verdict == AuthVerdict.Fail;
-    }
-
-    // Domains from the header are untrusted; a missing or label-less domain is never aligned.
-    private static bool IsAligned(string resultDomain, string fromDomain)
-    {
-        var resultOrganizationalDomain = DomainNames.TryGetOrganizationalDomain(resultDomain);
-        return resultOrganizationalDomain is not null
-            && string.Equals(
-                resultOrganizationalDomain,
-                DomainNames.TryGetOrganizationalDomain(fromDomain),
-                StringComparison.Ordinal);
     }
 }

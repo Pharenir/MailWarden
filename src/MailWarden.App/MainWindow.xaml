@@ -107,7 +107,7 @@
           SelectionMode="Single">
         <TreeView.ItemTemplate>
           <DataTemplate x:DataType="presentation:NavigationItem">
-            <TreeViewItem IsExpanded="True" ItemsSource="{x:Bind Children}">
+            <TreeViewItem ContextRequested="OnNavigationItemContextRequested" IsExpanded="True" ItemsSource="{x:Bind Children}">
               <!-- The right margin keeps the unread number out from under the scrollbar of the tree (16 px when expanded). -->
               <Grid Margin="0,0,20,0" ColumnSpacing="8">
                 <Grid.ColumnDefinitions>

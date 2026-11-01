@@ -4,7 +4,7 @@
 - [ ] **Dennis: manuelle Tests nach `work\manual-tests.md`** (AP-02a Fälle 28–30, AP-03a Fall 28,
   Begründungstexte AP-07a/b, AP-04a Fälle 42–48 = Teil 6) – ersetzt die Einzelpunkte unten; „fertig“ erst danach
 - [ ] Wunsch Dennis 2026-11-01: je Ordner eine Grenze für Archivierung und eine eigene für Löschung einstellbar (gehört zu AP-08/AP-09; offen beim Planen: Grenze nach Alter, Anzahl oder Größe; Löschen nur über die Warteschlange, Standard aus)
-- [ ] Wunsch Dennis 2026-11-01 (AP-04b): beim Auswählen als gelesen markieren per Schalter in den Einstellungen, Standard aus; läuft als Befehl über die Warteschlange
+- [ ] Wunsch Dennis 2026-11-01 (AP-04b): beim Auswählen als gelesen markieren per Schalter in den Einstellungen, Standard aus; läuft als Befehl über die Warteschlange – umgesetzt in AP-04b (verify.4 2348/2348); manueller Test (Fall 21/22) offen
 - [ ] AP-13: `.ico` aus `assets\mailwarden-512.png` erzeugen (Exe-Icon, Installer)
 - [ ] AP-13: WindowsAppSDK-Metapaket zieht ~38 MB KI-Komponenten (onnxruntime/DirectML) → nur benötigte Teilpakete? (Paketentscheidung Dennis)
 - [x] AP-04: ungültiges `MAILWARDEN_DATA_DIR` beendet die App beim Start stumm → Logger + Meldungsfenster (AP-04a: Fehlerfenster + Log; am Fenster Fall 47 offen)
@@ -77,8 +77,7 @@ Original-Headern (Outlook.com); 1.870 ohne Header (vermutlich IMAP-/Gmail-Ordner
   zu secure M2 AP-03a und AP-02a-ACL-Punkt, 2026-10-31) → bewusst akzeptiert, keine Änderung
 
 ## Testzähler
-Testzähler: 0/4 seit letztem S3 (zuletzt 2026-11-01: S3 auf `main` nach Merge von AP-07d, 2137/2137 – Core.Tests 511,
-Infrastructure.Tests 1270, Presentation.Tests 356; Bericht `work\S3-main-2026-11-01-b.md`)
+Testzähler: 0/4 seit letztem S3 (zuletzt 2026-11-01: S3 auf `feat/ap-06-address-book` vor dem Merge nach `main`, 2406/2406; seither nur Doku geändert, Code gleich dem Stand auf `main`)
 
 ## Session 4 (2026-11-01)
 - Entscheidungen Dennis: AP-04a und AP-07c **parallel**; HTML-Bereinigung mit Paket HtmlSanitizer; Liste und Lesebereich
@@ -88,12 +87,12 @@ Infrastructure.Tests 1270, Presentation.Tests 356; Bericht `work\S3-main-2026-11
   Voraussetzung, damit der Filter wirklich verschiebt.
 - Reihenfolge danach: AP-04a und AP-07c mergen, D8 von AP-07c (Verdrahtung in `MailWardenRuntime`), dann AP-04b / AP-06.
 
-- [ ] Wunsch aus dem Test 2026-11-01: AP-04b warnt vor dem Öffnen von Anhängen aus Junk und Quarantäne
+- [ ] Wunsch aus dem Test 2026-11-01: AP-04c warnt vor dem Öffnen von Anhängen aus Junk und Quarantäne
 - [ ] AP-05: MailWarden als Standard-Mailprogramm anmeldbar machen (`mailto:`), bis dahin öffnet das eingestellte Programm
 - [ ] AP-07c (D8): beim Verschieben prüfen, ob Id und `EmlPath` gleich bleiben; sonst zeigt die offene Mail bis zur nächsten Auswahl die alte Bilder-Regel (review.6)
 - [ ] CSS `url(data:)` zählt als blockiert, bleibt aber auch nach der Freigabe entfernt; der Button verspricht dort etwas mehr (review.6)
 
-- [ ] Wunsch Dennis 2026-11-01 (AP-04b): Linkziel als Tooltip an der Maus statt unten links (`StatusBarTextChanged`, eigene Anzeige); Fremdtext bereinigen
+- [ ] Wunsch Dennis 2026-11-01 (AP-04b): Linkziel als Tooltip an der Maus statt unten links (`StatusBarTextChanged`, eigene Anzeige); Fremdtext bereinigen – umgesetzt in AP-04b (Statusleiste bleibt vorerst an); manueller Test Fall 32 offen, danach Entscheidung über die Statusleiste
 - [ ] Outlook.com zeigt Ordner mit `/` im Namen nicht über IMAP (Hinweismail von Microsoft 2026-11-01): Die App und der Vergleich `sync-check` sehen sie nicht. In `docs\auth-setup.md` festhalten; Dennis benennt den betroffenen Ordner um
 
 - [ ] Wunsch Dennis 2026-11-01 (nach D8 und AP-06): Bilder bei vertrauenswürdigen Mails direkt laden. Vorschlag des Planers: nach der Filter-Entscheidung `TrustedContact`, nicht nach dem Ordner, weil auch Altbestand, von Hand verschobene und nicht auswertbare Mails im Posteingang liegen; mit Dennis festlegen
@@ -113,7 +112,7 @@ gibt es nach Entscheidung von Dennis nicht. Alles unterhalb „Hoch“ steht hie
 - [ ] Ein hängender Aufbau des Lesedokuments kostet jede weitere Mail bis zu 5 s (nur ein Aufbau zugleich)
 - [ ] Mögliche spätere Härtung: HTML-Aufbereitung in einem eigenen Hilfsprozess (Dennis hat die Extrarunde fix.5
   vorgezogen)
-- [ ] Zu erledigen in AP-04b: Konten-UI, Aktionen, Suche, Anhänge öffnen/speichern
+- [ ] Zu erledigen in AP-04c: Konten-UI, Anhänge öffnen/speichern (Aktionen und Suche: AP-04b, Stand: Tests, Review und Security grün, manuelle Fälle 21, 22, 32 offen)
 
 ## Stand 2026-10-31 (Session 2, Ende)
 **CPM erledigt:** `chore/app-icon`, AP-01, AP-07a, AP-02a per `--no-ff` nach `main` gemergt, Build grün
@@ -212,7 +211,7 @@ Fall 30 (AuthProbe abbrechen) bleibt vorerst offen (Dennis 2026-10-31).
 - [ ] Ausnahmen aus `StatusChanged`-Handlern als kritisch protokollieren (G3) – AP-04a: Handler der Oberfläche erledigt (Fall 38), im Dienst selbst offen
 - [x] (AP-04a, Fälle 38/39; offen bleibt nur der Backoff-Teil) „Aktualisieren“ im Fehlerzustand ruft `RetryAccount`; UI filtert `CurrentStatus` gegen die Kontoliste;
   `RetryAccount` verkürzt das Watcher-Backoff nicht (IDLE bis 30 min aus, Polling fängt ab) – ggf. ändern (review.2 NIT 1)
-- [x] Security-Prüfung für AP-04 (gemeinsame Token-Caches, Logging, Enqueue aus der UI) – für AP-04a erfolgt (secure.1–4); Enqueue aus der UI folgt mit AP-04b
+- [x] Security-Prüfung für AP-04 (gemeinsame Token-Caches, Logging, Enqueue aus der UI) – für AP-04a erfolgt (secure.1–4); Enqueue aus der UI: AP-04b (secure.1–3, 0 Kritisch / 0 Hoch)
 
 ### Vertagt aus AP-03c
 - [ ] AP-03d: benannter Mutex je Datenordner um `ExecutePendingAsync` (secure N3; App/Dienst/Probe parallel)
@@ -267,9 +266,9 @@ AP-03 neu geteilt: AP-03b = Abgleich robust/schnell, **AP-03c** = Befehlswartesc
 - [ ] Beim Durchlauf einen Stream statt `MemoryStream` für die EML nutzen (secure N2)
 - [ ] Entscheidungsprotokoll ohne Löschfrist; enthält Begründungstexte mit Absender-Domain und Namensteilen (secure N4, AP-08)
 - [ ] „Warum?“-Ansicht zeigt Begründungen nur als Text, nie als HTML (AP-08)
-- [ ] Fehlgeschlagene Befehle sperren die Aufbewahrung ihrer UIDs bis zum Verwerfen → Verwerfen in der UI (AP-04b)
+- [ ] Fehlgeschlagene Befehle sperren die Aufbewahrung ihrer UIDs bis zum Verwerfen → Verwerfen in der UI (AP-04b umgesetzt: „Fehlgeschlagene Aktionen“; manueller Test offen)
 - [ ] Altbestand prüfen: der Durchlauf sortiert vorhandene Mails nie ein, eine bewusste Prüfung gehört nach AP-08
-- [ ] AP-06 (Kontakte, Allow-/Block-Listen) ist Voraussetzung für `Act`: solange das Adressbuch leer ist, ruht der Modus
+- [x] AP-06 (Kontakte, Allow-/Block-Listen) ist Voraussetzung für `Act`: erledigt in AP-06 (Sammeln, Listen, Import); solange das Adressbuch leer ist, ruht der Modus weiter
 - [x] Fall 33 erledigt (2026-11-01, `work\AP-07c\requirement.md`): Versand, Ordner anlegen, Verschieben, Schlüssel stabil auf beiden Anbietern. Dennis 2026-11-01: Mails und Ordner erscheinen im Web und in der Outlook-App. Testmails und beide Ordner liegen weiter in Konto 2 und im Google-Konto
 
 ### Vertagt aus AP-07d
@@ -278,16 +277,20 @@ Stand: Verdrahtung, Bremse und Hinweis sind umgesetzt und mit Fakes getestet (S3
 Erledigt aus AP-07c: D8, J4 (Bremse) und die Sichtbarkeit von `EvaluationFailed` (Hinweis in der App, Logzeile), siehe dort.
 
 **Bedingungen vor `Act` auf einem echten Konto:**
+- [ ] „Ordner leeren“ gegen Rettung aus Junk (AP-04b, review.4 S1, secure.3 L1): Eine bestätigte, mitgezählte Mail geht verloren, wenn der Filter sie im selben Zeitfenster als `TrustedContact` retten will. Dennis entscheidet vor `Act`: bestätigtes Löschen hat Vorrang (so ist es jetzt) oder die Rettung
 - [ ] `BrakeHeld` ist endgültig: eine Salve über dem Grenzwert bleibt unsortiert (secure M1). AP-08 soll „zurückgehaltene
   Mails nachträglich sortieren“ anbieten; das Protokoll behält Aktion und UID. Dennis legt `maxMovesPerPass` mit diesem
   Wissen fest
 - [ ] Die Marke kann eine Lücke überspringen: eine später nachgeladene UID unter der Marke wird nie entschieden (secure N1, review N3)
 - [ ] Beim Durchlauf einen Stream statt `MemoryStream` für die EML (secure N2; siehe auch AP-07c oben)
 - [ ] Aufbewahrung fragt zuerst das Protokoll nach abgelaufenen Einträgen, statt jede Quarantäne-Datei zu lesen (secure N3)
-- [ ] AP-06 (Adressbuch) – ohne Kontakte ruht `Act`
-- [ ] Fall 18 bestanden (Planer)
+- [x] AP-06 (Adressbuch) – erledigt (Sammeln aus Gesendet, Listen, Import); ohne Kontakte ruht `Act` weiter
+- [x] Fall 18 bestanden (Planer, 2026-11-01): 2 Testmails von Junk in den Posteingang verschoben, Konto 2, nur Testmails
+- [ ] Eine neue Mail in Junk löst keinen Zyklus aus: Im Fall 18 (4-Minuten-Lauf) gab es keinen Zyklus, denn IDLE überwacht nur den Posteingang. Die Rettung wartet bis zum nächsten Abruf. Vor `Act` entscheiden, ob Junk kürzer abgefragt wird
 
 **Ohne Bedingung:**
+- [ ] `\Deleted` kann auf dem Server stehen bleiben, wenn nach einem Absturz ein Lösch-Befehl scheitert und verworfen wird; ein anderer Client entfernt die Mail dann (AP-04b, secure.3 N3)
+- [ ] `MailArrivedText` sagt „neue Mail“ auch bei geändertem UIDVALIDITY oder anderer UID (AP-04b, review.4 N)
 - [ ] Ein dauerhafter Fehler des Durchlaufs bremst den Abgleich des Kontos auf höchstens alle 30 Minuten (review S3)
 - [ ] Zurück von `act` auf `recordOnly` stoppt bereits eingestellte Befehle nicht (review N2)
 - [ ] Scheitert der zweite Ordner (Junk) eines Durchlaufs, erreichen die Zahlen des ersten weder Hinweis noch Logzeile; die
@@ -299,6 +302,37 @@ Erledigt aus AP-07c: D8, J4 (Bremse) und die Sichtbarkeit von `EvaluationFailed`
 - [ ] Bilder bei vertrauenswürdiger Mail automatisch laden (Wunsch aus der Anforderung, später)
 - [ ] Befund der Tester: das Maximum der Bremse (1000) entspricht der Befehlsgröße, ein Aufteilen von Verschiebungen
   im Durchlauf gibt es nicht mehr – bewusst bestätigen (Planer)
+
+### Vertagt aus AP-06
+Stand: S3 2406/2406, review.3 APPROVE, Sicherheitsprüfung ohne Kritisch/Hoch (solange `Act` aus ist). Fall 19 (echte Daten) nach T5
+nicht erneut gezählt.
+
+**Bedingungen vor `Act` auf einem echten Konto (zusätzlich zu „Vertagt aus AP-07d“):**
+- [ ] An echten Headern prüfen, dass jede eingehende Mail einen Anbieter-Stempel von `Authentication-Results` trägt
+- [ ] Entscheiden, ob `AutoCollected`-Kontakte aus Junk retten dürfen
+- [ ] Im Bestand zählen, wie viele `Authenticated` nur an der Kind-Domain-Regel hängen (Signatur auf einer Kind-Domain der
+  `From`-Domain); sind es fast keine, diese Richtung entfernen. Regel: `docs\classifier.md`, „Ausrichtung“
+- [ ] Im Bestand zählen, wie oft `dmarc=pass` mit abweichendem `header.from` vorkommt (Geschwister-Domains werden seit fix.3
+  nicht mehr bestätigt, echte Mails können auf `Unknown` fallen)
+
+**Ohne Bedingung:**
+- [ ] AP-08 braucht eine Oberfläche für Kontakte, Listen und Import
+- [ ] AP-08: gelöschte Kontakte kommen nach einem UIDVALIDITY-Wechsel zurück (sperren statt löschen oder eine Löschmarke)
+- [ ] AP-08: Kontoentfernung und die Kontakte des Kontos
+- [ ] AP-08: Warnung bei jedem Allow-Eintrag auf eine Domain (nicht nur `FreemailDomains`), weil Subdomains mitzählen
+- [ ] AP-08: Bestätigung mit Anzahl vor einem Import
+- [ ] UIDs, die später unter der Marke nachgeladen werden, und vorübergehend unlesbare Mails werden nicht mehr gesammelt
+- [ ] Beim Import liegen die IDs über der Importgrenze im Speicher; ein Commit je Kontakt
+- [ ] `MailsSkipped` ist nirgends sichtbar (der Zyklus verwirft den Bericht)
+- [ ] Doppelte Kontakte durch Groß-/Kleinschreibung bei Nicht-ASCII-Zeichen (die Spalte kennt nur ASCII)
+- [ ] Ein späterer CSV-Export muss Zellen mit Formelanfang maskieren
+- [ ] vCard 2.1 mit quoted-printable in `FN` wird nicht dekodiert (nur der Name ist betroffen)
+- [ ] Ein Public Suffix außerhalb der eingebauten Liste wird nicht erkannt (vollständige Liste, siehe „Vertagt aus AP-07a“)
+- [ ] Ein Kontakt auf einer IDN-Domain wird nicht bestätigt, wenn der Stempel in A-Form (Punycode) steht (sichere Seite); die
+  Formen später vergleichen. Punycode und U-Form können zwei Zeilen im Listenspeicher sein, `Unlist` trifft dann eine
+- [ ] Alias-Adressen als `From` liefern keine Kontakte (sichere Seite); bei Bedarf Aliase je Konto hinterlegen
+- [ ] `DomainNames.AreAligned` hat keinen Aufrufer mehr: entfernen oder behalten
+- [ ] Die leere vCard-Datei wird mit `InvalidDataException` abgelehnt (Annahme des Testers): Planer bestätigt
 
 WinUI-App für Fall 30: im Projektordner `dotnet build MailWarden.sln`, dann
 `src\MailWarden.App\bin\x64\Debug\net9.0-windows10.0.19041.0\win-x64\MailWarden.App.exe` starten.

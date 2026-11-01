@@ -437,6 +437,15 @@ public sealed class SqliteMessageStore(SqliteDatabase database) : IMessageStore
             command.Parameters.AddWithValue("$account_id", SqliteValues.FromGuid(accountId));
         }
 
+        // One parameter, however many ids: an empty folder can hide thousands.
+        if (query.ExcludedMessageIds is { Count: > 0 } excludedIds)
+        {
+            whereClause += " AND m.id NOT IN (SELECT value FROM json_each($excluded_ids))";
+            command.Parameters.AddWithValue(
+                "$excluded_ids",
+                "[" + string.Join(',', excludedIds.Select(id => id.ToString(CultureInfo.InvariantCulture))) + "]");
+        }
+
         return joinClause + whereClause;
     }
 

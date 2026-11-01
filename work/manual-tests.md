@@ -212,3 +212,35 @@ dotnet build MailWarden.sln -warnaserror
 - wenn vorhanden: die letzten Zeilen von `$env:MAILWARDEN_DATA_DIR\logs\mailwarden.log` (nur Typnamen und Zahlen)
 
 Fall 18 (Modus `act`) macht der Planer; dafür brauchst du nichts zu tun, außer vorher die Freigabe zu geben.
+
+## 8 – Aktionen in der App (AP-04b Fälle 21, 22, 32)
+
+**Achtung:** Die App läuft auf der Kopie, aber jede Aktion wirkt auf dem echten Server. Fasse nur Testmails an: Ihr Betreff beginnt mit `MailWarden test MWT`. Echte Mails bleiben unberührt, auch in Papierkorb und Junk.
+
+Vorbereitung und Start:
+```powershell
+cd K:\Projekte\Windows-Tools\MailWarden
+Get-Content _scratch\auth-spike\spike.env | Where-Object { $_ -match '^\s*(MAILWARDEN_[A-Z_]+)\s*=\s*(.+?)\s*$' } | ForEach-Object { Set-Item "env:$($Matches[1])" $Matches[2] }
+$env:MAILWARDEN_DATA_DIR = 'K:\Projekte\_private\MailWarden\probe-copy-2026-11-01'
+Test-Path "$env:MAILWARDEN_DATA_DIR\classification-policy.json"    # muss False sein
+cd K:\Projekte\Windows-Tools\MailWarden\.worktrees\feat-ap-04b
+dotnet build MailWarden.sln -warnaserror
+& .\src\MailWarden.App\bin\x64\Debug\net9.0-windows10.0.19041.0\win-x64\MailWarden.App.exe
+```
+
+**Fall 21 – Aktionen.** Nach jedem Schritt im Webmail vergleichen, das darf bis zu einer Minute dauern.
+- [ ] **Lesen und Kennzeichnen (Konto 3, Posteingang, eine Testmail):** Ctrl+Q macht sie gelesen, Ctrl+U ungelesen. Kennzeichnen setzen und wieder entfernen. Die Zeile ändert sich sofort.
+- [ ] **Entf (Konto 2, Posteingang, `MailWarden test MWTd21dd4d9e3 1`):** Die Mail liegt danach im Papierkorb, die nächste Zeile ist ausgewählt und unverändert.
+- [ ] **Umschalt+Entf (Konto 2, Posteingang, `MailWarden test MWTd21dd4d9e3 2`):** Es kommt eine Rückfrage. Nach „Ja“ ist die Mail auch im Papierkorb nicht mehr da.
+- [ ] **Verschieben (Konto 3, Posteingang, die zwei übrigen Testmails per Mehrfachauswahl):** nach Junk von Konto 3. Beide liegen danach im Webmail im Spam.
+- [ ] **Ordner leeren (Konto 3, Junk):** Junk von Konto 3 hatte in der Kopie 0 Mails. Die Rückfrage muss genau die Zahl der verschobenen Testmails nennen. **Steht dort mehr, „Nein“ wählen und melden.** Nach „Ja“ ist der Spam im Webmail leer.
+- [ ] **Suche:** Nach `MWT` suchen, die Treffer stimmen. Nach dem Leeren der Suche erscheint wieder die ganze Liste.
+- [ ] **Gelesen-Schalter:** Einschalten, eine Testmail öffnen, nach etwa 1,5 s ist sie gelesen. Danach wieder ausschalten.
+
+**Fall 22 – Fenster und Tasten.**
+- [ ] Größe und Position ändern, schließen, neu starten: beides ist erhalten.
+- [ ] Maximieren, schließen, neu starten: wieder maximiert.
+- [ ] Die Tasten aus Fall 21 wirken nur auf die Mail-Liste, nicht beim Tippen im Suchfeld.
+
+**Fall 32 – Link-Ziel.** Eine Mail mit einem Link öffnen, dessen Text nicht das Ziel ist.
+- [ ] Beim Zeigen auf den Link erscheint das echte Ziel im Tooltip an der Maus **und** in der Statusleiste. Danach entscheidet Dennis, ob die Statusleiste ausgeschaltet wird.

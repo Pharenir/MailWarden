@@ -181,3 +181,33 @@ Why this round: "Ordner leeren" is the only irreversible path of this AP. review
 | W-e | Insert fails (SQLite trigger) | Nothing stored, error reaches the caller |
 | W-f | Refused, new preview differs | Dialog asks again with the new count |
 | W-g | Refused, new preview equal in content | Stops with the error, no further question |
+
+## Decisions after Dennis's manual test (planner, 2026-11-01)
+Dennis tested cases 21, 22, 32: everything as expected, with one wish: "Ordner leeren" should also appear on a right click on the folder.
+
+- X1: Right click (and context key) on a folder in the tree offers "Ordner leeren" when, and only when, that entry can be emptied: exactly one Trash or Junk folder behind its view. Other entries show no menu, not an empty one.
+- X2: The action targets the folder that was right-clicked, not the selected view. The selection does not change. It takes the existing path: `EmptyFolderAsync(view)` with the question, the confirmed UID set and the refusal of fix.4. An active search does not block it, because the question names folder, count and account.
+- X3 (Dennis 2026-11-01, replaces the first version): The unread number in the tree drops the moment the mails leave the view, for delete, permanent delete, move and empty. If the action fails and the rows come back, the number comes back too. For an empty folder whose mails are not in the current list, the number drops as soon as the command is stored. Read and unread are not part of this.
+
+### Additional test cases (X)
+| # | Situation | Expected |
+|---|---|---|
+| X-a | Trash and Junk of one account | Entry can be emptied |
+| X-b | Inbox, Sent, Archive, a custom folder, account node, tree parent | Entry cannot be emptied |
+| X-c | Group Junk with one account that has this folder (the tree has no group entry for Trash; for Trash the rule is tested on `MailView.Group(FolderRole.Trash)`) | Entry can be emptied |
+| X-d | Group Junk or Trash with two accounts having this folder | Entry cannot be emptied |
+| X-e | View of Konto 2 Inbox selected, empty requested for Junk of Konto 3 | Question names Konto 3 and its count; the command holds the UIDs of that Junk; the current list and selection stay |
+| X-f | Empty requested while a search is active | Same path, command stored |
+| X-g | Folder without local mails | No question, no command |
+| X-h | Manual, Dennis: right click on Junk of Konto 3 and on Posteingang; context key | Menu only on Junk |
+
+- X4 (Dennis 2026-11-01, after case 32): The status bar of the reading pane is off (`IsStatusBarEnabled = false`). The tooltip at the mouse remains the only display of the link target.
+
+### Additional test cases (X3)
+| # | Situation | Expected |
+|---|---|---|
+| X-i | Unread mail in a folder, Del | Number of the folder and of its group view drop before the command runs |
+| X-j | Same with a refused action | Number returns to the old value |
+| X-k | Read mail, Del | Number unchanged |
+| X-l | Empty folder with unread mails beyond the loaded page, or not in the current list | Number 0 once the command is stored |
+| X-m | The command has run | Number stays correct, not subtracted twice |
