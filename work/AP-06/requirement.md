@@ -128,3 +128,17 @@ Small facade in `Infrastructure\Classification` over the two stores with `AddCon
 
 ## Done when
 Build `-warnaserror`; S3 green; review APPROVE; security without Critical or High (triggers: import, classifier actions). Documenter: `docs\classifier.md`, `README.md`, PLAN rows, TODO (conditions before `Act`).
+
+## Decisions author.0 and implement.1 (planner, 2026-11-01)
+Binding additions to the contract:
+- Names: `SqliteSenderListStore(SqliteDatabase)`, `SqliteContactHarvestMarkerStore(SqliteDatabase)`, `ContactHarvestMarker(long FolderId, uint UidValidity, uint HarvestedUpToUid)`,
+  `IContactHarvestMarkerStore` with `GetAsync(folderId, ct)`, `SaveAsync(marker, ct)`; both in `MailWarden.Core.Classification`.
+- `IContactBook`: `AddContactAsync(address, name, ct)`, `RemoveContactAsync(address, ct)`, `AllowAsync(entry, isDomain, ct)`, `BlockAsync(entry, isDomain, ct)`, `UnlistAsync(entry, isDomain, ct)`.
+  `AddContactAsync` cleans the name like the harvest.
+- Unreadable EML: bytes without a single header count as `MailsSkipped`, as does `FormatException`. `MailsRead` also counts mails without recipients. A recipient without a name gets an empty name.
+- `ContactHarvester` has no `TimeProvider`; unknown account id → `ArgumentException`. `RemoveAsync` of an unknown contact is a no-op.
+- Import: entries over 50,000 and a vCard without `EMAIL` count as `Rejected`; `Read = Added + AlreadyKnown + Rejected`.
+- **Changes D3:** a domain entry matches when the sender's domain equals the entry or is a subdomain of it; never upward through the organisational domain. Blocked wins over all levels.
+- `SetAsync` rejects a domain entry that is itself a public suffix (`co.uk`, `com`) through the built-in list (`DomainNames.IsPublicSuffix`), with `ArgumentException`.
+- Role addresses match the whole local part only: `person_a@noreply.example.test` is collected.
+- Accepted limits, in `TODO.md`: temporarily unreadable mails are not harvested again; vCard 2.1 quoted-printable in `FN` is not decoded; a suffix outside the built-in list is not recognised.
