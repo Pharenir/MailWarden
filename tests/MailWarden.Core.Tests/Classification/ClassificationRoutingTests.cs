@@ -45,6 +45,16 @@ public sealed class ClassificationRoutingTests
         }
     }
 
+    // Case 45 / G9
+    [Theory]
+    [InlineData(FolderRole.Inbox)]
+    [InlineData(FolderRole.Junk)]
+    public void Route_with_an_undefined_tier_throws(FolderRole sourceRole)
+    {
+        Assert.Throws<ArgumentOutOfRangeException>(() => ClassificationRouting.Route(sourceRole, (SpamTier)99));
+        Assert.Throws<ArgumentOutOfRangeException>(() => ClassificationRouting.Route(sourceRole, (SpamTier)(-1)));
+    }
+
     [Fact]
     public void Action_values_are_the_documented_numbers()
     {

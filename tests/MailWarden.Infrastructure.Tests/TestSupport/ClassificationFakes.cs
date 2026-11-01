@@ -68,6 +68,9 @@ internal sealed class RejectingMoveQueue(IMailCommandQueue inner) : IMailCommand
 
     public Exception RejectWith { get; set; } = new ArgumentException(RejectionMarker);
 
+    /// <summary>When true, every permanent delete is rejected with <see cref="RejectWith"/>.</summary>
+    public bool RejectDeletes { get; set; }
+
     /// <summary>Every move attempt: target and UID count (also rejected ones).</summary>
     public List<(long Target, int UidCount)> MoveAttempts { get; } = [];
 
@@ -107,8 +110,15 @@ internal sealed class RejectingMoveQueue(IMailCommandQueue inner) : IMailCommand
         long folderId,
         uint expectedUidValidity,
         IReadOnlyCollection<uint> uids,
-        CancellationToken ct = default) =>
-        inner.EnqueueDeletePermanentlyAsync(folderId, expectedUidValidity, uids, ct);
+        CancellationToken ct = default)
+    {
+        if (RejectDeletes)
+        {
+            throw RejectWith;
+        }
+
+        return inner.EnqueueDeletePermanentlyAsync(folderId, expectedUidValidity, uids, ct);
+    }
 
     public Task<MailCommand?> EnqueueEmptyFolderAsync(long folderId, CancellationToken ct = default) =>
         inner.EnqueueEmptyFolderAsync(folderId, ct);
@@ -149,4 +159,69 @@ internal sealed class ThrowingEmlStore(IEmlStore inner) : IEmlStore
     public bool Exists(string relativePath) => inner.Exists(relativePath);
 
     public Task DeleteAsync(string relativePath, CancellationToken ct = default) => inner.DeleteAsync(relativePath, ct);
+}
+
+/// <summary>
+/// <see cref="IMailCommandQueue"/> decorator that lists every command as permanently failed (the real executor is not
+/// part of the classification tests); all other calls go to the real queue.
+/// </summary>
+internal sealed class FailedStatusQueue(IMailCommandQueue inner) : IMailCommandQueue
+{
+    public Task<MailCommand> EnqueueSetFlagsAsync(long folderId, uint expectedUidValidity, IReadOnlyCollection<uint> uids, MessageFlags flagsToAdd, MessageFlags flagsToRemove, CancellationToken ct = default) =>
+        inner.EnqueueSetFlagsAsync(folderId, expectedUidValidity, uids, flagsToAdd, flagsToRemove, ct);
+
+    public Task<MailCommand> EnqueueMoveAsync(long folderId, uint expectedUidValidity, IReadOnlyCollection<uint> uids, long targetFolderId, CancellationToken ct = default) =>
+        inner.EnqueueMoveAsync(folderId, expectedUidValidity, uids, targetFolderId, ct);
+
+    public Task<MailCommand> EnqueueMoveToTrashAsync(long folderId, uint expectedUidValidity, IReadOnlyCollection<uint> uids, CancellationToken ct = default) =>
+        inner.EnqueueMoveToTrashAsync(folderId, expectedUidValidity, uids, ct);
+
+    public Task<MailCommand> EnqueueDeletePermanentlyAsync(long folderId, uint expectedUidValidity, IReadOnlyCollection<uint> uids, CancellationToken ct = default) =>
+        inner.EnqueueDeletePermanentlyAsync(folderId, expectedUidValidity, uids, ct);
+
+    public Task<MailCommand?> EnqueueEmptyFolderAsync(long folderId, CancellationToken ct = default) =>
+        inner.EnqueueEmptyFolderAsync(folderId, ct);
+
+    public async Task<IReadOnlyList<MailCommand>> ListAsync(Guid accountId, CancellationToken ct = default) =>
+        (await inner.ListAsync(accountId, ct)).Select(command => command with { Status = MailCommandStatus.Failed }).ToList();
+
+    public Task DiscardAsync(long commandId, CancellationToken ct = default) => inner.DiscardAsync(commandId, ct);
+}
+
+/// <summary>A readable stream whose reads fail with <see cref="IOException"/>.</summary>
+internal sealed class ThrowingStream : Stream
+{
+    public const string FailureMarker = "marker_stream_failure_text";
+
+    public override bool CanRead => true;
+
+    public override bool CanSeek => false;
+
+    public override bool CanWrite => false;
+
+    public override long Length => throw new NotSupportedException();
+
+    public override long Position
+    {
+        get => throw new NotSupportedException();
+        set => throw new NotSupportedException();
+    }
+
+    public override void Flush()
+    {
+    }
+
+    public override int Read(byte[] buffer, int offset, int count) => throw new IOException(FailureMarker);
+
+    public override Task<int> ReadAsync(byte[] buffer, int offset, int count, CancellationToken cancellationToken) =>
+        throw new IOException(FailureMarker);
+
+    public override ValueTask<int> ReadAsync(Memory<byte> buffer, CancellationToken cancellationToken = default) =>
+        throw new IOException(FailureMarker);
+
+    public override long Seek(long offset, SeekOrigin origin) => throw new NotSupportedException();
+
+    public override void SetLength(long value) => throw new NotSupportedException();
+
+    public override void Write(byte[] buffer, int offset, int count) => throw new NotSupportedException();
 }
