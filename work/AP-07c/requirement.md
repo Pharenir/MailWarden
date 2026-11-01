@@ -462,3 +462,22 @@ turns a programming error into a silent mass move to Junk, including mail from c
 | # | Case | Expected |
 |---|---|---|
 | 55 | Generated EML with 1,023 nested `multipart/mixed`, and with nested `message/rfc822`: `ReadMessageAsync`, `ReadTopReceivedAsync` | no process end; `Parsed` true, `TopReceived` and From as in the top-level headers |
+
+## Result case 33 (planner, 2026-11-01; Dennis chose the accounts: Konto 2 and the Google account)
+Mails between these two accounts only, sent with `_scratch\case33-probe` over the real SMTP servers (XOAUTH2); the app itself
+cannot send yet (AP-05). Each receiver ran on its own copy that knows only this account, so the other account counts as an unknown
+sender. Retention 0, deleting impossible in these probes.
+
+| Step | Google as receiver | Outlook.com as receiver |
+|---|---|---|
+| SMTP login and send (from the other account) | ok, `2.0.0` | ok, `2.0.0` |
+| Arrival | Inbox | **Junk** (the provider's own filter) |
+| `RecordOnly` | entry `Recorded`, no command | entry `NoAction` (Junk + `LikelyLegit` stays), no command |
+| `Act`, app folders | `Screener` and `Quarantine` created | `Screener` and `Quarantine` created |
+| `Act`, move | 2 mails Inbox → Screener (`LikelyLegit`) | 2 mails Junk → Inbox (`TrustedContact`, sender as a contact in the copy: rescue, PLAN AP-07 #1) |
+| Key after the move | same key | same key |
+| Next pass | back in the Inbox by a server MOVE: `SkippedKnown`, no command | in the Inbox with a new UID: 2 × `SkippedKnown`, no command |
+
+**Result: the top `Received` survives a MOVE on both providers.** Not tested: a move to Screener or Quarantine on Outlook.com; a
+move to Junk or Quarantine on Gmail; moving back in the webmail itself (the probe uses a server MOVE, the same IMAP operation);
+whether the other clients show the new folders (Dennis). `Act` on real accounts still needs AP-06 (empty address book) and D8.

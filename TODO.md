@@ -233,10 +233,7 @@ AP-03 neu geteilt: AP-03b = Abgleich robust/schnell, **AP-03c** = Befehlswartesc
 - [ ] Fehlgeschlagene Befehle sperren die Aufbewahrung ihrer UIDs bis zum Verwerfen → Verwerfen in der UI (AP-04b)
 - [ ] Altbestand prüfen: der Durchlauf sortiert vorhandene Mails nie ein, eine bewusste Prüfung gehört nach AP-08
 - [ ] AP-06 (Kontakte, Allow-/Block-Listen) ist Voraussetzung für `Act`: solange das Adressbuch leer ist, ruht der Modus
-- [ ] **Fall 33 offen:** Echter Server, nur nach Freigabe von Dennis und nur mit Testmails von Dennis (`RecordOnly` schreibt
-  Einträge ohne zu verschieben; `Act` mit Testkontakt verschiebt Testmails nach Tabelle; `Screener`/`Quarantine` werden angelegt;
-  oberstes `Received` übersteht ein Verschieben, auch bei von Hand zurückgeholter Mail). Bis dahin bleibt `Act` auf echten Konten aus;
-  `MailKitFolderProvisioner` ist bis dahin ungetestet
+- [x] Fall 33 erledigt (2026-11-01, `work\AP-07c\requirement.md`): Versand, Ordner anlegen, Verschieben, Schlüssel stabil auf beiden Anbietern. Offen: Dennis prüft, ob andere Clients `Screener`/`Quarantine` zeigen; Testmails und beide Ordner liegen in Konto 2 und im Google-Konto
 
 WinUI-App für Fall 30: im Projektordner `dotnet build MailWarden.sln`, dann
 `src\MailWarden.App\bin\x64\Debug\net9.0-windows10.0.19041.0\win-x64\MailWarden.App.exe` starten.
