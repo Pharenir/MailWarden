@@ -79,6 +79,7 @@ public sealed class OpaqueMultipartTests
     [InlineData("message/feedback-report", "Feedback-Type: abuse\r\nUser-Agent: test\r\n")]
     [InlineData("message/delivery-status", "Reporting-MTA: dns; mail.example.test\r\n")]
     [InlineData("message/disposition-notification", "Reporting-UA: test\r\n")]
+    [InlineData("message/partial", "partial content line\r\n")]
     public async Task Other_message_parts_are_listed_as_attachments_without_a_notice(string contentType, string body)
     {
         MailContent content = await ReadAsync(

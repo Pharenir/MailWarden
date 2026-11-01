@@ -179,12 +179,18 @@ public sealed class MailHtmlSanitizerHostileInputTests
     {
         string html = "<p>before_marker</p>" + opening + "<div" + Attributes(100_000) + "\">" + "<script>evil_marker()</script><iframe src=\"x\"></iframe>";
 
-        SanitizedHtml result = await SanitizeAsync(html);
+        (SanitizedHtml Result, long AllocatedBytes) outcome = await Task.Run(() =>
+        {
+            long before = GC.GetAllocatedBytesForCurrentThread();
+            SanitizedHtml sanitized = MailHtmlSanitizer.Sanitize(html, new Dictionary<string, string>(), allowRemoteImages: false);
+            return (sanitized, GC.GetAllocatedBytesForCurrentThread() - before);
+        });
 
-        AssertNoDangerousElement(result);
-        Assert.True(result.Html.Length < 2_000_000, $"output has {result.Html.Length} characters");
-        Assert.Contains("before_marker", result.Html, StringComparison.Ordinal);
-    }
+        AssertNoDangerousElement(outcome.Result);
+        Assert.True(outcome.AllocatedBytes < 1_500_000_000L, $"allocated {outcome.AllocatedBytes / 1_000_000} MB on the calling thread");
+        Assert.True(outcome.Result.Html.Length < 2_000_000, $"output has {outcome.Result.Html.Length} characters");
+        Assert.Contains("before_marker", outcome.Result.Html, StringComparison.Ordinal);
+        Assert.True(outcome.Result.WasReduced, "the pre-scan limit or the parser budget must be reported");    }
 
     // ---- Case 79 (M1) --------------------------------------------------------------------------------------
 
@@ -211,26 +217,24 @@ public sealed class MailHtmlSanitizerHostileInputTests
 
     // ---- Case 80 (M1) --------------------------------------------------------------------------------------
 
-    // Case 80: more than 100,000 elements through plain markup: the result is the text without markup.
+    // Case 80 (revised M1): over the pre-scan limits the text stays and the result is marked as reduced.
     [Fact(Timeout = TestTimeouts.PerTestMilliseconds)]
-    public async Task More_than_100000_elements_give_the_text_without_markup()
+    public async Task Input_over_the_pre_scan_limits_keeps_its_text_and_is_marked_as_reduced()
     {
         string html =
-            "<p>before_marker</p>" +
-            string.Concat(Enumerable.Range(0, 110_000).Select(index => $"<span>word{index} </span>")) +
+            "<p>before_marker</p>" + Repeat("<b>", 200) +
+            string.Concat(Enumerable.Range(0, 20_000).Select(index => $"word{index} ")) +
             "<script>evil_marker()</script><iframe src=\"x\"></iframe>";
 
         SanitizedHtml result = await SanitizeAsync(html);
 
         AssertNoDangerousElement(result);
         Assert.True(result.WasReduced);
-        Assert.DoesNotMatch(new Regex(@"<\s*(span|p|div|a|b)[\s>/]", RegexOptions.IgnoreCase | RegexOptions.CultureInvariant), result.Html);
         Assert.Contains("before_marker", result.Html, StringComparison.Ordinal);
         Assert.Contains("word0 ", result.Html, StringComparison.Ordinal);
-        Assert.Contains("word109999", result.Html, StringComparison.Ordinal);
+        Assert.Contains("word19999", result.Html, StringComparison.Ordinal);
     }
-
-    // Case 80 positive control: just below the budget the markup is kept.
+    // Case 80 positive control: ordinary markup far below any limit is kept.
     [Fact(Timeout = TestTimeouts.PerTestMilliseconds)]
     public async Task Fifty_thousand_elements_keep_their_markup()
     {
