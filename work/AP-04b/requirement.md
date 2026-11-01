@@ -225,3 +225,5 @@ Dennis tested cases 21, 22, 32: everything as expected, with one wish: "Ordner l
 | Y-a | `<a href="https://evil.example.test/" title="https://www.bank.example.test/login">`, also `title` on a `<span>` inside the link | No `title` in the sanitized HTML, the `href` stays |
 | Y-b | Same counts as before for folder, role and account plus role views, with and without excluded ids, on SQLite | Equal to a count over the same rows |
 | Y-c | Manual, Dennis: link with a different text, status bar off, window wide and narrow | Hint shows the true target, wholly readable |
+
+Y3 kept (planner, 2026-11-01). Measured on the real driver with 180,000 artificial mails, the recount of the role entries goes from about 319 ms to 55 ms when most mail lies in normal folders, which is how Dennis's mailbox is distributed, and from about 320 ms to 450-500 ms when most mail lies in the role folders. Opening an empty role view goes from about 500 ms to 0. If the number is still felt as late, one `GROUP BY folder_id` query for the whole tree is the next step (`TODO.md`).
