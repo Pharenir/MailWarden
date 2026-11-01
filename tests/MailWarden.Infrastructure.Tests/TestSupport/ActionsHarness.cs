@@ -26,10 +26,13 @@ internal sealed class ActionsHarness : IAsyncDisposable
         Messages = new SqliteMessageStore(seedDatabase);
         Clock = new FixedTimeProvider(SyncHarness.FixedNow);
         Queue = new SqliteMailCommandQueue(seedDatabase, Clock);
-        Actions = new MailboxActions(actionsDatabase, RecordTrigger, Clock);
+        Actions = new MailboxActions(actionsDatabase, RecordTrigger, Clock, Log);
     }
 
     public SqliteDatabase SeedDatabase { get; }
+
+    /// <summary>Critical log the actions write to.</summary>
+    public RecordingCriticalLog Log { get; } = new();
 
     public SqliteAccountStore Accounts { get; }
 
