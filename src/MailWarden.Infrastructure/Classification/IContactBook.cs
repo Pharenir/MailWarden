@@ -17,7 +17,7 @@ public interface IContactBook
     Task<Contact> AddContactAsync(string address, string name, CancellationToken ct = default);
 
     /// <summary>Removes a contact. Unknown address = no-op.</summary>
-    /// <param name="address">Address.</param>
+    /// <param name="address">Address, trimmed before the lookup.</param>
     /// <param name="ct">Cancellation token.</param>
     /// <returns>A task that completes when the contact is gone.</returns>
     Task RemoveContactAsync(string address, CancellationToken ct = default);

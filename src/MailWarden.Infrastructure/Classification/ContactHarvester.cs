@@ -20,7 +20,10 @@ namespace MailWarden.Infrastructure.Classification;
 /// <para>
 /// Not everything in a Sent folder was written by the user. A mail counts as skipped when From is not exactly one account
 /// address (so an alias delivers no contacts, which is the safe side), when <c>Auto-Submitted</c> is present and not
-/// <c>no</c>, or when the top Content-Type is <c>multipart/report</c> (delivery reports and the like).
+/// <c>no</c>, when <c>X-Autoreply</c> or <c>X-Autorespond</c> is present, when <c>Precedence</c> is <c>auto_reply</c>,
+/// <c>bulk</c> or <c>junk</c>, when the top Content-Type is <c>multipart/report</c> (delivery reports and the like) or
+/// <c>text/calendar</c> with <c>method=REPLY</c>, or when <c>Content-Class</c> holds <c>calendarmessage</c> (answers to
+/// invitations go to the organiser, whom the user did not choose to write to).
 /// </para>
 /// <para>
 /// A folder is only handled after a completed sync (it has a stored sync state). Unlike the classification pass, the first
@@ -40,6 +43,11 @@ public sealed class ContactHarvester
     private static readonly FrozenSet<string> RoleLocalParts = new[]
     {
         "noreply", "no-reply", "donotreply", "do-not-reply", "mailer-daemon", "postmaster",
+    }.ToFrozenSet(StringComparer.OrdinalIgnoreCase);
+
+    private static readonly FrozenSet<string> AutomaticPrecedences = new[]
+    {
+        "auto_reply", "bulk", "junk",
     }.ToFrozenSet(StringComparer.OrdinalIgnoreCase);
 
     private readonly IAccountStore accounts;
@@ -127,16 +135,57 @@ public sealed class ContactHarvester
     {
         if (header.Id == HeaderId.AutoSubmitted)
         {
-            // RFC 3834: the value can carry parameters. The raw bytes, because Header.Value decodes encoded words.
-            string value = Header.Unfold(Encoding.Latin1.GetString(header.RawValue));
-            int parametersStart = value.IndexOf(';', StringComparison.Ordinal);
-            string keyword = (parametersStart < 0 ? value : value[..parametersStart]).Trim();
-            return !keyword.Equals("no", StringComparison.OrdinalIgnoreCase);
+            return !ReadKeyword(header).Equals("no", StringComparison.OrdinalIgnoreCase);
         }
 
-        return header.Id == HeaderId.ContentType
-            && ContentType.TryParse(options, header.RawValue, out ContentType? contentType)
-            && contentType.IsMimeType("multipart", "report");
+        if (header.Id == HeaderId.ContentType)
+        {
+            return IsAutomaticContentType(header, options);
+        }
+
+        if (IsField(header, "X-Autoreply") || IsField(header, "X-Autorespond"))
+        {
+            return true;
+        }
+
+        if (IsField(header, "Precedence"))
+        {
+            return AutomaticPrecedences.Contains(ReadKeyword(header));
+        }
+
+        return IsField(header, "Content-Class")
+            && ReadRawValue(header).Contains("calendarmessage", StringComparison.OrdinalIgnoreCase);
+    }
+
+    private static bool IsAutomaticContentType(Header header, ParserOptions options)
+    {
+        if (!ContentType.TryParse(options, header.RawValue, out ContentType? contentType))
+        {
+            return false;
+        }
+
+        return contentType.IsMimeType("multipart", "report")
+            || (contentType.IsMimeType("text", "calendar")
+                && string.Equals(contentType.Parameters["method"], "REPLY", StringComparison.OrdinalIgnoreCase));
+    }
+
+    private static bool IsField(Header header, string fieldName)
+    {
+        return header.Field.Equals(fieldName, StringComparison.OrdinalIgnoreCase);
+    }
+
+    // The raw bytes, because Header.Value decodes encoded words.
+    private static string ReadRawValue(Header header)
+    {
+        return Header.Unfold(Encoding.Latin1.GetString(header.RawValue));
+    }
+
+    // RFC 3834: a value can carry parameters after the keyword.
+    private static string ReadKeyword(Header header)
+    {
+        string value = ReadRawValue(header);
+        int parametersStart = value.IndexOf(';', StringComparison.Ordinal);
+        return (parametersStart < 0 ? value : value[..parametersStart]).Trim();
     }
 
     // All mailboxes of To, Cc and Bcc, in header order; Mailboxes also walks through groups. The header value is parsed raw,

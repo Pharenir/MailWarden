@@ -15,6 +15,7 @@ public static class AddressRules
     private const int MaxAddressLength = 254;
     private const int MaxDomainLength = 253;
     private const char ReplacementCharacter = '\uFFFD';
+    private const string PunycodeLabelPrefix = "xn--";
 
     // Syntax characters of an address list or a mail header. Quoted local parts are rejected with them on purpose: nobody
     // writes to them by hand, and they would be the way to hide an address inside an address.
@@ -58,9 +59,11 @@ public static class AddressRules
     }
 
     /// <summary>
-    /// Whether a sender is exact enough for the allow list: well-formed as it stands, and its domain part is the same text as
-    /// its normalised form except for the case of ASCII letters. So normalising did not make it equal to a listed domain,
-    /// as it would for a Kelvin sign or a trailing no-break space.
+    /// Whether a sender is exact enough for the allow list: well-formed as it stands, its domain part is the same text as its
+    /// lower-case form except for the case of ASCII letters, and <see cref="IdnMapping"/> leaves every label unchanged, except
+    /// labels that start with <c>xn--</c>, whose decoded form is the point of the mapping. So normalising did not make it equal
+    /// to a listed domain, as it would for a Kelvin sign, a trailing no-break space, a full-width or mathematical letter or an
+    /// ideographic full stop. A block entry still applies to all of these.
     /// </summary>
     /// <param name="address">Sender as given, untrimmed, or null.</param>
     /// <returns>True when an allow entry may apply to this sender.</returns>
@@ -75,7 +78,8 @@ public static class AddressRules
         string normalized = DomainNames.Normalize(domain);
         return domain.Length == normalized.Length
             && domain.Zip(normalized).All(pair => pair.First == pair.Second
-                || (char.IsAsciiLetter(pair.First) && char.ToLowerInvariant(pair.First) == pair.Second));
+                || (char.IsAsciiLetter(pair.First) && char.ToLowerInvariant(pair.First) == pair.Second))
+            && normalized.Split('.').All(IsStableLabel);
     }
 
     /// <summary>
@@ -124,6 +128,13 @@ public static class AddressRules
 
         string? domain = DomainNames.TryGetDomain(trimmed);
         return domain is null ? null : $"{RemoveQuotes(trimmed[..atIndex])}@{NormalizeDomain(domain)}";
+    }
+
+    // The label is lower-case here. A label IdnMapping refuses stays as it is and cannot become a listed name either.
+    private static bool IsStableLabel(string label)
+    {
+        return label.StartsWith(PunycodeLabelPrefix, StringComparison.Ordinal)
+            || string.Equals(NormalizeDomain(label), label, StringComparison.Ordinal);
     }
 
     // Only around the whole local part. Empty quotes stay, so that such a sender still has a local part for the block list.

@@ -32,7 +32,8 @@ public sealed class ContactBook(IContactStore contacts, ISenderListStore senderL
     /// <inheritdoc />
     public Task RemoveContactAsync(string address, CancellationToken ct = default)
     {
-        return contacts.RemoveAsync(address, ct);
+        ArgumentNullException.ThrowIfNull(address);
+        return contacts.RemoveAsync(address.Trim(), ct);
     }
 
     /// <inheritdoc />

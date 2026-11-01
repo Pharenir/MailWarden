@@ -13,6 +13,9 @@ namespace MailWarden.Infrastructure.Classification;
 /// </summary>
 public sealed class ContactSenderDirectory : ISenderDirectory
 {
+    // The IDNA label separators: when IdnMapping refuses a whole domain, the look-alike dots are still in it.
+    private static readonly char[] LabelSeparators = ['.', '\u3002', '\uFF0E', '\uFF61'];
+
     private readonly HashSet<string> knownAddresses;
     private readonly Dictionary<string, ListMembership> addressEntries = new(StringComparer.OrdinalIgnoreCase);
     private readonly Dictionary<string, ListMembership> domainEntries = new(StringComparer.OrdinalIgnoreCase);
@@ -110,14 +113,15 @@ public sealed class ContactSenderDirectory : ISenderDirectory
         return domainKind == ListMembership.Blocked || mayBeAllowed ? domainKind : ListMembership.None;
     }
 
-    // Walks from the sender's domain up to its last label. Empty labels ("a..b") are dropped, as DomainNames does.
+    // Walks from the sender's domain up to its last label. Empty labels ("a..b") are dropped, as DomainNames does. Each level
+    // is normalised on its own: IdnMapping refuses a whole domain for one unusual label, which must not hide a blocked parent.
     private ListMembership GetDomainMembership(string senderDomain)
     {
-        string[] labels = senderDomain.Split('.', StringSplitOptions.RemoveEmptyEntries);
+        string[] labels = senderDomain.Split(LabelSeparators, StringSplitOptions.RemoveEmptyEntries);
         ListMembership membership = ListMembership.None;
         for (int firstLabel = 0; firstLabel < labels.Length; firstLabel++)
         {
-            ListMembership kind = domainEntries.GetValueOrDefault(string.Join('.', labels[firstLabel..]));
+            ListMembership kind = domainEntries.GetValueOrDefault(AddressRules.NormalizeDomain(string.Join('.', labels[firstLabel..])));
             if (kind == ListMembership.Blocked)
             {
                 return ListMembership.Blocked;
