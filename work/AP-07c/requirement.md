@@ -288,3 +288,89 @@ Never prints subjects, addresses, domains or folder names. Only ever used on a *
   `BodyText` limit is exactly 200,000 characters. A From without a domain (`sender_a@`) gives null.
 - Constructors: `new SqliteClassificationLog(SqliteDatabase)`, `new SqliteContactStore(SqliteDatabase)`. Namespace of
   `ClassificationPass`, `ClassificationInputReader`: `MailWarden.Infrastructure.Classification`.
+
+## Decisions fix.2 (planner, 2026-11-01, after verify.1 and review.1 BLOCK, secure.1 High)
+verify.1: S3 1182/1183 (one failure, see G5). The findings below are checked by the planner against the code where
+stated. Binding; they change D1, D4, D6, D7, D9.
+
+### Fixes
+- **G1 (review B1, confirmed in `SyncEngine`: UIDVALIDITY is stored before the first fetch, `FolderSyncState` only after
+  the folder completed).** `ClassificationPass` gets `IFolderSyncStateStore` as a constructor parameter, directly after
+  `IFolderStore`. A folder without a stored sync state is skipped completely in step 4: no marker, no entry. This covers
+  an interrupted first sync and a UIDVALIDITY reset (the state is deleted there). The marker is set by the first pass
+  that sees a completed sync.
+- **G2 (secure H1, also N1, changes safety decision 4 in form, not in purpose).** A sender controls `Message-ID`, so the
+  key must also depend on something the sender does not control:
+  ```csharp
+  public static class MessageKey
+  {
+      /// As before, but topReceived (the top-most Received header, whitespace normalised to single spaces and trimmed;
+      /// null or empty when none) is part of the hash input: "m:" + SHA-256(Message-ID + LF + topReceived), and
+      /// "h:" + SHA-256(from + LF + date + LF + subject + LF + topReceived).
+      public static string For(MailMessage message, string? topReceived);
+  }
+  ```
+  The top-most `Received` is added by the receiving provider and differs per delivery; it stays the same when the mail
+  is moved or copied. So a mail moved back by hand keeps its key and is not decided again, while a new mail with a reused
+  Message-ID gets a new key and is classified. Whether it really is stable across a MOVE is checked in cases 32 and 33.
+- **G3 (reader, for G2, G5, G7).** New in `ClassificationInputReader`, with `ReadAsync` as a thin wrapper returning
+  `Input`:
+  ```csharp
+  public sealed record ClassificationMessage(bool Parsed, string? TopReceived, ClassificationInput? Input);
+  /// Never throws for unparsable bytes (Parsed false). IOException of the stream and cancellation propagate.
+  public static Task<ClassificationMessage> ReadMessageAsync(Stream eml, CancellationToken ct = default);
+  ```
+  The pass computes the key from this result. Without a readable EML, `topReceived` is null.
+- **G4 (secure H2).** `AuthenticationResultsHeaders` and `TopReceived` come from the raw header value
+  (`Encoding.Latin1.GetString(header.RawValue)`), never the decoded `Header.Value`: encoded words must not be able to
+  create tokens. This restores D4 "raw values".
+- **G5 (verify.1, the one failing test).** `ReadAsync` returns null for bytes that are no message; `Garbage_bytes_give_null`
+  stays as it is.
+- **G6 (review S1, secure N3).** Retention skips UIDs that are already in a command of the queue (`IMailCommandQueue.ListAsync`,
+  pending and failed). `RetentionDeletesEnqueued` counts only newly enqueued mails, so no repeat and no trigger loop.
+- **G7 (secure M1).** A readable message without one usable From (`Parsed` true, `Input` null) is caused by the sender and
+  must not stay unfiltered: from the Inbox its planned action is `MoveToScreener`, from Junk `None`. Tier null, score 0,
+  `Override` fixed text "Message has no single usable sender". Outcomes as usual (`Recorded`, `Enqueued`, `TargetMissing`).
+  `ReadFailed` is only for a missing or unreadable EML and for `Parsed` false; it stays in place and is final (documented).
+- **G8 (review S2).** Retention no longer swallows a rejection silently: `ClassificationPassReport` gets a last member
+  `int RetentionDeletesRejected` (mails).
+- **G9 (review NIT).** `ClassificationRouting`: explicit arm for `CertainSpam`, and an unknown tier throws
+  `ArgumentOutOfRangeException` instead of defaulting to the sharpest action.
+- **G10 (review NIT).** Correct the comments on a crash between enqueue and commit: the command can run in the next cycle,
+  the mail is then moved without a log entry. It is never deleted by retention for that reason (decision 5) and is decided
+  again if it is in the Inbox or Junk.
+- **G11 (secure N2).** `LinkHosts` holds at most 10,000 entries; more are dropped.
+- **G12 (review question 7).** `MailKitFolderProvisioner` subscribes to a folder it just created, so other clients show it
+  (`SubscribeAsync`; a failure of that is ignored). An existing folder is not touched. D6 is otherwise unchanged.
+- **G13 (accepted deviations of implement.1, now contract).** The provisioner does not overwrite a stored UIDVALIDITY ≠ 0;
+  a server folder that does not resolve to the expected role → `MailTransportException` (Protocol) and the pass stops
+  with nothing stored; `TierCounts` holds all four tiers; an own address in the contacts table does not count for
+  `ContactCount`.
+- **G14 (probe, for cases 32/33).**
+  - `stock` also prints: mails without a `Received` header; among mails with the same Message-ID in several folders, how
+    many share the top-most `Received`; mails without a provider-stamped top `Authentication-Results`, per provider.
+  - New mode `execute <address>` runs the pending commands of one account once and refuses when a command has more than
+    20 UIDs. It is only used on a copy, with Dennis's test mails.
+
+### Not fixed, on purpose
+- Later UIDs below the marker (e.g. a message that failed in the sync) are never classified: safe, documented.
+- Retention goes through Trash for Quarantine; an account without Trash fails permanently and visibly: documented.
+- `SqliteMailCommandQueue.MaxUidsPerCommand`, `FindFolder`, `href` with tabs (review NITs): stay for now.
+- Secure N2 (stream instead of `MemoryStream`), N4 (log retention): `TODO.md` for AP-08.
+
+### Additional test cases (fix.2)
+| # | Case | Expected |
+|---|---|---|
+| 34 | Folder with UIDVALIDITY set and mails, no sync state; then state present; then a new mail | first pass nothing at all (no marker, no entry, no command); second pass marker only; third classifies only the new mail |
+| 35 | UIDVALIDITY reset: state deleted, part of the mails reloaded, then state present and all reloaded | no mail classified, marker = highest UID |
+| 36 | `MessageKey`: same Message-ID and Received; same Message-ID, other Received; no Received; Received with different whitespace | same key; different; stable; same |
+| 37 | Campaign: 3 mails with the same Message-ID and different `Received`, Act | each classified on its own, no `SkippedKnown` |
+| 38 | Mail moved back by hand: same Message-ID and same `Received`, new UID | `SkippedKnown`, no command |
+| 39 | Retention: mail in Quarantine with the same Message-ID as a decided mail, other `Received` | never deleted |
+| 40 | Encoded word in `smtp.mailfrom` of the top header that decodes to `;dmarc=pass header.from=<contact domain>`, followed by a real `dmarc=fail`; sender is a contact | header value is raw, status not `Authenticated`, tier not `TrustedContact` |
+| 41 | `ReadMessageAsync`: normal, garbage, no From, stream throws IOException | Parsed/TopReceived/Input as G3; IOException propagates |
+| 42 | Two From addresses or empty group, Inbox, Act / RecordOnly; same in Junk | `Enqueued` to Screener / `Recorded`; `NoAction`; tier null; report `Classified` does not count it |
+| 43 | Retention: same mail due in two passes, first command still pending; first command failed | one command only; `RetentionDeletesEnqueued` 1 then 0 |
+| 44 | Retention: queue rejects the delete | `RetentionDeletesRejected` counts it, `RetentionDeletesEnqueued` does not, no exception |
+| 45 | `Route` with an undefined tier value | ArgumentOutOfRangeException |
+| 46 | More than 10,000 links | at most 10,000 hosts, no exception |
