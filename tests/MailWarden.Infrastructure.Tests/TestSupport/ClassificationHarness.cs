@@ -198,8 +198,7 @@ internal sealed class ClassificationHarness : IAsyncDisposable
             Storage.Messages,
             eml ?? Eml,
             contacts ?? Contacts,
-            HarvestMarkers,
-            Clock);
+            HarvestMarkers);
 
     public Task<ContactHarvestReport> HarvestAsync(CancellationToken ct = default) =>
         CreateHarvester().RunAsync(Account.Id, ct);
@@ -216,28 +215,20 @@ internal sealed class ClassificationHarness : IAsyncDisposable
         string? bcc = null)
     {
         var text = new StringBuilder();
-        text.Append("MIME-Version: 1.0
-");
-        text.Append("From: Own A <").Append(Account.EmailAddress).Append(">
-");
+        text.Append("MIME-Version: 1.0\r\n");
+        text.Append("From: Own A <").Append(Account.EmailAddress).Append(">\r\n");
         foreach ((string name, string? value) in new[] { ("To", to), ("Cc", cc), ("Bcc", bcc) })
         {
             if (value is not null)
             {
-                text.Append(name).Append(": ").Append(value).Append("
-");
+                text.Append(name).Append(": ").Append(value).Append("\r\n");
             }
         }
 
-        text.Append("Subject: sample_subject
-");
-        text.Append("Date: ").Append(ClassificationTestEml.DateHeader).Append("
-");
-        text.Append("Message-ID: <sent_").Append(folder.Id).Append('_').Append(uid).Append("@example.test>
-");
-        text.Append("Content-Type: text/plain; charset=utf-8
-
-body");
+        text.Append("Subject: sample_subject\r\n");
+        text.Append("Date: ").Append(ClassificationTestEml.DateHeader).Append("\r\n");
+        text.Append("Message-ID: <sent_").Append(folder.Id).Append('_').Append(uid).Append("@example.test>\r\n");
+        text.Append("Content-Type: text/plain; charset=utf-8\r\n\r\nbody");
         return AddRawAsync(folder, uid, Encoding.UTF8.GetBytes(text.ToString()), $"<sent_{folder.Id}_{uid}@example.test>");
     }
 

@@ -168,8 +168,24 @@ public sealed class SqliteSenderListStoreTests
         Assert.Equal(0L, await storage.CountRowsAsync("sender_list"));
     }
 
+    // Case 2 (decision): a domain entry that is a public suffix is rejected
+    [Theory(Timeout = TestTimeouts.PerTestMilliseconds)]
+    [InlineData("co.uk")]
+    [InlineData("com")]
+    [InlineData("CO.UK")]
+    public async Task Public_suffix_as_domain_entry_is_rejected(string suffix)
+    {
+        await using StorageFixture storage = await StorageFixture.CreateAsync();
+        var store = new SqliteSenderListStore(storage.Database);
+
+        await Assert.ThrowsAnyAsync<ArgumentException>(() => store.SetAsync(Domain(suffix, ListMembership.Blocked)));
+
+        Assert.Equal(0L, await storage.CountRowsAsync("sender_list"));
+    }
+
     // Case 2: positive controls for the boundaries of the validation
     [Theory(Timeout = TestTimeouts.PerTestMilliseconds)]
+    [InlineData("example.co.uk", true)]
     [InlineData("a@b.test", false)]
     [InlineData("sender_a@localhost", false)]
     [InlineData("example.test", true)]

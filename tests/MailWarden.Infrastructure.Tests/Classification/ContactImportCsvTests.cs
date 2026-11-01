@@ -241,6 +241,23 @@ public sealed class ContactImportCsvTests
         await Assert.ThrowsAsync<InvalidDataException>(() => ImportAsync(Utf8(large.ToString())));
     }
 
+    // Case 17 (decision): entries over the limit of 50,000 are Rejected
+    [Fact(Timeout = TestTimeouts.PerTestMilliseconds * 2)]
+    public async Task Entries_over_the_limit_of_50000_are_rejected()
+    {
+        var text = new StringBuilder("Name,Email\r\n");
+        for (int index = 0; index < 50_001; index++)
+        {
+            text.Append("Bad,not_an_address\r\n");
+        }
+
+        (ContactImportReport report, IReadOnlyList<Contact> contacts) = await ImportAsync(Utf8(text.ToString()));
+
+        Assert.Equal(0, report.Added);
+        Assert.Empty(contacts);
+        Assert.Equal(50_001, report.Rejected);
+    }
+
     // Case 17: cancellation
     [Fact(Timeout = TestTimeouts.PerTestMilliseconds)]
     public async Task Cancelled_token_stops_the_import()

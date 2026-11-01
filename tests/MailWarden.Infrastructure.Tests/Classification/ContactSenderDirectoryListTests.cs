@@ -82,6 +82,18 @@ public sealed class ContactSenderDirectoryListTests
         Assert.Equal(ListMembership.None, directory.GetListMembership("sender_a@other.co.uk"));
     }
 
+    // Case 4 (decision): a domain entry covers the domain and its sub-domains, never upward
+    [Fact]
+    public void Sub_domain_entry_does_not_match_upward_but_matches_below()
+    {
+        ContactSenderDirectory directory = Create(Domain("mail.blocked.test", ListMembership.Blocked));
+
+        Assert.Equal(ListMembership.Blocked, directory.GetListMembership("sender_a@mail.blocked.test"));
+        Assert.Equal(ListMembership.Blocked, directory.GetListMembership("sender_a@news.mail.blocked.test"));
+        Assert.Equal(ListMembership.None, directory.GetListMembership("sender_a@blocked.test"));
+        Assert.Equal(ListMembership.None, directory.GetListMembership("sender_a@other.blocked.test"));
+    }
+
     // Case 4: a domain entry on the allow list
     [Fact]
     public void Allowed_domain_allows_its_sub_domains()
