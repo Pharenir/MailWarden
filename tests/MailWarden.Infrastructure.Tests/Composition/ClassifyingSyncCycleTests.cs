@@ -251,6 +251,43 @@ public sealed class ClassifyingSyncCycleTests
         Assert.DoesNotContain("trigger", rig.Order);
     }
 
+    // Case 19 (fix.2): a cancellation exception without a cancelled token (e.g. a timeout) is a failure: logged, propagates.
+    [Theory(Timeout = TestTimeouts.PerTestMilliseconds)]
+    [InlineData(typeof(TaskCanceledException))]
+    [InlineData(typeof(OperationCanceledException))]
+    public async Task Cancellation_exception_with_an_uncancelled_token_is_logged_and_propagates(Type exceptionType)
+    {
+        var rig = new Rig();
+        var failure = (OperationCanceledException)Activator.CreateInstance(exceptionType, MarkerText)!;
+        rig.ClassifyBehavior = (_, _) => throw failure;
+        using var source = new CancellationTokenSource();
+
+        OperationCanceledException thrown = await Assert.ThrowsAnyAsync<OperationCanceledException>(() => rig.RunAsync(source.Token));
+
+        Assert.Same(failure, thrown);
+        Assert.Contains(exceptionType.Name, Assert.Single(rig.Log.Entries).Message, StringComparison.Ordinal);
+        Assert.DoesNotContain(MarkerText, rig.Log.AllText, StringComparison.Ordinal);
+        Assert.DoesNotContain("summary", rig.Order);
+    }
+
+    // Case 20 (fix.2): the same exception with a cancelled token is a cancellation: no log line, propagates.
+    [Fact(Timeout = TestTimeouts.PerTestMilliseconds)]
+    public async Task Task_canceled_exception_with_a_cancelled_token_propagates_without_a_log_line()
+    {
+        var rig = new Rig();
+        using var source = new CancellationTokenSource();
+        rig.ClassifyBehavior = (_, _) =>
+        {
+            source.Cancel();
+            throw new TaskCanceledException(MarkerText);
+        };
+
+        await Assert.ThrowsAnyAsync<OperationCanceledException>(() => rig.RunAsync(source.Token));
+
+        Assert.Empty(rig.Log.Entries);
+        Assert.DoesNotContain("summary", rig.Order);
+    }
+
     // Case 5
     [Fact(Timeout = TestTimeouts.PerTestMilliseconds)]
     public async Task Summary_handler_failure_is_logged_once_by_type_name_and_does_not_fail_the_cycle()

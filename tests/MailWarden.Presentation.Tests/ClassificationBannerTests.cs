@@ -44,13 +44,18 @@ public sealed class ClassificationBannerTests
         Assert.DoesNotContain("Exception", harness.Shell.Banner, StringComparison.Ordinal);
     }
 
-    // Case 14 (steps 1-4): second account with held moves, then each account's clean pass.
+    // Case 14 / 21 (fix.2): the sums since app start stay when a pass is clean; a second account adds its own kind.
     [Fact(Timeout = TestTimeouts.PerTestMilliseconds)]
-    public async Task Banner_follows_the_last_summary_of_every_account_and_clears_when_none_is_left()
+    public async Task Sums_stay_after_a_clean_pass_and_grow_with_other_accounts()
     {
         (ShellHarness harness, Account accountA, Account accountB) = await InitializedAsync();
         harness.Controller.RaiseClassification(Summary(accountA.Id, evaluationFailed: 7));
         string? onlyFailed = harness.Shell.Banner;
+        Assert.Contains("7", onlyFailed, StringComparison.Ordinal);
+
+        harness.Controller.RaiseClassification(Summary(accountA.Id));
+
+        Assert.Equal(onlyFailed, harness.Shell.Banner);
 
         harness.Controller.RaiseClassification(Summary(accountB.Id, brakeHeld: 4));
 
@@ -58,19 +63,24 @@ public sealed class ClassificationBannerTests
         Assert.NotNull(both);
         Assert.Contains("7", both, StringComparison.Ordinal);
         Assert.Contains("4", both, StringComparison.Ordinal);
-        Assert.NotEqual(onlyFailed, both);
 
+        harness.Controller.RaiseClassification(Summary(accountB.Id));
         harness.Controller.RaiseClassification(Summary(accountA.Id));
 
-        string? onlyHeld = harness.Shell.Banner;
-        Assert.NotNull(onlyHeld);
-        Assert.Contains("4", onlyHeld, StringComparison.Ordinal);
-        Assert.DoesNotContain("7", onlyHeld, StringComparison.Ordinal);
+        Assert.Equal(both, harness.Shell.Banner);
+        Assert.Empty(harness.Log.Entries);
+    }
 
+    // Case 21: a clean pass alone never creates or clears a banner.
+    [Fact(Timeout = TestTimeouts.PerTestMilliseconds)]
+    public async Task Clean_passes_alone_show_no_banner()
+    {
+        (ShellHarness harness, Account accountA, Account accountB) = await InitializedAsync();
+
+        harness.Controller.RaiseClassification(Summary(accountA.Id));
         harness.Controller.RaiseClassification(Summary(accountB.Id));
 
         Assert.Null(harness.Shell.Banner);
-        Assert.Empty(harness.Log.Entries);
     }
 
     // Case 14: counts are added over the last summaries of the accounts.
@@ -85,18 +95,16 @@ public sealed class ClassificationBannerTests
         Assert.Contains("12", harness.Shell.Banner, StringComparison.Ordinal);
     }
 
-    // Case 14: a newer summary of the same account replaces the older one (no adding up over time).
+    // Case 14 (fix.2): every pass adds to the sums of its account since app start.
     [Fact(Timeout = TestTimeouts.PerTestMilliseconds)]
-    public async Task Newer_summary_of_the_same_account_replaces_the_older_one()
+    public async Task Passes_of_the_same_account_add_up_since_app_start()
     {
         (ShellHarness harness, Account accountA, _) = await InitializedAsync();
         harness.Controller.RaiseClassification(Summary(accountA.Id, evaluationFailed: 7));
 
         harness.Controller.RaiseClassification(Summary(accountA.Id, evaluationFailed: 3));
 
-        Assert.Contains("3", harness.Shell.Banner, StringComparison.Ordinal);
-        Assert.DoesNotContain("7", harness.Shell.Banner, StringComparison.Ordinal);
-        Assert.DoesNotContain("10", harness.Shell.Banner, StringComparison.Ordinal);
+        Assert.Contains("10", harness.Shell.Banner, StringComparison.Ordinal);
     }
 
     // Case 14: unknown account.
