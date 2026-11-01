@@ -51,7 +51,8 @@ public static class ReadingDocumentBuilder
         document.Append("<!DOCTYPE html><html><head><meta charset=\"utf-8\">");
         document.Append("<meta http-equiv=\"Content-Security-Policy\" content=\"");
         document.Append(BuildContentSecurityPolicy(allowRemoteImages));
-        document.Append("\"><style>").Append(BaseStyle).Append("</style></head><body>");
+        document.Append("\"><meta name=\"referrer\" content=\"no-referrer\">");
+        document.Append("<style>").Append(BaseStyle).Append("</style></head><body>");
         document.Append(bodyContent);
         document.Append("</body></html>");
         return new ReadingDocument(document.ToString(), blockedCount);

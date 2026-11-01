@@ -17,7 +17,8 @@ namespace MailWarden.Infrastructure.Mime;
 public sealed record SanitizedHtml(string Html, int BlockedRemoteResourceCount);
 
 /// <summary>
-/// Cleans the HTML body of a mail with an allow-list. Runs in three steps on one parsed document: remove the dangerous
+/// Cleans the HTML body of a mail with an allow-list. Before parsing, <see cref="HtmlNestingLimiter"/> bounds the work
+/// for crafted input. Then three steps run on one parsed document: remove the dangerous
 /// elements with their content and limit the nesting; let the HtmlSanitizer package apply the allow-lists for elements,
 /// attributes and CSS properties; then apply the rules of this application for link targets, image sources and style URLs.
 /// </summary>
@@ -27,20 +28,18 @@ public static partial class MailHtmlSanitizer
     // which no exception handler catches. Browsers limit the depth in the same way.
     private const int MaxNestingDepth = 256;
 
-    // Estimated depth at which start tags are dropped before parsing (see HtmlNestingLimiter). Far above real mails.
-    private const int MaxOpenTagsBeforeParsing = 1024;
-
-    // Start tags and comments kept before parsing; the text of the rest stays visible without its markup. Worst case about
-    // 5 s (measured with 20,000 unknown sibling elements).
-    private const int MaxStartTagsBeforeParsing = 20_000;
+    // One small inline image referenced many times could otherwise multiply into gigabytes. A strict limit, also for a
+    // single image: 25 binary megabytes are 34,952,558 characters in Base64 with their prefix.
+    private const long MaxInsertedDataUriChars = 34_000_000;
 
     private const string DocumentPrefix = "<!doctype html><html><body>";
 
-    // Removed with their content; a tag that is merely unknown (e.g. o:p) only loses the tag. The second line holds the
-    // elements whose content is not body text or would be shown twice.
+    // Removed with their content; a tag that is merely unknown (e.g. o:p) or form only loses the tag, because some mailers
+    // wrap the whole mail in a form. The last lines hold the elements whose content is not body text or would be shown
+    // twice.
     private static readonly FrozenSet<string> RemovedElements = new[]
     {
-        "script", "style", "iframe", "frame", "object", "embed", "applet", "form", "input", "button", "select", "textarea",
+        "script", "style", "iframe", "frame", "object", "embed", "applet", "input", "button", "select", "textarea",
         "link", "meta", "base", "svg", "math", "video", "audio", "source", "template",
         "title", "head", "noscript", "noembed", "noframes", "frameset", "option", "optgroup", "datalist", "canvas", "track",
         "param", "keygen", "portal",
@@ -72,6 +71,8 @@ public static partial class MailHtmlSanitizer
         new[] { "image/png", "image/jpeg", "image/gif", "image/webp" }.ToFrozenSet(StringComparer.OrdinalIgnoreCase);
 
     // Every position value except "fixed", which could cover the whole reading document.
+    private static readonly char[] UrlEdgeCharacters = [.. Enumerable.Range(0, 33).Select(code => (char)code)];
+
     private static readonly FrozenSet<string> AllowedPositions =
         new[] { "static", "relative", "absolute", "sticky" }.ToFrozenSet(StringComparer.OrdinalIgnoreCase);
 
@@ -94,9 +95,10 @@ public static partial class MailHtmlSanitizer
 
     /// <summary>
     /// Cleans the HTML on any input; malformed HTML never throws. Removed entirely: script, style, iframe, frame, object,
-    /// embed, applet, form, input, button, select, textarea, link, meta, base, svg, math, video, audio, source, template.
-    /// Remote images and remote style URLs stay only when <paramref name="allowRemoteImages"/> is true; otherwise they are
-    /// removed and counted.
+    /// embed, applet, input, button, select, textarea, link, meta, base, svg, math, video, audio, source, template; form
+    /// loses only its tag. Remote images and remote style URLs stay only when <paramref name="allowRemoteImages"/> is
+    /// true; otherwise they are removed and counted. Inserted inline images use at most 34,000,000 characters per document;
+    /// images over this budget are removed.
     /// </summary>
     /// <param name="html">Raw HTML of a mail body.</param>
     /// <param name="inlineImages">Content-ID → data URI, the targets of <c>cid:</c> image sources.</param>
@@ -108,7 +110,7 @@ public static partial class MailHtmlSanitizer
         ArgumentNullException.ThrowIfNull(html);
         ArgumentNullException.ThrowIfNull(inlineImages);
 
-        string limitedHtml = HtmlNestingLimiter.Limit(html, MaxOpenTagsBeforeParsing, MaxStartTagsBeforeParsing);
+        string limitedHtml = HtmlNestingLimiter.Limit(html);
         using IHtmlDocument document = PackageSanitizer.HtmlParserFactory().ParseDocument(DocumentPrefix + limitedHtml);
         IHtmlElement? body = document.Body;
         if (body is null)
@@ -185,11 +187,12 @@ public static partial class MailHtmlSanitizer
     private static int ApplyUrlRules(IElement body, IReadOnlyDictionary<string, string> inlineImages, bool allowRemoteImages)
     {
         int blockedCount = 0;
+        var inlineImageBudget = new InlineImageBudget();
         foreach (IElement element in body.QuerySelectorAll("*").ToArray())
         {
             if (element.LocalName == "img")
             {
-                blockedCount += ApplyImageRule(element, inlineImages, allowRemoteImages);
+                blockedCount += ApplyImageRule(element, inlineImages, inlineImageBudget, allowRemoteImages);
                 if (element.Parent is null)
                 {
                     continue;
@@ -225,7 +228,11 @@ public static partial class MailHtmlSanitizer
     }
 
     // Returns the number of blocked remote resources (0 or 1).
-    private static int ApplyImageRule(IElement image, IReadOnlyDictionary<string, string> inlineImages, bool allowRemoteImages)
+    private static int ApplyImageRule(
+        IElement image,
+        IReadOnlyDictionary<string, string> inlineImages,
+        InlineImageBudget inlineImageBudget,
+        bool allowRemoteImages)
     {
         string? source = image.GetAttribute("src");
         if (source is null)
@@ -236,7 +243,7 @@ public static partial class MailHtmlSanitizer
         switch (ReadScheme(source)?.ToLowerInvariant())
         {
             case "cid":
-                if (FindInlineImage(source, inlineImages) is string dataUri && IsAllowedDataImage(dataUri))
+                if (FindInlineImage(source, inlineImages) is string dataUri && inlineImageBudget.TryInsert(dataUri))
                 {
                     image.SetAttribute("src", dataUri);
                 }
@@ -353,7 +360,7 @@ public static partial class MailHtmlSanitizer
         string withoutBreaks = url.Replace("\t", string.Empty, StringComparison.Ordinal)
             .Replace("\r", string.Empty, StringComparison.Ordinal)
             .Replace("\n", string.Empty, StringComparison.Ordinal);
-        return withoutBreaks.Trim([.. Enumerable.Range(0, 33).Select(code => (char)code)]);
+        return withoutBreaks.Trim(UrlEdgeCharacters);
     }
 
     // The URL scheme, or null for a relative URL.
@@ -361,6 +368,33 @@ public static partial class MailHtmlSanitizer
     {
         Match match = UrlScheme().Match(StripUrlWhitespace(url));
         return match.Success ? match.Groups[1].Value : null;
+    }
+
+    /// <summary>
+    /// The inline images inserted into one document. Each image is checked once: the check copies the URI, which would
+    /// cost gigabytes for many references to one large image.
+    /// </summary>
+    private sealed class InlineImageBudget
+    {
+        private readonly Dictionary<string, bool> checkedImages = new(ReferenceEqualityComparer.Instance);
+        private long insertedChars;
+
+        public bool TryInsert(string dataUri)
+        {
+            if (!checkedImages.TryGetValue(dataUri, out bool isAllowed))
+            {
+                isAllowed = IsAllowedDataImage(dataUri);
+                checkedImages.Add(dataUri, isAllowed);
+            }
+
+            if (!isAllowed || insertedChars + dataUri.Length > MaxInsertedDataUriChars)
+            {
+                return false;
+            }
+
+            insertedChars += dataUri.Length;
+            return true;
+        }
     }
 
     [GeneratedRegex("^([a-zA-Z][a-zA-Z0-9+.-]*):", RegexOptions.CultureInvariant)]
