@@ -12,9 +12,9 @@ dotnet build MailWarden.sln -warnaserror
 & .\src\MailWarden.App\bin\x64\Debug\net9.0-windows10.0.19041.0\win-x64\MailWarden.App.exe
 ```
 - [ ] Build grün (0 Warnungen, 0 Fehler)
-- [ ] Fenster „MailWarden“ erscheint (leer – es gibt noch keine Ansicht)
-- [ ] Hell/Dunkel folgt Windows (Einstellungen → Personalisierung → Farben umschalten, Fenster wechselt mit)
-- [ ] Neben der Exe entsteht ein Ordner `data\`
+- [x] Fenster „MailWarden“ erscheint (leer – es gibt noch keine Ansicht)
+- [x] Hell/Dunkel folgt Windows (Einstellungen → Personalisierung → Farben umschalten, Fenster wechselt mit)
+- [x] Neben der Exe entsteht ein Ordner `data\`
 
 ## 2 – Anmeldung mit der AuthProbe (AP-02a Fälle 28–30)
 Vorbereitung (einmal je Terminal):
