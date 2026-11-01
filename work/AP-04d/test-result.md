@@ -52,3 +52,6 @@ Changed tests (contract change G1/G3):
 - Infrastructure helpers: `IsLight` = plain light theme (no veil), new `IsVeiledLight`; `IsDark` now also requires no veil. Cases 4, 5, 5 (approval), 7, 14 and the text-only test now assert the veil (case 17).
 - Presentation `Mail_with_own_colours_gives_the_same_html_in_both_themes_and_no_document_change` replaced by `Mail_with_own_colours_gets_the_veil_on_a_theme_change_without_reading_again` (case 20: `DocumentHtml` changes and is announced, no read, back to light is byte-identical).
 New: case 18 (no veil for plain text and HTML without colours), case 19 (light never has a veil, 4 inputs), `The_mail_cannot_influence_the_veil` (`html::after` in text or in a removed `<style>` changes nothing of the page style), `Mail_with_own_colours_keeps_the_image_approval_on_a_theme_change`. The CSP test (case 9, includes a mail with colours) stays unchanged and green.
+
+## verify.5 (branch merged with `feat/ap-04d-reading-theme` 1350317, which holds `main` with AP-04b and AP-06)
+S3 green: 2772 of 2772 (Core 536, Presentation 559, Infrastructure 1677), 29.1 s, build `-warnaserror` clean (0 warnings, 0 errors), no red test, no new tests. `tests\test-map.json` parses and is unchanged. The count is above the expected ~2690, so no filter or discovery problem.
