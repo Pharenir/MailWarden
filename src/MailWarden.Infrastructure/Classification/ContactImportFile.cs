@@ -337,18 +337,37 @@ public static class ContactImportFile
         return semicolonCount > commaCount ? ';' : ',';
     }
 
-    // RFC 4180. A quote only opens at the start of a field and "" inside quotes is one quote; a line break inside quotes stays
-    // in the field. A text that ends inside quotes gives a last row that is not complete.
+    // A row with an unterminated quote costs only its first physical line, which comes as a row that is not complete. Reading
+    // goes on with the next line.
     private static IEnumerable<CsvRow> ReadCsvRows(string text, char separator)
+    {
+        int index = 0;
+        while (index < text.Length)
+        {
+            int rowStart = index;
+            List<string>? fields = TryReadCsvFields(text, separator, rowStart, out index);
+            if (fields is not null)
+            {
+                yield return new CsvRow(fields, true);
+                continue;
+            }
+
+            index = SkipLine(text, rowStart);
+            yield return new CsvRow([], false);
+        }
+    }
+
+    // RFC 4180. A quote only opens at the start of a field and "" inside quotes is one quote; a line break inside quotes stays
+    // in the field. Null when the text ends inside quotes, or when a closing quote is not followed by the end of the field:
+    // that quote really opens a later field, so the one before it never ended.
+    private static List<string>? TryReadCsvFields(string text, char separator, int rowStart, out int nextRowStart)
     {
         var fields = new List<string>();
         var field = new StringBuilder();
         bool isInQuotes = false;
-        bool hasOpenRow = false;
-        for (int index = 0; index < text.Length; index++)
+        for (int index = rowStart; index < text.Length; index++)
         {
             char character = text[index];
-            hasOpenRow = true;
             if (isInQuotes)
             {
                 if (character != '"')
@@ -360,9 +379,14 @@ public static class ContactImportFile
                     field.Append('"');
                     index++;
                 }
-                else
+                else if (EndsFieldAfterSpaces(text, index + 1, separator))
                 {
                     isInQuotes = false;
+                }
+                else
+                {
+                    nextRowStart = text.Length;
+                    return null;
                 }
             }
             else if (character == '"' && field.Length == 0)
@@ -382,10 +406,8 @@ public static class ContactImportFile
                 }
 
                 fields.Add(field.ToString());
-                field.Clear();
-                yield return new CsvRow(fields, true);
-                fields = [];
-                hasOpenRow = false;
+                nextRowStart = index + 1;
+                return fields;
             }
             else
             {
@@ -393,11 +415,38 @@ public static class ContactImportFile
             }
         }
 
-        if (hasOpenRow)
+        nextRowStart = text.Length;
+        if (isInQuotes)
         {
-            fields.Add(field.ToString());
-            yield return new CsvRow(fields, !isInQuotes);
+            return null;
         }
+
+        fields.Add(field.ToString());
+        return fields;
+    }
+
+    private static bool EndsFieldAfterSpaces(string text, int start, char separator)
+    {
+        int index = start;
+        while (index < text.Length && text[index] is ' ' or '\t')
+        {
+            index++;
+        }
+
+        return index == text.Length || text[index] == separator || text[index] is '\r' or '\n';
+    }
+
+    // Start of the physical line after the one that begins at the given position.
+    private static int SkipLine(string text, int lineStart)
+    {
+        int lineEnd = text.AsSpan(lineStart).IndexOfAny('\r', '\n');
+        if (lineEnd < 0)
+        {
+            return text.Length;
+        }
+
+        int next = lineStart + lineEnd + 1;
+        return text[next - 1] == '\r' && next < text.Length && text[next] == '\n' ? next + 1 : next;
     }
 
     // One address with its name. An empty address stands for an entry that is malformed as a whole.

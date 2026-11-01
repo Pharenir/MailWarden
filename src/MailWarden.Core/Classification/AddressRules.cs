@@ -1,4 +1,6 @@
 using System.Buffers;
+using System.Diagnostics.CodeAnalysis;
+using System.Globalization;
 using MailWarden.Core.Text;
 
 namespace MailWarden.Core.Classification;
@@ -12,7 +14,7 @@ public static class AddressRules
     // RFC 5321: a forward path holds at most 256 characters including the angle brackets.
     private const int MaxAddressLength = 254;
     private const int MaxDomainLength = 253;
-    private const char ReplacementCharacter = '�';
+    private const char ReplacementCharacter = '\uFFFD';
 
     // Syntax characters of an address list or a mail header. Quoted local parts are rejected with them on purpose: nobody
     // writes to them by hand, and they would be the way to hide an address inside an address.
@@ -25,7 +27,7 @@ public static class AddressRules
     /// </summary>
     /// <param name="address">Address or null.</param>
     /// <returns>True when the address is well-formed.</returns>
-    public static bool IsWellFormedAddress(string? address)
+    public static bool IsWellFormedAddress([NotNullWhen(true)] string? address)
     {
         if (string.IsNullOrEmpty(address) || address.Length > MaxAddressLength || !HasOnlyAddressCharacters(address))
         {
@@ -56,9 +58,53 @@ public static class AddressRules
     }
 
     /// <summary>
-    /// Lookup form of a sender or of an address entry: trimmed, with the domain as <see cref="DomainNames.GetDomain"/> gives it.
-    /// Deliberately more tolerant than <see cref="IsWellFormedAddress"/>: a quoted local part or a trailing dot in the domain
-    /// must not carry a sender past the block list.
+    /// Whether a sender is exact enough for the allow list: well-formed as it stands, and its domain part is the same text as
+    /// its normalised form except for the case of ASCII letters. So normalising did not make it equal to a listed domain,
+    /// as it would for a Kelvin sign or a trailing no-break space.
+    /// </summary>
+    /// <param name="address">Sender as given, untrimmed, or null.</param>
+    /// <returns>True when an allow entry may apply to this sender.</returns>
+    public static bool IsExactSender(string? address)
+    {
+        if (!IsWellFormedAddress(address))
+        {
+            return false;
+        }
+
+        string domain = address[(address.IndexOf('@', StringComparison.Ordinal) + 1)..];
+        string normalized = DomainNames.Normalize(domain);
+        return domain.Length == normalized.Length
+            && domain.Zip(normalized).All(pair => pair.First == pair.Second
+                || (char.IsAsciiLetter(pair.First) && char.ToLowerInvariant(pair.First) == pair.Second));
+    }
+
+    /// <summary>
+    /// Form in which domains of entries and senders are compared: trimmed, without trailing dots, lower-case, with Punycode
+    /// labels decoded, so that both forms of an international domain match. A value that is no valid international name stays
+    /// as it is, apart from the case.
+    /// </summary>
+    /// <param name="domain">Domain text.</param>
+    /// <returns>The comparable form, possibly empty.</returns>
+    /// <exception cref="ArgumentNullException"><paramref name="domain"/> is null.</exception>
+    public static string NormalizeDomain(string domain)
+    {
+        ArgumentNullException.ThrowIfNull(domain);
+        string normalized = DomainNames.Normalize(domain);
+        try
+        {
+            return new IdnMapping().GetUnicode(normalized).ToLowerInvariant();
+        }
+        catch (ArgumentException)
+        {
+            return normalized;
+        }
+    }
+
+    /// <summary>
+    /// Lookup form of a sender or of an address entry: trimmed, without the quotes of a fully quoted local part, with the domain
+    /// of <see cref="NormalizeDomain"/>. Deliberately more tolerant than <see cref="IsWellFormedAddress"/>: a quoted local part
+    /// or a trailing dot in the domain must not carry a sender past the block list. Plus and dot variants of a local part stay
+    /// different addresses: which ones reach one mailbox is the provider's rule.
     /// </summary>
     /// <param name="address">Address or null.</param>
     /// <returns>The lookup form, or null when the text is blank or has no local part or no domain.</returns>
@@ -77,7 +123,14 @@ public static class AddressRules
         }
 
         string? domain = DomainNames.TryGetDomain(trimmed);
-        return domain is null ? null : string.Concat(trimmed.AsSpan(0, atIndex + 1), domain);
+        return domain is null ? null : $"{RemoveQuotes(trimmed[..atIndex])}@{NormalizeDomain(domain)}";
+    }
+
+    // Only around the whole local part. Empty quotes stay, so that such a sender still has a local part for the block list.
+    private static string RemoveQuotes(string localPart)
+    {
+        bool isQuoted = localPart.Length > 2 && localPart[0] == '"' && localPart[^1] == '"';
+        return isQuoted && !string.IsNullOrWhiteSpace(localPart[1..^1]) ? localPart[1..^1] : localPart;
     }
 
     // SafeDisplayText knows the control, bidi and invisible characters; an address that it would change is disguised.

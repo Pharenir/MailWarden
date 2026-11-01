@@ -49,6 +49,11 @@ public sealed class SqliteSenderListStore(SqliteDatabase database) : ISenderList
         }
 
         string? text = entry.Entry?.Trim();
+        if (text is not null && text.Contains('*', StringComparison.Ordinal))
+        {
+            throw new ArgumentException("A list entry must not hold a wildcard.", nameof(entry));
+        }
+
         if (entry.IsDomain && !AddressRules.IsWellFormedDomain(text))
         {
             throw new ArgumentException("A domain entry needs at least one dot and no '@'.", nameof(entry));

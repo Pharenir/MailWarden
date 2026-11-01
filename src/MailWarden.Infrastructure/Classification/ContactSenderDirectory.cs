@@ -6,7 +6,10 @@ namespace MailWarden.Infrastructure.Classification;
 /// In-memory snapshot of the contacts, the addresses of all accounts and the allow/block lists. Contacts are compared
 /// case-insensitively and exactly. An address entry wins over a domain entry; a domain entry applies when the sender's domain
 /// equals it or is a sub-domain of it, so <c>mail.example.test</c> does not cover <c>example.test</c>. Among the domain entries
-/// that apply to a sender, Blocked wins over Allowed, also when they name different levels of its domain.
+/// that apply to a sender, Blocked wins over Allowed, also when they name different levels of its domain. Domains compare in
+/// the form of <see cref="AddressRules.NormalizeDomain"/>, so a Punycode entry matches the Unicode form and the other way
+/// round. Plus and dot variants of an address are different addresses. Blocked is tolerant about the spelling of a sender; an
+/// allow entry applies only to a sender that passes <see cref="AddressRules.IsExactSender"/>.
 /// </summary>
 public sealed class ContactSenderDirectory : ISenderDirectory
 {
@@ -95,12 +98,16 @@ public sealed class ContactSenderDirectory : ISenderDirectory
             return ListMembership.None;
         }
 
-        if (addressEntries.TryGetValue(lookupForm, out ListMembership addressKind))
+        // A blurred sender cannot be allowed, but its blurred spelling must not hide it from a block entry of its domain.
+        bool mayBeAllowed = AddressRules.IsExactSender(emailAddress);
+        if (addressEntries.TryGetValue(lookupForm, out ListMembership addressKind)
+            && (addressKind == ListMembership.Blocked || mayBeAllowed))
         {
             return addressKind;
         }
 
-        return GetDomainMembership(DomainNames.GetDomain(lookupForm));
+        ListMembership domainKind = GetDomainMembership(DomainNames.GetDomain(lookupForm));
+        return domainKind == ListMembership.Blocked || mayBeAllowed ? domainKind : ListMembership.None;
     }
 
     // Walks from the sender's domain up to its last label. Empty labels ("a..b") are dropped, as DomainNames does.
@@ -135,8 +142,7 @@ public sealed class ContactSenderDirectory : ISenderDirectory
     {
         if (entry.IsDomain)
         {
-            // Same form as DomainNames gives for the sender. The comparer takes care of the case.
-            Merge(domainEntries, entry.Entry.Trim().TrimEnd('.'), entry.Kind);
+            Merge(domainEntries, AddressRules.NormalizeDomain(entry.Entry), entry.Kind);
         }
         else if (AddressRules.ToLookupForm(entry.Entry) is string lookupForm)
         {

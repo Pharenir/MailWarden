@@ -1,4 +1,5 @@
 using System.Collections.Frozen;
+using System.Text;
 using MailWarden.Core.Classification;
 using MailWarden.Core.Model;
 using MailWarden.Core.Storage;
@@ -15,6 +16,11 @@ namespace MailWarden.Infrastructure.Classification;
 /// <para>
 /// Spoofing: only folders with the role <see cref="FolderRole.Sent"/> count, so an incoming mail cannot create a contact. A
 /// contact alone never trusts a mail either: the tier <see cref="SpamTier.TrustedContact"/> also needs passing authentication.
+/// </para>
+/// <para>
+/// Not everything in a Sent folder was written by the user. A mail counts as skipped when From is not exactly one account
+/// address (so an alias delivers no contacts, which is the safe side), when <c>Auto-Submitted</c> is present and not
+/// <c>no</c>, or when the top Content-Type is <c>multipart/report</c> (delivery reports and the like).
 /// </para>
 /// <para>
 /// A folder is only handled after a completed sync (it has a stored sync state). Unlike the classification pass, the first
@@ -100,6 +106,37 @@ public sealed class ContactHarvester
         return AddressRules.IsWellFormedAddress(address)
             && !ownAddresses.Contains(address)
             && !RoleLocalParts.Contains(address[..address.IndexOf('@', StringComparison.Ordinal)]);
+    }
+
+    private static bool IsWrittenByUser(HeaderList headers, ParserOptions options, HashSet<string> ownAddresses)
+    {
+        List<Header> fromHeaders = [.. headers.Where(header => header.Id == HeaderId.From)];
+        if (fromHeaders.Count != 1
+            || !InternetAddressList.TryParse(options, fromHeaders[0].RawValue, out InternetAddressList? fromAddresses))
+        {
+            return false;
+        }
+
+        List<MailboxAddress> senders = [.. fromAddresses.Mailboxes];
+        return senders.Count == 1
+            && ownAddresses.Contains(senders[0].Address?.Trim() ?? string.Empty)
+            && !headers.Any(header => IsAutomaticMarker(header, options));
+    }
+
+    private static bool IsAutomaticMarker(Header header, ParserOptions options)
+    {
+        if (header.Id == HeaderId.AutoSubmitted)
+        {
+            // RFC 3834: the value can carry parameters. The raw bytes, because Header.Value decodes encoded words.
+            string value = Header.Unfold(Encoding.Latin1.GetString(header.RawValue));
+            int parametersStart = value.IndexOf(';', StringComparison.Ordinal);
+            string keyword = (parametersStart < 0 ? value : value[..parametersStart]).Trim();
+            return !keyword.Equals("no", StringComparison.OrdinalIgnoreCase);
+        }
+
+        return header.Id == HeaderId.ContentType
+            && ContentType.TryParse(options, header.RawValue, out ContentType? contentType)
+            && contentType.IsMimeType("multipart", "report");
     }
 
     // All mailboxes of To, Cc and Bcc, in header order; Mailboxes also walks through groups. The header value is parsed raw,
@@ -188,7 +225,7 @@ public sealed class ContactHarvester
 
     private async Task HarvestMailAsync(string? emlPath, RunState state, CancellationToken ct)
     {
-        List<MailboxAddress>? recipients = await TryReadRecipientsAsync(emlPath, ct).ConfigureAwait(false);
+        List<MailboxAddress>? recipients = await TryReadRecipientsAsync(emlPath, state.OwnAddresses, ct).ConfigureAwait(false);
         if (recipients is null)
         {
             state.MailsSkipped++;
@@ -210,9 +247,9 @@ public sealed class ContactHarvester
         }
     }
 
-    // Null when the mail has no EML or the bytes are no message. Exception messages can quote message data and are not kept.
-    // The catch only spans the EML: failures of the database stores propagate from the callers.
-    private async Task<List<MailboxAddress>?> TryReadRecipientsAsync(string? emlPath, CancellationToken ct)
+    // Null when the mail has no EML, the bytes are no message or the user did not write it. Exception messages can quote message
+    // data and are not kept. The catch only spans the EML: failures of the database stores propagate from the callers.
+    private async Task<List<MailboxAddress>?> TryReadRecipientsAsync(string? emlPath, HashSet<string> ownAddresses, CancellationToken ct)
     {
         if (emlPath is null)
         {
@@ -224,7 +261,7 @@ public sealed class ContactHarvester
             ParserOptions options = MimeParserDefaults.Create();
             await using Stream eml = await emlStore.OpenReadAsync(emlPath, ct).ConfigureAwait(false);
             HeaderList headers = await HeaderList.LoadAsync(options, eml, ct).ConfigureAwait(false);
-            return headers.Count == 0 ? null : ReadRecipients(headers, options);
+            return headers.Count > 0 && IsWrittenByUser(headers, options, ownAddresses) ? ReadRecipients(headers, options) : null;
         }
         catch (Exception exception) when (exception is not (OperationCanceledException or OutOfMemoryException))
         {

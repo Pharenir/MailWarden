@@ -17,12 +17,14 @@ public interface ISenderListStore
     /// <param name="entry">
     /// Address: must hold '@' and a domain, see <see cref="AddressRules.IsWellFormedAddress"/>. Domain: no '@', at least one
     /// dot, see <see cref="AddressRules.IsWellFormedDomain"/>, and no public suffix, see <see cref="DomainNames.IsPublicSuffix"/>:
-    /// such an entry would cover the senders of many unrelated organisations.
+    /// such an entry would cover the senders of many unrelated organisations. A wildcard <c>*</c> is rejected for both: entries
+    /// are literal, and a domain entry covers its sub-domains anyway.
     /// </param>
     /// <param name="ct">Cancellation token.</param>
     /// <returns>A task that completes when the entry is stored.</returns>
     /// <exception cref="ArgumentNullException"><paramref name="entry"/> is null.</exception>
-    /// <exception cref="ArgumentException">The text is invalid or a public suffix, or the kind is <see cref="ListMembership.None"/>.</exception>
+    /// <exception cref="ArgumentException">The text is invalid, a public suffix or holds a wildcard, or the kind is
+    /// <see cref="ListMembership.None"/>.</exception>
     Task SetAsync(SenderListEntry entry, CancellationToken ct = default);
 
     /// <summary>Removes an entry. Unknown entry = no-op.</summary>
