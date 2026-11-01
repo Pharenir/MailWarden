@@ -76,3 +76,7 @@ Not compiled here: the test branch has no fix.2 product code yet (`EmptyFolderPr
 | U8, U9 | not automatable here (key repeat and window placement live in `App`); manual |
 
 New questions: Q8 Case 27 UI: the fake throws `MailActionException` whose text contains "teilweise"; if the view model derives the wording from a flag on the exception instead, tell me the member. Q9 Case 31 assumes the delete awaits `GetFolderRoleAsync` after the keystroke; if not, the test times out waiting for the gate (then the await point differs). Q10 The length bound after "host first" (U5) is not fixed; tests allow 501 + 100.
+
+## fix.2 additions (author.2)
+- D1 (`MailboxActionsTests`): late-loaded lower-UID mail refuses the empty and leaves the queue empty (+ positive control: fewer mails allowed); `StorageException` after a stored group reports `PartlyDoneText` (a SQLite trigger on `mail_commands` fails the second insert; + control with a single group). Q11: the log line with the type name is not asserted because the `MailboxActions` constructor used by the harness has no log; tell me how to inject one.
+- UI (`ActionRaceTests`): read/flag/unread on the follow row work while the delete is saved; delete/permanent/move skip it (+ positive control afterwards); `ActionRowsRemoved` silent after Dispose (+ control without Dispose).
