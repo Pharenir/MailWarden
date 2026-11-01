@@ -181,3 +181,22 @@ Why this round: "Ordner leeren" is the only irreversible path of this AP. review
 | W-e | Insert fails (SQLite trigger) | Nothing stored, error reaches the caller |
 | W-f | Refused, new preview differs | Dialog asks again with the new count |
 | W-g | Refused, new preview equal in content | Stops with the error, no further question |
+
+## Decisions after Dennis's manual test (planner, 2026-11-01)
+Dennis tested cases 21, 22, 32: everything as expected, with one wish: "Ordner leeren" should also appear on a right click on the folder.
+
+- X1: Right click (and context key) on a folder in the tree offers "Ordner leeren" when, and only when, that entry can be emptied: exactly one Trash or Junk folder behind its view. Other entries show no menu, not an empty one.
+- X2: The action targets the folder that was right-clicked, not the selected view. The selection does not change. It takes the existing path: `EmptyFolderAsync(view)` with the question, the confirmed UID set and the refusal of fix.4. An active search does not block it, because the question names folder, count and account.
+- X3: The unread number in the tree stays as it is: it follows the local data once the executor has run, a few seconds later. Dennis has noticed this; the planner offers a change but does not build one without his word.
+
+### Additional test cases (X)
+| # | Situation | Expected |
+|---|---|---|
+| X-a | Trash and Junk of one account | Entry can be emptied |
+| X-b | Inbox, Sent, Archive, a custom folder, account node, tree parent | Entry cannot be emptied |
+| X-c | Group Junk or Trash with one account that has this folder | Entry can be emptied |
+| X-d | Group Junk or Trash with two accounts having this folder | Entry cannot be emptied |
+| X-e | View of Konto 2 Inbox selected, empty requested for Junk of Konto 3 | Question names Konto 3 and its count; the command holds the UIDs of that Junk; the current list and selection stay |
+| X-f | Empty requested while a search is active | Same path, command stored |
+| X-g | Folder without local mails | No question, no command |
+| X-h | Manual, Dennis: right click on Junk of Konto 3 and on Posteingang; context key | Menu only on Junk |
