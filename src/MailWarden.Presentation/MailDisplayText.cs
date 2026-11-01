@@ -1,4 +1,5 @@
 using MailWarden.Core.Text;
+using MailWarden.Infrastructure.Mime;
 
 namespace MailWarden.Presentation;
 
@@ -26,10 +27,13 @@ internal static class MailDisplayText
     // No file system allows longer names, so only crafted names are cut.
     private const int MaxAttachmentNameCharacters = 260;
 
-    // Below this length of the address the name is the part that gets cut.
-    private const int MaxProtectedAddressCharacters = MaxSenderCharacters - 10;
+    // With a name beside it the address gets at most this much, the name gets the rest of the sender limit.
+    private const int MaxAddressCharactersWithName = 60;
 
-    private const string AddressSeparator = " <";
+    // The space and the angle brackets around the address.
+    private const int AddressFrameCharacters = 3;
+
+    private const string Ellipsis = "…";
 
     /// <summary>The shortened subject; a fixed text when it is empty.</summary>
     /// <param name="subject">Raw subject.</param>
@@ -41,23 +45,70 @@ internal static class MailDisplayText
     }
 
     /// <summary>
-    /// A sender line such as "Name &lt;address&gt;". The name is cut first, so that a long name cannot hide the address.
+    /// The sender line: only the first mailbox as "Name &lt;address&gt;", then "+N weitere". It works on the parsed mailboxes,
+    /// because name and order are chosen by the sender and could hide the real address. The name is cut at the end, the
+    /// address in the middle, so that its domain stays visible.
     /// </summary>
-    /// <param name="line">Raw sender line.</param>
-    /// <returns>The text to show, at most <see cref="MaxSenderCharacters"/> characters plus "…".</returns>
-    public static string SenderLine(string line)
+    /// <param name="senders">Parsed mailboxes of the From header.</param>
+    /// <returns>The first mailbox in at most <see cref="MaxSenderCharacters"/> characters plus "…", and the number of others.</returns>
+    public static string SenderLine(IReadOnlyList<MailSender> senders)
     {
-        string collapsed = SafeDisplayText.Shorten(line, int.MaxValue);
-        if (collapsed.Length <= MaxSenderCharacters)
+        if (senders.Count == 0)
+        {
+            return string.Empty;
+        }
+
+        string line = DescribeSender(senders[0]);
+        return senders.Count == 1 ? line : $"{line} {UiText.MoreSenders(senders.Count - 1)}";
+    }
+
+    /// <summary>Cuts an address in the middle: everything from the last '@' on stays, as far as it fits.</summary>
+    /// <param name="address">Raw address.</param>
+    /// <param name="maxCharacters">Maximum length of the result, including the "…", at least 2.</param>
+    /// <returns>The address, e.g. <c>aaa…@evil.test</c>.</returns>
+    public static string ShortenAddress(string address, int maxCharacters)
+    {
+        string collapsed = SafeDisplayText.Shorten(address, int.MaxValue);
+        if (collapsed.Length <= maxCharacters)
         {
             return collapsed;
         }
 
-        int separator = collapsed.LastIndexOf(AddressSeparator, StringComparison.Ordinal);
-        int addressLength = collapsed.Length - separator;
-        return separator > 0 && collapsed.EndsWith('>') && addressLength <= MaxProtectedAddressCharacters
-            ? SafeDisplayText.Shorten(collapsed[..separator], MaxSenderCharacters - addressLength) + collapsed[separator..]
-            : SafeDisplayText.Shorten(collapsed, MaxSenderCharacters);
+        int domainStart = collapsed.LastIndexOf('@');
+        int roomForText = maxCharacters - Ellipsis.Length;
+        int tailLength = Math.Min(domainStart < 0 ? roomForText / 2 : collapsed.Length - domainStart, roomForText);
+        int headLength = roomForText - tailLength;
+
+        // A cut must not split a surrogate pair.
+        if (headLength > 0 && char.IsHighSurrogate(collapsed[headLength - 1]))
+        {
+            headLength--;
+        }
+
+        int tailStart = collapsed.Length - tailLength;
+        if (char.IsLowSurrogate(collapsed[tailStart]))
+        {
+            tailStart++;
+        }
+
+        return string.Concat(collapsed.AsSpan(0, headLength), Ellipsis, collapsed.AsSpan(tailStart));
+    }
+
+    private static string DescribeSender(MailSender sender)
+    {
+        if (SafeDisplayText.Shorten(sender.Name, 1).Length == 0)
+        {
+            return ShortenAddress(sender.Address, MaxSenderCharacters);
+        }
+
+        string address = ShortenAddress(sender.Address, MaxAddressCharactersWithName);
+        if (address.Length == 0)
+        {
+            return SafeDisplayText.Shorten(sender.Name, MaxSenderCharacters);
+        }
+
+        string name = SafeDisplayText.Shorten(sender.Name, MaxSenderCharacters - address.Length - AddressFrameCharacters);
+        return $"{name} <{address}>";
     }
 
     /// <summary>The recipients as one line.</summary>

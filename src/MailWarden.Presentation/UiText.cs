@@ -129,6 +129,26 @@ public static class UiText
         return string.Create(CultureInfo.InvariantCulture, $"Bilder laden ({blockedCount} blockiert)");
     }
 
+    /// <summary>Notice: a limit for unusual mails reduced the document.</summary>
+    public static string ContentReduced =>
+        "Diese Nachricht ist ungewöhnlich aufgebaut und wird nur vereinfacht angezeigt; ein Teil der Formatierung oder Bilder fehlt.";
+
+    /// <summary>Notice: only the plain text is shown, because the document would take too long.</summary>
+    public static string ContentShownAsText =>
+        "Die Aufbereitung dieser Nachricht dauert zu lange oder eine andere läuft noch; sie wird daher nur als Text angezeigt.";
+
+    /// <summary>Notice: parts below the depth limit cannot be shown.</summary>
+    public static string ContentHasOpaqueParts =>
+        "Ein Teil dieser Nachricht ist zu tief verschachtelt und kann nicht angezeigt werden.";
+
+    /// <summary>Addition to the sender line.</summary>
+    /// <param name="count">Number of further mailboxes in the From header.</param>
+    /// <returns>The addition.</returns>
+    public static string MoreSenders(int count)
+    {
+        return string.Create(CultureInfo.InvariantCulture, $"+{count} weitere");
+    }
+
     /// <summary>Last entry of a long attachment list.</summary>
     /// <param name="count">Number of attachments not listed.</param>
     /// <returns>The entry.</returns>

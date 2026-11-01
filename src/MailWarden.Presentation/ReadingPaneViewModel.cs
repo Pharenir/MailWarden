@@ -40,6 +40,7 @@ public sealed class ReadingPaneViewModel : ObservableObject
     private readonly ICriticalLog log;
     private readonly TimeProvider timeProvider;
     private readonly RelayCommand loadRemoteImagesCommand;
+    private readonly Func<MailContent, bool, ReadingDocument> documentBuilder;
     private ReadingState state = ReadingState.Empty;
     private string subject = string.Empty;
     private string from = string.Empty;
@@ -54,14 +55,29 @@ public sealed class ReadingPaneViewModel : ObservableObject
     private int showGeneration;
     private CancellationTokenSource? showCancellation;
     private bool isClosed;
+    private string? contentNotice;
 
-    internal ReadingPaneViewModel(IMailboxReadModel readModel, ICriticalLog log, TimeProvider timeProvider)
+    // The newest build. It cannot be stopped once it runs, so it may outlive the message it was started for.
+    private Task? runningBuild;
+
+    internal ReadingPaneViewModel(
+        IMailboxReadModel readModel,
+        ICriticalLog log,
+        TimeProvider timeProvider,
+        Func<MailContent, bool, ReadingDocument> documentBuilder)
     {
         this.readModel = readModel;
         this.log = log;
         this.timeProvider = timeProvider;
+        this.documentBuilder = documentBuilder;
         loadRemoteImagesCommand = new RelayCommand(LoadRemoteImages, () => CanLoadRemoteImages);
     }
+
+    /// <summary>
+    /// Longest wait for the document of a message; afterwards it is shown as plain text. It is the backstop for what the
+    /// limits of the sanitizer do not foresee: its work cannot be interrupted. Measured on the time provider of the shell.
+    /// </summary>
+    public static TimeSpan BuildTimeLimit { get; } = TimeSpan.FromSeconds(5);
 
     /// <summary>State of the pane.</summary>
     public ReadingState State
@@ -140,6 +156,22 @@ public sealed class ReadingPaneViewModel : ObservableObject
         private set => SetProperty(ref documentHtml, value);
     }
 
+    /// <summary>Fixed text about what the document does not show, above the document; null when nothing is missing.</summary>
+    public string? ContentNotice
+    {
+        get => contentNotice;
+        private set
+        {
+            if (SetProperty(ref contentNotice, value))
+            {
+                OnPropertyChanged(nameof(HasContentNotice));
+            }
+        }
+    }
+
+    /// <summary>True when <see cref="ContentNotice"/> has a text.</summary>
+    public bool HasContentNotice => contentNotice is not null;
+
     /// <summary>Number of remote resources blocked in the current document.</summary>
     public int BlockedRemoteResourceCount
     {
@@ -183,7 +215,9 @@ public sealed class ReadingPaneViewModel : ObservableObject
 
     /// <summary>
     /// Shows a message, or the empty pane for null. A failure ends in <see cref="ReadingState.Error"/> with a fixed text and
-    /// a critical log line with the type name.
+    /// a critical log line with the type name. At most one document build runs at a time: after
+    /// <see cref="BuildTimeLimit"/>, or while another build still runs, the plain text is shown with a notice, and a later
+    /// result of that build is ignored.
     /// </summary>
     /// <param name="message">Message to show, or null.</param>
     /// <param name="ct">Cancellation token.</param>
@@ -225,10 +259,7 @@ public sealed class ReadingPaneViewModel : ObservableObject
                 return;
             }
 
-            // Sanitizing a large mail takes noticeable time, so it leaves the UI thread here.
-            ReadingDocument document = await Task.Run(
-                () => ReadingDocumentBuilder.Build(content, allowRemoteImages: false),
-                linkedCancellation.Token);
+            BuiltDocument document = await BuildWithinLimitAsync(content, allowRemoteImages: false, linkedCancellation.Token);
             if (generation != showGeneration)
             {
                 return;
@@ -236,7 +267,7 @@ public sealed class ReadingPaneViewModel : ObservableObject
 
             currentContent = content;
             ShowContentHeader(content, message);
-            ShowDocument(document);
+            ShowDocument(document, content);
         }
         catch (OperationCanceledException) when (generation != showGeneration && !ct.IsCancellationRequested)
         {
@@ -278,12 +309,49 @@ public sealed class ReadingPaneViewModel : ObservableObject
         CancelPreviousShow();
     }
 
-    private static string DescribeSender(MailMessage message)
+    private static string? DescribeMissingContent(BuiltDocument built, MailContent content)
     {
-        return MailDisplayText.SenderLine(
-            string.IsNullOrWhiteSpace(SafeDisplayText.Clean(message.FromName))
-                ? message.FromAddress
-                : $"{message.FromName} <{message.FromAddress}>");
+        string? documentNotice = built.IsPlainTextFallback
+            ? UiText.ContentShownAsText
+            : built.Document.WasReduced ? UiText.ContentReduced : null;
+        string? opaqueNotice = content.HasOpaqueParts ? UiText.ContentHasOpaqueParts : null;
+        return documentNotice is not null && opaqueNotice is not null
+            ? $"{documentNotice} {opaqueNotice}"
+            : documentNotice ?? opaqueNotice;
+    }
+
+    // A task that nobody waits for any more must not end as an unobserved exception.
+    private static void ObserveFault(Task task)
+    {
+        _ = task.ContinueWith(
+            static abandonedTask => _ = abandonedTask.Exception,
+            CancellationToken.None,
+            TaskContinuationOptions.OnlyOnFaulted | TaskContinuationOptions.ExecuteSynchronously,
+            TaskScheduler.Default);
+    }
+
+    // Sanitizing a large mail takes noticeable time, so it leaves the UI thread here. The plain text is linear in its length.
+    private async Task<BuiltDocument> BuildWithinLimitAsync(MailContent content, bool allowRemoteImages, CancellationToken ct)
+    {
+        if (runningBuild is { IsCompleted: false })
+        {
+            return new BuiltDocument(ReadingDocumentBuilder.BuildFromPlainText(content), IsPlainTextFallback: true);
+        }
+
+        Task<ReadingDocument> build = Task.Run(() => documentBuilder(content, allowRemoteImages), ct);
+        runningBuild = build;
+        using var limitCancellation = CancellationTokenSource.CreateLinkedTokenSource(ct);
+        Task limit = Task.Delay(BuildTimeLimit, timeProvider, limitCancellation.Token);
+        if (await Task.WhenAny(build, limit) == build)
+        {
+            await limitCancellation.CancelAsync();
+            return new BuiltDocument(await build, IsPlainTextFallback: false);
+        }
+
+        // The build goes on without a reader; a cancelled wait ends here with its exception.
+        ObserveFault(build);
+        await limit;
+        return new BuiltDocument(ReadingDocumentBuilder.BuildFromPlainText(content), IsPlainTextFallback: true);
     }
 
     private void CancelPreviousShow()
@@ -310,10 +378,11 @@ public sealed class ReadingPaneViewModel : ObservableObject
     {
         currentContent = null;
         DocumentHtml = null;
+        ContentNotice = null;
         BlockedRemoteResourceCount = 0;
         AreRemoteImagesAllowed = false;
         Subject = message is null ? string.Empty : MailDisplayText.Subject(message.Subject);
-        From = message is null ? string.Empty : DescribeSender(message);
+        From = message is null ? string.Empty : MailDisplayText.SenderLine([new MailSender(message.FromName, message.FromAddress)]);
         To = string.Empty;
         Cc = string.Empty;
         DateText = message is null ? string.Empty : FormatDate(message.Date);
@@ -323,17 +392,18 @@ public sealed class ReadingPaneViewModel : ObservableObject
     private void ShowContentHeader(MailContent content, MailMessage message)
     {
         Subject = MailDisplayText.Subject(content.Subject);
-        From = MailDisplayText.SenderLine(content.From);
+        From = MailDisplayText.SenderLine(content.Senders ?? [new MailSender(string.Empty, content.From)]);
         To = MailDisplayText.Recipients(content.To);
         Cc = MailDisplayText.Recipients(content.Cc);
         DateText = FormatDate(content.Date ?? message.Date);
         AttachmentNames = MailDisplayText.AttachmentNames(content.Attachments.Select(attachment => attachment.FileName).ToList());
     }
 
-    private void ShowDocument(ReadingDocument document)
+    private void ShowDocument(BuiltDocument built, MailContent content)
     {
-        BlockedRemoteResourceCount = document.BlockedRemoteResourceCount;
-        DocumentHtml = document.Html;
+        BlockedRemoteResourceCount = built.Document.BlockedRemoteResourceCount;
+        ContentNotice = DescribeMissingContent(built, content);
+        DocumentHtml = built.Document.Html;
         State = ReadingState.Ready;
     }
 
@@ -341,6 +411,7 @@ public sealed class ReadingPaneViewModel : ObservableObject
     {
         currentContent = null;
         DocumentHtml = null;
+        ContentNotice = null;
         BlockedRemoteResourceCount = 0;
         State = ReadingState.Error;
         log.Write(CriticalLogLevel.Critical, source, $"Showing the message failed: {exception.GetType().Name}");
@@ -366,12 +437,10 @@ public sealed class ReadingPaneViewModel : ObservableObject
         AreRemoteImagesAllowed = true;
         try
         {
-            ReadingDocument document = await Task.Run(
-                () => ReadingDocumentBuilder.Build(content, allowRemoteImages: true),
-                cancellation.Token);
+            BuiltDocument document = await BuildWithinLimitAsync(content, allowRemoteImages: true, cancellation.Token);
             if (generation == showGeneration)
             {
-                ShowDocument(document);
+                ShowDocument(document, content);
             }
         }
         catch (OperationCanceledException) when (generation != showGeneration)
@@ -393,4 +462,9 @@ public sealed class ReadingPaneViewModel : ObservableObject
             }
         }
     }
+
+    /// <summary>A document and how it came about.</summary>
+    /// <param name="Document">The document.</param>
+    /// <param name="IsPlainTextFallback">True when it replaces a build that took too long or could not start.</param>
+    private sealed record BuiltDocument(ReadingDocument Document, bool IsPlainTextFallback);
 }

@@ -29,8 +29,10 @@ public static class WebContentPolicy
     public const string DocumentUri = "https://mail.mailwarden.invalid/message.html";
 
     private const string MailtoPrefix = "mailto:";
-    private const string LocalhostName = "localhost";
-    private const string LocalhostSuffix = ".localhost";
+
+    // Names that resolve inside the local network; a name without a dot does as well.
+    private static readonly string[] LocalNameEndings = [".localhost", ".local", ".lan", ".internal", ".home.arpa", ".localdomain"];
+    private static readonly string[] LocalNames = ["localhost", "fritz.box"];
 
     private static readonly char[] MailtoParameterSeparators = ['&', ';'];
 
@@ -81,7 +83,9 @@ public static class WebContentPolicy
 
     /// <summary>
     /// Keeps only the parameters <c>to</c>, <c>cc</c>, <c>bcc</c>, <c>subject</c> and <c>body</c> of a <c>mailto:</c> URI
-    /// (names compared case-insensitively, values unchanged), so that a link cannot make the mail program attach a file.
+    /// (names compared case-insensitively), so that a link cannot make the mail program attach a file. The address part
+    /// ends at the first <c>&amp;</c>, and a raw <c>?</c> in a value becomes <c>%3F</c>, because mail programs read both
+    /// spellings as further parameters.
     /// </summary>
     /// <param name="uri">URI that is about to be opened.</param>
     /// <returns>The filtered URI; any other URI than <c>mailto:</c> unchanged.</returns>
@@ -98,16 +102,24 @@ public static class WebContentPolicy
         int fragmentStart = uri.IndexOf('#', StringComparison.Ordinal);
         string withoutFragment = fragmentStart < 0 ? uri : uri[..fragmentStart];
         int queryStart = withoutFragment.IndexOf('?', StringComparison.Ordinal);
+        string addressPart = queryStart < 0 ? withoutFragment : withoutFragment[..queryStart];
+        int ampersand = addressPart.IndexOf('&', StringComparison.Ordinal);
+        if (ampersand >= 0)
+        {
+            addressPart = addressPart[..ampersand];
+        }
+
         if (queryStart < 0)
         {
-            return withoutFragment;
+            return addressPart;
         }
 
         IEnumerable<string> keptParameters = withoutFragment[(queryStart + 1)..]
             .Split(MailtoParameterSeparators, StringSplitOptions.RemoveEmptyEntries)
-            .Where(IsAllowedMailtoParameter);
+            .Where(IsAllowedMailtoParameter)
+            .Select(parameter => parameter.Replace("?", "%3F", StringComparison.Ordinal));
         string query = string.Join('&', keptParameters);
-        return query.Length == 0 ? withoutFragment[..queryStart] : $"{withoutFragment[..queryStart]}?{query}";
+        return query.Length == 0 ? addressPart : $"{addressPart}?{query}";
     }
 
     /// <summary>Decides whether the browser may load a resource.</summary>
@@ -116,8 +128,9 @@ public static class WebContentPolicy
     /// <param name="allowRemoteImages">True when the user approved remote images for this message.</param>
     /// <returns>
     /// <see cref="DocumentUri"/> → true. http/https: only when <paramref name="isImageRequest"/> and
-    /// <paramref name="allowRemoteImages"/> and the host is not <c>localhost</c>, loopback or a private or link-local IP
-    /// literal (an image must not reach into the local network). Everything else false.
+    /// <paramref name="allowRemoteImages"/> and the host does not look local: an image must not reach into the local
+    /// network. Rejected are names without a dot, typical local names, and IP literals of local, special and translation
+    /// ranges. Everything else false. A public name that resolves to a local address cannot be seen from here.
     /// </returns>
     public static bool AllowRequest(string uri, bool isImageRequest, bool allowRemoteImages)
     {
@@ -143,39 +156,50 @@ public static class WebContentPolicy
     private static bool IsLocalNetworkHost(Uri uri)
     {
         string host = uri.IdnHost.TrimEnd('.');
-        if (host.Equals(LocalhostName, StringComparison.OrdinalIgnoreCase)
-            || host.EndsWith(LocalhostSuffix, StringComparison.OrdinalIgnoreCase))
+        if (IPAddress.TryParse(host, out IPAddress? address))
         {
-            return true;
+            return IsLocalNetworkAddress(address);
         }
 
-        return IPAddress.TryParse(host, out IPAddress? address) && IsLocalNetworkAddress(address);
+        return !host.Contains('.', StringComparison.Ordinal)
+            || LocalNames.Contains(host, StringComparer.OrdinalIgnoreCase)
+            || LocalNameEndings.Any(ending => host.EndsWith(ending, StringComparison.OrdinalIgnoreCase));
     }
 
     private static bool IsLocalNetworkAddress(IPAddress address)
     {
-        if (address.IsIPv4MappedToIPv6)
-        {
-            address = address.MapToIPv4();
-        }
-
-        if (IPAddress.IsLoopback(address) || address.Equals(IPAddress.Any) || address.Equals(IPAddress.IPv6Any))
-        {
-            return true;
-        }
-
-        if (address.AddressFamily == AddressFamily.InterNetworkV6)
-        {
-            // fe80::/10, fec0::/10, fc00::/7
-            return address.IsIPv6LinkLocal || address.IsIPv6SiteLocal || address.IsIPv6UniqueLocal;
-        }
-
         byte[] bytes = address.GetAddressBytes();
-        return bytes[0] == 0
-            || bytes[0] == 10
-            || (bytes[0] == 172 && bytes[1] is >= 16 and <= 31)
-            || (bytes[0] == 192 && bytes[1] == 168)
-            || (bytes[0] == 169 && bytes[1] == 254);
+        return address.AddressFamily == AddressFamily.InterNetworkV6
+            ? IsLocalIPv6(address, bytes)
+            : IsLocalIPv4(bytes);
+    }
+
+    private static bool IsLocalIPv4(byte[] bytes)
+    {
+        return bytes[0] is 0 or 10 or 127 or >= 224 // this network, private, loopback, multicast and reserved (224.0.0.0/3)
+            || (bytes[0] == 100 && (bytes[1] & 0xC0) == 64) // shared address space 100.64.0.0/10
+            || (bytes[0] == 172 && bytes[1] is >= 16 and <= 31) // private
+            || (bytes[0] == 192 && bytes[1] == 168) // private
+            || (bytes[0] == 192 && bytes[1] == 0 && bytes[2] == 0) // 192.0.0.0/24
+            || (bytes[0] == 198 && bytes[1] is 18 or 19) // benchmarking 198.18.0.0/15
+            || (bytes[0] == 169 && bytes[1] == 254); // link-local
+    }
+
+    private static bool IsLocalIPv6(IPAddress address, byte[] bytes)
+    {
+        // ::/64 holds the loopback, IPv4-compatible (::/96) and IPv4-mapped (::ffff:0:0/96) addresses; no public host is there.
+        bool isInFirstNetwork = bytes.AsSpan(0, 8).IndexOfAnyExcept((byte)0) < 0;
+
+        // 64:ff9b::/96 translates to IPv4, so does 2002::/16.
+        bool isTranslated = (bytes[0] == 0x00 && bytes[1] == 0x64 && bytes[2] == 0xFF && bytes[3] == 0x9B
+                && bytes.AsSpan(4, 8).IndexOfAnyExcept((byte)0) < 0)
+            || (bytes[0] == 0x20 && bytes[1] == 0x02);
+        return isInFirstNetwork
+            || isTranslated
+            || bytes[0] == 0xFF // multicast
+            || address.IsIPv6LinkLocal // fe80::/10
+            || address.IsIPv6SiteLocal // fec0::/10
+            || address.IsIPv6UniqueLocal; // fc00::/7
     }
 
     private static bool IsWebScheme(Uri uri) => uri.Scheme == Uri.UriSchemeHttp || uri.Scheme == Uri.UriSchemeHttps;

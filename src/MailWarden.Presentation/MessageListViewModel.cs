@@ -18,7 +18,7 @@ public sealed class MessageRowViewModel
         AccountLabel = accountLabel;
         string fromName = SafeDisplayText.Shorten(message.FromName, MailDisplayText.MaxSenderCharacters);
         Sender = fromName.Length == 0
-            ? SafeDisplayText.Shorten(message.FromAddress, MailDisplayText.MaxSenderCharacters)
+            ? MailDisplayText.ShortenAddress(message.FromAddress, MailDisplayText.MaxSenderCharacters)
             : fromName;
         Subject = MailDisplayText.Subject(message.Subject);
         Preview = SafeDisplayText.Shorten(message.TextPreview, MailDisplayText.MaxPreviewCharacters);

@@ -3,6 +3,7 @@ using System.Windows.Input;
 using MailWarden.Infrastructure.Background;
 using MailWarden.Infrastructure.Composition;
 using MailWarden.Infrastructure.Logging;
+using MailWarden.Infrastructure.Mime;
 
 namespace MailWarden.Presentation;
 
@@ -43,7 +44,10 @@ public sealed class ShellViewModel : ObservableObject, IDisposable
     /// <param name="dispatcher">Runs status changes on the UI thread.</param>
     /// <param name="settings">Store of the UI settings.</param>
     /// <param name="log">Critical log.</param>
-    /// <param name="timeProvider">Clock of the date texts.</param>
+    /// <param name="timeProvider">Clock of the date texts and of the time limit of the document build.</param>
+    /// <param name="documentBuilder">
+    /// Builds the reading document from content and image approval; null means <see cref="ReadingDocumentBuilder.Build"/>.
+    /// </param>
     /// <exception cref="ArgumentNullException">A parameter is null.</exception>
     public ShellViewModel(
         IMailboxReadModel readModel,
@@ -51,7 +55,8 @@ public sealed class ShellViewModel : ObservableObject, IDisposable
         IUiDispatcher dispatcher,
         IUiSettingsStore settings,
         ICriticalLog log,
-        TimeProvider timeProvider)
+        TimeProvider timeProvider,
+        Func<MailContent, bool, ReadingDocument>? documentBuilder = null)
     {
         ArgumentNullException.ThrowIfNull(readModel);
         ArgumentNullException.ThrowIfNull(timeProvider);
@@ -62,7 +67,7 @@ public sealed class ShellViewModel : ObservableObject, IDisposable
 
         Navigation = new NavigationViewModel(readModel, controller, log, banner);
         Messages = new MessageListViewModel(readModel, log, banner, timeProvider);
-        Reading = new ReadingPaneViewModel(readModel, log, timeProvider);
+        Reading = new ReadingPaneViewModel(readModel, log, timeProvider, documentBuilder ?? ReadingDocumentBuilder.Build);
         toggleLayoutCommand = new RelayCommand(ToggleLayout);
         refreshCommand = new RelayCommand(Refresh);
 
