@@ -224,7 +224,7 @@ A new exception `EmptyFolderChangedException` in `MailWarden.Core.Commands`, and
 | NIT | `IMessageStore.CountUnreadAsync` | The doc names `ExcludedMessageIds`. |
 
 ### Y3: plans on the real driver
-SQLite 3.53.3 through `Microsoft.Data.Sqlite` 9.0.x, file database with the schema of `SchemaMigrations`, 180,000 artificial mails, no `ANALYZE` (the app runs none either). `_scratch\ap04bplan`. SQL rebuilt from the store's fragments.
+SQLite 3.53.3 through `Microsoft.Data.Sqlite` 9.0.22, file database with the schema of `SchemaMigrations`, 180,000 artificial mails, no `ANALYZE` (the app runs none either). `_scratch\ap04bplan`. SQL rebuilt from the store's fragments.
 | Query | Before (`m.account_id`) | After (`f.account_id`) |
 |---|---|---|
 | Count, role of one account | `SCAN m`, `SEARCH f USING INTEGER PRIMARY KEY` | `SEARCH f USING INDEX sqlite_autoindex_folders_1 (account_id=?)`, `SEARCH m USING INDEX ix_messages_folder_date (folder_id=?)` |
@@ -237,7 +237,7 @@ The plan no longer scans `messages`, but **the recount does not get faster in ev
 | Most in the inboxes of 3 accounts | 326 ms | 451 ms | 442 ms |
 | All in the inbox of one account | 312 ms | 500 ms | 509 ms |
 
-Single queries, in the second spread: first page of a big inbox 0 ms before, about 22 ms after; first page of an empty role view 500-550 ms before, 0 ms after; count of an empty view 18 ms before, 0 ms after.
+Single queries, in an earlier run with about 46,000 mails in the inbox: first page of that inbox 0 ms before, about 22 ms after; first page of an empty role view 500-550 ms before, 0 ms after; count of an empty view 18 ms before, 0 ms after.
 The group entries were never helped by this: their plan is `SCAN f`, `SEARCH m USING INDEX ix_messages_folder_date`.
 
 Built as decided, because the plan condition holds, in a commit of its own. **What would help everywhere (not built):** one query over the unread mails grouped by folder, about one table scan, and all entries computed from it. This needs a new member on the read model.
