@@ -454,3 +454,11 @@ turns a programming error into a silent mass move to Junk, including mail from c
 | 52 | Throwing signal with a marker text (via J3), Inbox and Junk, Act | outcome `EvaluationFailed`, tier null, no command, mail stays, marker raised, `EvaluationFailed` = count, `Classified` and `ReadFailed` 0, marker text nowhere |
 | 53 | Same mail again after a fixed signal (key known) | `SkippedKnown`, stays |
 | 54 | Positive control: same setup without the throwing signal | normal tier and move |
+
+- **J6 (secure.1 of AP-04a: about 1,000 nested MIME parts overflow the stack).** `ClassificationInputReader` parses with
+  `MimeParserDefaults.Create()` (`Infrastructure\Mime`, already on this branch), in `ReadMessageAsync` and
+  `ReadTopReceivedAsync`. AP-04a does the same for `SyncEngine` and `MailContentReader`.
+
+| # | Case | Expected |
+|---|---|---|
+| 55 | Generated EML with 1,023 nested `multipart/mixed`, and with nested `message/rfc822`: `ReadMessageAsync`, `ReadTopReceivedAsync` | no process end; `Parsed` true, `TopReceived` and From as in the top-level headers |
