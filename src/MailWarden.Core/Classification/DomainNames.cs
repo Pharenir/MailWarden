@@ -105,6 +105,31 @@ public static class DomainNames
         return string.Equals(GetOrganizationalDomain(domainA), GetOrganizationalDomain(domainB), StringComparison.Ordinal);
     }
 
+    /// <summary>
+    /// True when both values name the same domain, or one is a parent of the other by whole labels. A public suffix is never a
+    /// parent, so "test" is not related to "example.test" and "co.uk" not to "example.co.uk". Siblings are not related.
+    /// </summary>
+    /// <param name="domainA">First host or domain name, or null.</param>
+    /// <param name="domainB">Second host or domain name, or null.</param>
+    /// <returns>False as well when a value is null or contains no label.</returns>
+    internal static bool AreSameOrParentAndChild(string? domainA, string? domainB)
+    {
+        var labelsA = TrySplitLabels(domainA);
+        var labelsB = TrySplitLabels(domainB);
+        if (labelsA is null || labelsB is null)
+        {
+            return false;
+        }
+
+        var (shorter, longer) = labelsA.Length <= labelsB.Length ? (labelsA, labelsB) : (labelsB, labelsA);
+        if (!shorter.SequenceEqual(longer[^shorter.Length..]))
+        {
+            return false;
+        }
+
+        return shorter.Length == longer.Length || !IsPublicSuffix(string.Join('.', shorter));
+    }
+
     /// <summary>Non-throwing variant of <see cref="GetDomain"/> for untrusted values.</summary>
     /// <param name="emailAddress">Address or null.</param>
     /// <returns>The domain, or null when there is no '@' or the domain part is empty.</returns>

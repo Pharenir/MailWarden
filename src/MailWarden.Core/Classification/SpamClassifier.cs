@@ -9,7 +9,7 @@ namespace MailWarden.Core.Classification;
 public sealed class SpamClassifier
 {
     private const string BlockListOverride = "Sender is on the block list";
-    private const string AllowListOverride = "Sender is on the allow list";
+    private const string UnverifiedAllowListOverride = "Sender is on the allow list but authentication could not be verified";
     private const string UnverifiedContactOverride = "Sender is a contact but authentication could not be verified";
 
     private readonly ClassifierSettings settings;
@@ -77,8 +77,8 @@ public sealed class SpamClassifier
 
     /// <summary>
     /// Classifies one message: build the context, evaluate all signals (always, also when an override decides),
-    /// then block list → allow list (unless authentication failed) → authenticated contact → unverified contact
-    /// (at most LikelyLegit) → score thresholds.
+    /// then block list → authenticated sender on the allow list or in the contacts → unverified sender on the allow list or
+    /// in the contacts (LikelyLegit) → score thresholds, which also decide about failed authentication.
     /// </summary>
     /// <param name="input">Extracted message data.</param>
     /// <returns>The decision with all findings.</returns>
@@ -165,9 +165,16 @@ public sealed class SpamClassifier
             return (SpamTier.CertainSpam, BlockListOverride);
         }
 
-        if (membership == ListMembership.Allowed && context.AuthStatus != AuthStatus.Failed)
+        // The allow list alone never trusts a mail: its sender could be forged where nothing can be verified.
+        if (membership == ListMembership.Allowed && context.AuthStatus == AuthStatus.Authenticated)
         {
-            return (SpamTier.TrustedContact, AllowListOverride);
+            var passDescription = AuthStatusEvaluator.DescribePass(context.Authentication, context.FromDomain);
+            return (SpamTier.TrustedContact, $"Sender is on the allow list and authenticated ({passDescription})");
+        }
+
+        if (membership == ListMembership.Allowed && context.AuthStatus == AuthStatus.Unknown)
+        {
+            return (SpamTier.LikelyLegit, UnverifiedAllowListOverride);
         }
 
         var isContact = senderDirectory.IsContact(fromAddress);
