@@ -84,9 +84,9 @@ internal static class MailDisplayText
 
         if (Uri.TryCreate(collapsed, UriKind.Absolute, out Uri? address)
             && (address.Scheme == Uri.UriSchemeHttp || address.Scheme == Uri.UriSchemeHttps)
-            && address.Host.Length > 0)
+            && address.IdnHost.Length > 0)
         {
-            string hostPrefix = $"{SafeDisplayText.Shorten(address.Host, MaxLinkHostCharacters)} | ";
+            string hostPrefix = $"{SafeDisplayText.Shorten(address.IdnHost, MaxLinkHostCharacters)} | ";
             return hostPrefix + SafeDisplayText.Shorten(collapsed, MaxLinkCharacters - hostPrefix.Length);
         }
 
