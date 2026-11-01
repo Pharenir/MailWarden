@@ -138,11 +138,10 @@ public sealed class ActionRaceTests
     // ---- Case 24 -------------------------------------------------------------------------------------------
 
     // Case 24: Del twice fast on one row gives one command, the next row stays untouched.
-    [Theory(Timeout = TestTimeouts.PerTestMilliseconds)]
-    [InlineData(true)]
-    [InlineData(false)]
-    public async Task Delete_twice_in_a_row_acts_once_and_leaves_the_next_row_alone(bool blockedOnGate)
+    [Fact(Timeout = TestTimeouts.PerTestMilliseconds)]
+    public async Task Delete_twice_in_a_row_acts_once_and_leaves_the_next_row_alone()
     {
+        const bool blockedOnGate = true; // without a block two commands in a row are correct (the first has finished)
         (ShellHarness harness, _, _, _) = await InitializedAsync(3);
         MessageRowViewModel[] rows = [.. harness.Shell.Messages.Items];
         var release = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
@@ -234,7 +233,7 @@ public sealed class ActionRaceTests
         await WaitForConfirmationAsync(harness, 2);
         await Wait.NegativeWindowAsync();
         Assert.Empty(harness.Actions.CallsNamed("EmptyFolder"));
-        Assert.Equal(5, harness.ReadModel.ListMessagesAsync(new MessageQuery(FolderId: junk.Id, Limit: 100)).GetAwaiter().GetResult().Count);
+        Assert.Equal(5, (await harness.ReadModel.ListMessagesAsync(new MessageQuery(FolderId: junk.Id, Limit: 100))).Count);
     }
 
     // Case 26: a mail that disappears after the preview does not stop the empty and asks only once.
@@ -270,7 +269,7 @@ public sealed class ActionRaceTests
         Assert.DoesNotContain("teilweise", plain.Shell.Banner, StringComparison.OrdinalIgnoreCase);
 
         (ShellHarness partial, _, _, _) = await InitializedAsync(2);
-        partial.Actions.Failure = new MailActionException("Aktion teilweise ausgeführt, der Rest wurde abgelehnt.");
+        partial.Actions.Failure = new MailActionException(MailboxActions.PartlyDoneText);
         await SelectAsync(partial, partial.Shell.Messages.Items[0]);
         partial.Shell.DeleteCommand.Execute(null);
 
