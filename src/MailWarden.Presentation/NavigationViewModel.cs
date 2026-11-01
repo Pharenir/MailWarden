@@ -14,6 +14,7 @@ public sealed class NavigationItem : ObservableObject
 {
     private int unreadCount;
     private string? statusText;
+    private bool canEmptyFolder;
 
     internal NavigationItem(
         string label,
@@ -40,6 +41,16 @@ public sealed class NavigationItem : ObservableObject
     {
         get => unreadCount;
         internal set => SetProperty(ref unreadCount, value);
+    }
+
+    /// <summary>
+    /// True when exactly one folder with role Trash or Junk lies behind <see cref="View"/>, as of the last refresh of the tree. It
+    /// decides whether the entry offers "Ordner leeren"; the action checks again when it runs.
+    /// </summary>
+    public bool CanEmptyFolder
+    {
+        get => canEmptyFolder;
+        internal set => SetProperty(ref canEmptyFolder, value);
     }
 
     /// <summary>Account of the entry; null for group views over all accounts.</summary>
@@ -139,10 +150,12 @@ public sealed class NavigationViewModel : ObservableObject
             IReadOnlyList<Account> accounts = await readModel.ListAccountsAsync(token);
             List<NavigationItem> newItems = [.. CreateGroupItems()];
             var newAccountItems = new Dictionary<Guid, NavigationItem>();
+            var allFolders = new List<MailFolder>();
             foreach (Account account in accounts)
             {
                 token.ThrowIfCancellationRequested();
                 IReadOnlyList<MailFolder> folders = await readModel.ListFoldersAsync(account.Id, token);
+                allFolders.AddRange(folders);
                 NavigationItem accountItem = CreateAccountItem(account, folders);
                 newAccountItems.Add(account.Id, accountItem);
                 newItems.Add(accountItem);
@@ -154,7 +167,7 @@ public sealed class NavigationViewModel : ObservableObject
                 return;
             }
 
-            ApplyTree(newItems, newAccountItems, unreadCounts);
+            ApplyTree(newItems, newAccountItems, unreadCounts, allFolders);
             banner.Clear(ShellBanner.BannerSource.Navigation);
             if (accounts.Count == 0)
             {
@@ -177,7 +190,7 @@ public sealed class NavigationViewModel : ObservableObject
                 banner.Set(ShellBanner.BannerSource.Navigation, UiText.BannerNavigationFailed);
                 if (Items.Count == 0)
                 {
-                    ApplyTree(CreateGroupItems(), [], []);
+                    ApplyTree(CreateGroupItems(), [], [], []);
                 }
             }
         }
@@ -308,7 +321,8 @@ public sealed class NavigationViewModel : ObservableObject
     private void ApplyTree(
         List<NavigationItem> newItems,
         Dictionary<Guid, NavigationItem> newAccountItems,
-        Dictionary<MailView, int> unreadCounts)
+        Dictionary<MailView, int> unreadCounts,
+        List<MailFolder> allFolders)
     {
         if (DescribeStructure(Items) != DescribeStructure(newItems) || Items.Count == 0)
         {
@@ -330,6 +344,9 @@ public sealed class NavigationViewModel : ObservableObject
             if (item.View is MailView view)
             {
                 item.UnreadCount = unreadCounts.GetValueOrDefault(view);
+
+                // In place, like the number: a folder can change its role or a second account can get one without a new structure.
+                item.CanEmptyFolder = view.FindEmptyTarget(allFolders) is not null;
             }
         }
 

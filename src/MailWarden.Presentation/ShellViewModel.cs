@@ -57,6 +57,7 @@ public sealed class ShellViewModel : ObservableObject, IDisposable
     private readonly RelayCommand deleteCommand;
     private readonly RelayCommand deletePermanentlyCommand;
     private readonly RelayCommand emptyFolderCommand;
+    private readonly ParameterRelayCommand emptyFolderOfViewCommand;
     private readonly ParameterRelayCommand moveCommand;
     private readonly ParameterRelayCommand discardFailedActionCommand;
     private readonly PendingMailState pendingMail;
@@ -147,6 +148,7 @@ public sealed class ShellViewModel : ObservableObject, IDisposable
         deleteCommand = new RelayCommand(() => StartRemovalOnSelection(DeleteAsync), HasSelection);
         deletePermanentlyCommand = new RelayCommand(() => StartRemovalOnSelection(DeletePermanentlyAsync), HasSelection);
         emptyFolderCommand = new RelayCommand(ExecuteEmptyFolder, () => CanEmptyFolder);
+        emptyFolderOfViewCommand = new ParameterRelayCommand(ExecuteEmptyFolderOfView, parameter => parameter is MailView);
         moveCommand = new ParameterRelayCommand(ExecuteMove, _ => CanMove);
         discardFailedActionCommand = new ParameterRelayCommand(ExecuteDiscardFailedAction, parameter => parameter is PendingActionRow);
 
@@ -302,6 +304,13 @@ public sealed class ShellViewModel : ObservableObject, IDisposable
 
     /// <summary>"Ordner leeren": only for a Trash or Junk folder; asks with the number of mails.</summary>
     public ICommand EmptyFolderCommand => emptyFolderCommand;
+
+    /// <summary>
+    /// "Ordner leeren" for a folder of the tree; the parameter is its <see cref="MailView"/>, whatever the list shows at the moment.
+    /// Same path as <see cref="EmptyFolderCommand"/>, with the question. A search does not block it, because the question names
+    /// folder, count and account. A view that cannot be emptied does nothing.
+    /// </summary>
+    public ICommand EmptyFolderOfViewCommand => emptyFolderOfViewCommand;
 
     /// <summary>Moves the selected rows; the parameter is the id of the target folder (long).</summary>
     public ICommand MoveCommand => moveCommand;
@@ -758,15 +767,10 @@ public sealed class ShellViewModel : ObservableObject, IDisposable
         OnPropertyChanged(nameof(MoveTargets));
     }
 
-    // Exactly one folder with role Trash or Junk behind the view, or none: this is what the button offers and the command empties.
+    // The folders read now, the rule in MailView: the same one the entries of the tree follow.
     private async Task<MailFolder?> FindEmptyTargetAsync(MailView? view)
     {
-        if (view is null)
-        {
-            return null;
-        }
-
-        if (view.FolderId is null && view.Role is not (FolderRole.Trash or FolderRole.Junk))
+        if (view is null || !view.MayHaveEmptyTarget)
         {
             return null;
         }
@@ -774,14 +778,13 @@ public sealed class ShellViewModel : ObservableObject, IDisposable
         IEnumerable<Guid> accountIds = view.AccountId is Guid accountId
             ? [accountId]
             : (await readModel.ListAccountsAsync()).Select(account => account.Id);
-        var candidates = new List<MailFolder>();
+        var folders = new List<MailFolder>();
         foreach (Guid candidateAccountId in accountIds.ToList())
         {
-            IReadOnlyList<MailFolder> folders = await readModel.ListFoldersAsync(candidateAccountId);
-            candidates.AddRange(folders.Where(folder => view.FolderId is long folderId ? folder.Id == folderId : folder.Role == view.Role));
+            folders.AddRange(await readModel.ListFoldersAsync(candidateAccountId));
         }
 
-        return candidates is [{ Role: FolderRole.Trash or FolderRole.Junk } target] ? target : null;
+        return view.FindEmptyTarget(folders);
     }
 
     // The search decides, not the list: its state changes first, and the list follows only with the load it starts.
@@ -977,7 +980,9 @@ public sealed class ShellViewModel : ObservableObject, IDisposable
             MessageRowViewModel? rowBefore = Messages.SelectedRow;
             Messages.RemoveRows(messageIds);
             rowSelectedByRunningRemoval = ReferenceEquals(Messages.SelectedRow, rowBefore) ? null : Messages.SelectedRow?.Message.Id;
-            if (!isDisposed)
+
+            // No rows gone, for instance when the emptied folder is not the one in the list: the focus stays where it is.
+            if (!isDisposed && messageIds.Count > 0)
             {
                 ActionRowsRemoved?.Invoke(this, EventArgs.Empty);
             }
@@ -1093,6 +1098,14 @@ public sealed class ShellViewModel : ObservableObject, IDisposable
     {
         MailView? viewAtKeystroke = ViewBehindEmptyCommand();
         StartUserAction(() => EmptyFolderAsync(viewAtKeystroke));
+    }
+
+    private void ExecuteEmptyFolderOfView(object? parameter)
+    {
+        if (parameter is MailView view)
+        {
+            StartUserAction(() => EmptyFolderAsync(view));
+        }
     }
 
     // The question must stay true: the actions refuse when a mail has arrived that the user has not seen. A new preview tells that

@@ -6,6 +6,7 @@ using MailWarden.Presentation;
 using Microsoft.UI.Input;
 using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Controls;
+using Microsoft.UI.Xaml.Controls.Primitives;
 using Microsoft.UI.Xaml.Input;
 using Microsoft.UI.Xaml.Media;
 using Windows.Foundation;
@@ -496,6 +497,31 @@ public sealed partial class MainWindow : Window
         }
 
         ApplyNavigationHighlight();
+    }
+
+    // Mouse and context key. A menu only for an entry that can be emptied; the others show none, not an empty one. Handled in any case:
+    // the menu of this entry must not also be asked of the one above it. The selection of the tree stays.
+    private void OnNavigationItemContextRequested(UIElement sender, ContextRequestedEventArgs args)
+    {
+        args.Handled = true;
+        if (sender is not TreeViewItem treeItem
+            || NavigationTree.ItemFromContainer(treeItem) is not NavigationItem { CanEmptyFolder: true, View: MailView view })
+        {
+            return;
+        }
+
+        var menuItem = new MenuFlyoutItem { Text = UiText.EmptyFolder };
+        menuItem.Click += (_, _) => ViewModel.EmptyFolderOfViewCommand.Execute(view);
+        var menu = new MenuFlyout();
+        menu.Items.Add(menuItem);
+        if (args.TryGetPosition(treeItem, out Point position))
+        {
+            menu.ShowAt(treeItem, new FlyoutShowOptions { Position = position });
+        }
+        else
+        {
+            menu.ShowAt(treeItem);
+        }
     }
 
     private void OnNavigationPropertyChanged(object? sender, PropertyChangedEventArgs args)
