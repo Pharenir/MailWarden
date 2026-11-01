@@ -130,8 +130,7 @@ public sealed class MessageKeyTests
     [Theory]
     [InlineData("")]
     [InlineData("   ")]
-    [InlineData("	
-")]
+    [InlineData(" \t ")]
     public void Empty_or_whitespace_message_id_counts_as_absent(string messageId)
     {
         Assert.Equal(MessageKey.For(Message(null)), MessageKey.For(Message(messageId)));

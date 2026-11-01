@@ -348,6 +348,7 @@ public sealed class ClassificationPassSafetyTests
             Enum.Parse<ClassificationAction>(actionName));
 
         ClassificationPassReport report = await harness.RunAsync(ClassificationHarness.ActWithRetention(30));
+        Assert.False(string.IsNullOrEmpty(description));
 
         IReadOnlyList<MailCommand> commands = await harness.CommandsAsync();
         if (expectedDeleted)

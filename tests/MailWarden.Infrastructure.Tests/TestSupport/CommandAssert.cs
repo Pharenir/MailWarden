@@ -7,7 +7,7 @@ internal static class CommandAssert
 {
     /// <summary>Asserts that exactly one Move command targets <paramref name="target"/> and returns it.</summary>
     public static MailCommand SingleMoveTo(IEnumerable<MailCommand> commands, MailFolder target) =>
-        Assert.Single(commands.Where(command => command.Kind == MailCommandKind.Move && command.TargetFolderId == target.Id));
+        Assert.Single(commands, command => command.Kind == MailCommandKind.Move && command.TargetFolderId == target.Id);
 
     /// <summary>Asserts that no Move command targets <paramref name="target"/>.</summary>
     public static void NoMoveTo(IEnumerable<MailCommand> commands, MailFolder target) =>
