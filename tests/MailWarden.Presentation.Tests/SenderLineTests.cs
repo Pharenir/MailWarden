@@ -65,7 +65,7 @@ public sealed class SenderLineTests
     {
         string line = await FromOfAsync((new string('L', 100), "sender_a@example.test"));
 
-        Assert.Contains(new string('L', 100), line, StringComparison.Ordinal);
+        Assert.True(line.Contains(new string('L', 100), StringComparison.Ordinal), $"line has {line.Length} characters: [{line}]");
         Assert.DoesNotContain(Ellipsis, line, StringComparison.Ordinal);
     }
 
