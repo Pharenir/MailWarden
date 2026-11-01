@@ -277,7 +277,8 @@ Erledigt aus AP-07c: D8, J4 (Bremse) und die Sichtbarkeit von `EvaluationFailed`
 - [ ] Beim Durchlauf einen Stream statt `MemoryStream` für die EML (secure N2; siehe auch AP-07c oben)
 - [ ] Aufbewahrung fragt zuerst das Protokoll nach abgelaufenen Einträgen, statt jede Quarantäne-Datei zu lesen (secure N3)
 - [x] AP-06 (Adressbuch) – erledigt (Sammeln aus Gesendet, Listen, Import); ohne Kontakte ruht `Act` weiter
-- [ ] Fall 18 bestanden (Planer)
+- [x] Fall 18 bestanden (Planer, 2026-11-01): 2 Testmails von Junk in den Posteingang verschoben, Konto 2, nur Testmails
+- [ ] Eine neue Mail in Junk löst keinen Zyklus aus: Im Fall 18 (4-Minuten-Lauf) gab es keinen Zyklus, denn IDLE überwacht nur den Posteingang. Die Rettung wartet bis zum nächsten Abruf. Vor `Act` entscheiden, ob Junk kürzer abgefragt wird
 
 **Ohne Bedingung:**
 - [ ] Ein dauerhafter Fehler des Durchlaufs bremst den Abgleich des Kontos auf höchstens alle 30 Minuten (review S3)
