@@ -19,6 +19,8 @@ internal sealed class ClassificationHarness : IAsyncDisposable
 
     public const uint JunkUidValidity = 2000;
 
+    public const uint SentUidValidity = 5000;
+
     public static readonly ClassificationPolicy RecordOnly = new(ClassificationMode.RecordOnly, 0);
 
     public static readonly ClassificationPolicy Act = new(ClassificationMode.Act, 0);
@@ -34,6 +36,8 @@ internal sealed class ClassificationHarness : IAsyncDisposable
         Clock = new FixedTimeProvider(SyncHarness.FixedNow);
         Queue = new SqliteMailCommandQueue(storage.Database, Clock);
         Contacts = new SqliteContactStore(storage.Database);
+        SenderLists = new SqliteSenderListStore(storage.Database);
+        HarvestMarkers = new SqliteContactHarvestMarkerStore(storage.Database);
         Log = new SqliteClassificationLog(storage.Database);
         SyncStates = new SqliteFolderSyncStateStore(storage.Database);
         Provisioner = new FakeFolderProvisioner(storage.Folders);
@@ -51,6 +55,10 @@ internal sealed class ClassificationHarness : IAsyncDisposable
 
     public SqliteContactStore Contacts { get; }
 
+    public SqliteSenderListStore SenderLists { get; }
+
+    public SqliteContactHarvestMarkerStore HarvestMarkers { get; }
+
     public SqliteClassificationLog Log { get; }
 
     public SqliteFolderSyncStateStore SyncStates { get; }
@@ -65,13 +73,17 @@ internal sealed class ClassificationHarness : IAsyncDisposable
 
     public MailFolder? Quarantine { get; private set; }
 
+    /// <summary>Sent folder (validity <see cref="SentUidValidity"/>), only with <c>withSent</c>.</summary>
+    public MailFolder? Sent { get; private set; }
+
     /// <summary>Creates account, folders and (optionally) the one contact.</summary>
     public static async Task<ClassificationHarness> CreateAsync(
         bool withJunk = true,
         bool withScreener = true,
         bool withQuarantine = true,
         bool withContact = true,
-        bool withSyncState = true)
+        bool withSyncState = true,
+        bool withSent = false)
     {
         StorageFixture storage = await StorageFixture.CreateAsync();
         var temp = new TempDirectory();
@@ -96,6 +108,12 @@ internal sealed class ClassificationHarness : IAsyncDisposable
                 new MailFolder(0, account.Id, "Quarantine", FolderRole.Quarantine, FakeFolderProvisioner.QuarantineUidValidity));
         }
 
+        if (withSent)
+        {
+            harness.Sent = await storage.Folders.UpsertAsync(
+                TestData.NewFolder(account.Id, "Sent", FolderRole.Sent, SentUidValidity));
+        }
+
         if (withContact)
         {
             await harness.AddContactAsync(ClassificationTestEml.ContactAddress);
@@ -112,6 +130,11 @@ internal sealed class ClassificationHarness : IAsyncDisposable
             if (harness.Quarantine is not null)
             {
                 await harness.MarkSyncedAsync(harness.Quarantine);
+            }
+
+            if (harness.Sent is not null)
+            {
+                await harness.MarkSyncedAsync(harness.Sent);
             }
         }
 
@@ -157,6 +180,7 @@ internal sealed class ClassificationHarness : IAsyncDisposable
             Storage.Messages,
             eml ?? Eml,
             Contacts,
+            SenderLists,
             Log,
             queue ?? Queue,
             provisioner ?? Provisioner,
@@ -164,6 +188,61 @@ internal sealed class ClassificationHarness : IAsyncDisposable
             policy,
             Clock,
             signals);
+
+    /// <summary>Harvester over the harness stores; the contact and EML store can be replaced (decorators).</summary>
+    public ContactHarvester CreateHarvester(IContactStore? contacts = null, IEmlStore? eml = null) =>
+        new(
+            Storage.Accounts,
+            Storage.Folders,
+            SyncStates,
+            Storage.Messages,
+            eml ?? Eml,
+            contacts ?? Contacts,
+            HarvestMarkers);
+
+    public Task<ContactHarvestReport> HarvestAsync(CancellationToken ct = default) =>
+        CreateHarvester().RunAsync(Account.Id, ct);
+
+    /// <summary>
+    /// Stores a sent mail (raw headers only plus a short body) with its EML file. Each argument is the value of the
+    /// header line, null omits the header.
+    /// </summary>
+    public Task<MailMessage> AddSentAsync(
+        MailFolder folder,
+        uint uid,
+        string? to = null,
+        string? cc = null,
+        string? bcc = null,
+        string? from = null,
+        string? extraHeader = null,
+        string contentType = "text/plain; charset=utf-8")
+    {
+        var text = new StringBuilder();
+        text.Append("MIME-Version: 1.0\r\n");
+        text.Append("From: ").Append(from ?? "Own A <" + Account.EmailAddress + ">").Append("\r\n");
+        if (extraHeader is not null)
+        {
+            text.Append(extraHeader).Append("\r\n");
+        }
+
+        foreach ((string name, string? value) in new[] { ("To", to), ("Cc", cc), ("Bcc", bcc) })
+        {
+            if (value is not null)
+            {
+                text.Append(name).Append(": ").Append(value).Append("\r\n");
+            }
+        }
+
+        text.Append("Subject: sample_subject\r\n");
+        text.Append("Date: ").Append(ClassificationTestEml.DateHeader).Append("\r\n");
+        text.Append("Message-ID: <sent_").Append(folder.Id).Append('_').Append(uid).Append("@example.test>\r\n");
+        text.Append("Content-Type: ").Append(contentType).Append("\r\n\r\nbody");
+        return AddRawAsync(folder, uid, Encoding.UTF8.GetBytes(text.ToString()), $"<sent_{folder.Id}_{uid}@example.test>");
+    }
+
+    /// <summary>Address and name of every stored contact, ordered by address, for compact assertions.</summary>
+    public async Task<IReadOnlyList<Contact>> ContactsAsync() =>
+        [.. (await Contacts.ListAsync()).OrderBy(contact => contact.EmailAddress, StringComparer.OrdinalIgnoreCase)];
 
     public Task<ClassificationPassReport> RunAsync(ClassificationPolicy policy, CancellationToken ct = default) =>
         CreatePass(policy).RunAsync(Account.Id, ct);

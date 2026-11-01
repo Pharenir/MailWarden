@@ -149,6 +149,25 @@ internal static class SchemaMigrations
         );
         """;
 
+    /// <summary>
+    /// Version 6: address book (AP-06). The harvest marker per Sent folder disappears with its folder. An allow/block entry
+    /// has one kind (1 allowed, 2 blocked); the same text can only be an address or a domain, the rules of the store see to that.
+    /// </summary>
+    private const string Version6 = """
+        CREATE TABLE contact_harvest_marker (
+            folder_id           INTEGER NOT NULL PRIMARY KEY REFERENCES folders (id) ON DELETE CASCADE,
+            uid_validity        INTEGER NOT NULL,
+            harvested_up_to_uid INTEGER NOT NULL
+        );
+
+        CREATE TABLE sender_list (
+            entry     TEXT    NOT NULL COLLATE NOCASE,
+            is_domain INTEGER NOT NULL,
+            kind      INTEGER NOT NULL,
+            PRIMARY KEY (entry, is_domain)
+        );
+        """;
+
     /// <summary>All migrations in ascending order; versions are contiguous starting at 1.</summary>
     internal static readonly IReadOnlyList<(int Version, string Sql)> Ordered =
     [
@@ -157,5 +176,6 @@ internal static class SchemaMigrations
         (3, Version3),
         (4, Version4),
         (5, Version5),
+        (6, Version6),
     ];
 }

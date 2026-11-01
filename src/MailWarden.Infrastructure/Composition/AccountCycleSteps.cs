@@ -16,8 +16,10 @@ namespace MailWarden.Infrastructure.Composition;
 /// and settings of the data root. It only needs a server in Act when an app folder is missing locally.</param>
 /// <param name="ExecuteCommands">Replaces the command run; null keeps the real one, which connects only when a command is
 /// due.</param>
+/// <param name="Harvest">Replaces the contact harvest; null keeps the real one, on the real database. It needs no server.</param>
 public sealed record AccountCycleSteps(
     Func<Guid, IProgress<SyncProgress>?, CancellationToken, Task<SyncReport>> Sync,
     IMailIdleWatcherFactory IdleWatchers,
     Func<Guid, CancellationToken, Task<ClassificationPassReport>>? Classify = null,
-    Func<Guid, CancellationToken, Task<CommandRunReport>>? ExecuteCommands = null);
+    Func<Guid, CancellationToken, Task<CommandRunReport>>? ExecuteCommands = null,
+    Func<Guid, CancellationToken, Task<ContactHarvestReport>>? Harvest = null);

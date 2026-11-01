@@ -8,11 +8,11 @@ namespace MailWarden.Infrastructure.Tests.Storage;
 [Trait("Category", "feature:classifier")]
 public sealed class SchemaV5Tests
 {
-    private static readonly Guid SeedAccountId = Guid.Parse("11111111-2222-3333-4444-555555555555");
+    internal static readonly Guid SeedAccountId = Guid.Parse("11111111-2222-3333-4444-555555555555");
 
     // Schema version 4 written out here (v3 plus the command table), so the test does not depend on the production
     // migrations for v1..v4. The command table is only there to prove that its rows survive.
-    private const string SchemaV4Sql = """
+    internal const string SchemaV4Sql = """
         CREATE TABLE schema_version (version INTEGER NOT NULL);
         INSERT INTO schema_version (version) VALUES (4);
         CREATE TABLE accounts (
@@ -76,7 +76,7 @@ public sealed class SchemaV5Tests
         """;
 
     // Schema version 1 as in SchemaV2Tests: the oldest file the migration chain has to handle.
-    private const string SchemaV1Sql = """
+    internal const string SchemaV1Sql = """
         CREATE TABLE schema_version (version INTEGER NOT NULL);
         INSERT INTO schema_version (version) VALUES (1);
         CREATE TABLE accounts (
@@ -119,7 +119,7 @@ public sealed class SchemaV5Tests
             source INTEGER NOT NULL);
         """;
 
-    private const string SeedRowsSql = """
+    internal const string SeedRowsSql = """
 
         INSERT INTO accounts (id, display_name, email_address, provider)
             VALUES ($accountId, 'Account_A', 'user_a@example.test', 1);
@@ -133,7 +133,7 @@ public sealed class SchemaV5Tests
             VALUES (5, 'contact_a@example.test', 'Contact A', 0);
         """;
 
-    private const string SeedCommandSql = """
+    internal const string SeedCommandSql = """
 
         INSERT INTO folder_sync_state (folder_id, skipped_up_to_uid, highest_mod_seq, last_synced_at)
             VALUES (7, 9, 77, NULL);
@@ -142,7 +142,7 @@ public sealed class SchemaV5Tests
             VALUES (9, $accountId, 4, 7, 4242, '[11]', NULL, 0, 0, 1, 0, '2026-10-30T10:00:00.0000000+00:00', NULL, NULL);
         """;
 
-    private static async Task CreateFileAsync(string databasePath, string schemaSql, string seedSql)
+    internal static async Task CreateFileAsync(string databasePath, string schemaSql, string seedSql)
     {
         await using var connection = new SqliteConnection($"Data Source={databasePath}");
         await connection.OpenAsync();
@@ -152,7 +152,7 @@ public sealed class SchemaV5Tests
         await command.ExecuteNonQueryAsync();
     }
 
-    private static async Task<HashSet<string>> ReadNamesAsync(SqliteDatabase database, string sql)
+    internal static async Task<HashSet<string>> ReadNamesAsync(SqliteDatabase database, string sql)
     {
         var names = new HashSet<string>();
         await using SqliteCommand command = database.Connection.CreateCommand();
@@ -166,7 +166,7 @@ public sealed class SchemaV5Tests
         return names;
     }
 
-    private static async Task<long> ScalarAsync(SqliteDatabase database, string sql)
+    internal static async Task<long> ScalarAsync(SqliteDatabase database, string sql)
     {
         await using SqliteCommand command = database.Connection.CreateCommand();
         command.CommandText = sql;
@@ -175,9 +175,9 @@ public sealed class SchemaV5Tests
 
     // Case 4
     [Fact]
-    public void Current_schema_version_is_five()
+    public void Current_schema_version_is_at_least_five()
     {
-        Assert.Equal(5, SqliteDatabase.CurrentSchemaVersion);
+        Assert.True(SqliteDatabase.CurrentSchemaVersion >= 5);
     }
 
     // Case 4
@@ -187,7 +187,7 @@ public sealed class SchemaV5Tests
     {
         await using StorageFixture storage = await StorageFixture.CreateAsync();
 
-        Assert.Equal(5, storage.Database.SchemaVersion);
+        Assert.Equal(SqliteDatabase.CurrentSchemaVersion, storage.Database.SchemaVersion);
         HashSet<string> tables = await ReadNamesAsync(storage.Database, "SELECT name FROM sqlite_master WHERE type = 'table'");
         Assert.Contains("classification_log", tables);
         Assert.Contains("classification_marker", tables);
@@ -230,12 +230,12 @@ public sealed class SchemaV5Tests
         await using SqliteDatabase database = SqliteDatabase.ForFile(databasePath);
         await database.InitializeAsync();
 
-        Assert.Equal(5, database.SchemaVersion);
+        Assert.Equal(SqliteDatabase.CurrentSchemaVersion, database.SchemaVersion);
         HashSet<string> tables = await ReadNamesAsync(database, "SELECT name FROM sqlite_master WHERE type = 'table'");
         Assert.Contains("classification_log", tables);
         Assert.Contains("classification_marker", tables);
         Assert.Equal(1, await ScalarAsync(database, "SELECT COUNT(*) FROM schema_version"));
-        Assert.Equal(5, await ScalarAsync(database, "SELECT MAX(version) FROM schema_version"));
+        Assert.Equal(SqliteDatabase.CurrentSchemaVersion, await ScalarAsync(database, "SELECT MAX(version) FROM schema_version"));
         MailMessage message = (await new SqliteMessageStore(database).GetByUidAsync(7, 11))!;
         Assert.Equal("old_subject", message.Subject);
         Assert.Equal(new Account(SeedAccountId, "Account_A", "user_a@example.test", MailProvider.Google), Assert.Single(await new SqliteAccountStore(database).ListAsync()));
@@ -257,14 +257,14 @@ public sealed class SchemaV5Tests
         await using SqliteDatabase database = SqliteDatabase.ForFile(databasePath);
         await database.InitializeAsync();
 
-        Assert.Equal(5, database.SchemaVersion);
+        Assert.Equal(SqliteDatabase.CurrentSchemaVersion, database.SchemaVersion);
         HashSet<string> tables = await ReadNamesAsync(database, "SELECT name FROM sqlite_master WHERE type = 'table'");
         Assert.Contains("classification_log", tables);
         Assert.Contains("classification_marker", tables);
         Assert.Equal("old_subject", (await new SqliteMessageStore(database).GetByUidAsync(7, 11))!.Subject);
         Assert.Equal(1, await ScalarAsync(database, "SELECT COUNT(*) FROM contacts"));
         Assert.Equal(1, await ScalarAsync(database, "SELECT COUNT(*) FROM schema_version"));
-        Assert.Equal(5, await ScalarAsync(database, "SELECT MAX(version) FROM schema_version"));
+        Assert.Equal(SqliteDatabase.CurrentSchemaVersion, await ScalarAsync(database, "SELECT MAX(version) FROM schema_version"));
     }
 
     // Case 4: the migrated file is usable with the new stores and cascades work there
@@ -315,23 +315,23 @@ public sealed class SchemaV5Tests
         await using SqliteDatabase second = SqliteDatabase.ForFile(databasePath);
         await second.InitializeAsync();
 
-        Assert.Equal(5, second.SchemaVersion);
+        Assert.Equal(SqliteDatabase.CurrentSchemaVersion, second.SchemaVersion);
         var reopened = new SqliteClassificationLog(second);
         Assert.Equal(new ClassificationMarker(7, 4242, 11), await reopened.GetMarkerAsync(7));
     }
 
     // Case 4: a newer version is rejected as before
     [Fact(Timeout = TestTimeouts.PerTestMilliseconds)]
-    public async Task File_with_a_newer_version_than_five_is_rejected()
+    public async Task File_with_a_newer_version_than_the_current_one_is_rejected()
     {
         using var temp = new TempDirectory();
-        string databasePath = Path.Combine(temp.RootPath, "v6.db");
-        await CreateFileAsync(databasePath, SchemaV4Sql.Replace("VALUES (4)", "VALUES (6)", StringComparison.Ordinal), string.Empty);
+        string databasePath = Path.Combine(temp.RootPath, "vnewer.db");
+        await CreateFileAsync(databasePath, SchemaV4Sql.Replace("VALUES (4)", $"VALUES ({SqliteDatabase.CurrentSchemaVersion + 1})", StringComparison.Ordinal), string.Empty);
         SqliteConnection.ClearAllPools();
 
         await using SqliteDatabase database = SqliteDatabase.ForFile(databasePath);
         SchemaVersionException exception = await Assert.ThrowsAsync<SchemaVersionException>(() => database.InitializeAsync());
 
-        Assert.Equal(5, exception.SupportedVersion);
+        Assert.Equal(SqliteDatabase.CurrentSchemaVersion, exception.SupportedVersion);
     }
 }
