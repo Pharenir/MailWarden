@@ -665,3 +665,19 @@ pre-scan stays for what happens inside a single token. Real data (`limiter-probe
 | 88 | `message/feedback-report` part; opaque `message/rfc822` at depth 40 | listed as an attachment, no notice; not listed, notice |
 | 89 | `SenderLine` with a name of exactly 100, 101 characters | unchanged and address visible; cut and address visible |
 | 90 | 200 unclosed `<a name=x>` followed by a link | the link stays |
+
+### Revision of M1 (planner, 2026-11-01, after the builder's probe)
+The probe of the builder shows that `OnCreated` does not fire for reconstructed formatting elements (`formatBomb` 64 x 100: 168
+callbacks, 6,568 elements), so M1 as written does not hold. A failure of the callback was the case in which the builder had to
+stop, and it did. Replacement, same idea, measured per token:
+- **M1a.** First a probe: does `HtmlParserOptions.OnToken` fire for every token during tree building, and does an exception from
+  it end the parser cleanly? Only if both hold, the budget is: allocated bytes of the parsing thread
+  (`GC.GetAllocatedBytesForCurrentThread`) at most **256 MB** or at most **3 s**, checked per token. On abort the result is as in
+  M1: encoded plain text, `WasReduced` true.
+- **M1b.** If it does not hold: M2-M8 are implemented without a parser budget, secure M2 stays open, and Dennis decides about the
+  remaining risk.
+- M2-M8 are independent and are implemented either way.
+- **Case 80** changes: over the pre-scan limits the text stays and `WasReduced` is true; "without markup" applies only to an abort
+  of the parser budget. Cases 78 and 79 expect the abort or the pre-scan limit, whichever comes first.
+- **M7** changes: `message/partial` is a normal attachment; opaque is only a part the parser left unparsed at the depth limit
+  (`multipart/*`, `message/rfc822`) and M6.
