@@ -12,8 +12,9 @@ namespace MailWarden.Infrastructure.Sync;
 
 /// <summary>
 /// <see cref="IMailFolderProvisioner"/> on a MailKit session of its own. Commands on the wire besides login and session
-/// setup: <c>LIST</c>, <c>CREATE</c> for a missing folder (MailKit follows it with <c>LIST</c>) and <c>STATUS (UIDVALIDITY)</c>.
-/// No folder is ever selected, so nothing can be expunged; the session ends with <c>LOGOUT</c>.
+/// setup: <c>LIST</c>, for a missing folder <c>CREATE</c> (MailKit follows it with <c>LIST</c>) and <c>SUBSCRIBE</c>, and
+/// <c>STATUS (UIDVALIDITY)</c>. No folder is ever selected, so nothing can be expunged; the session ends with <c>LOGOUT</c>.
+/// An existing server folder is not changed.
 /// </summary>
 /// <remarks>
 /// A folder that is stored locally with a known UIDVALIDITY and the right role is left alone. Its stored value must not be
@@ -133,8 +134,20 @@ public sealed class MailKitFolderProvisioner(AccountService accountService, IFol
         }
 
         IMailFolder namespaceRoot = client.GetFolder(client.PersonalNamespaces[0]);
-        return await namespaceRoot.CreateAsync(fullName, isMessageFolder: true, ct).ConfigureAwait(false)
+        IMailFolder createdFolder = await namespaceRoot.CreateAsync(fullName, isMessageFolder: true, ct).ConfigureAwait(false)
             ?? throw ProtocolFailure(endpoint, "did not list an app folder after creating it");
+
+        try
+        {
+            // So that other clients show the folder. Not needed by this app: it lists unsubscribed folders as well.
+            await createdFolder.SubscribeAsync(ct).ConfigureAwait(false);
+        }
+        catch (Exception exception) when (exception is not (OperationCanceledException or OutOfMemoryException))
+        {
+            // Ignored on purpose. A lost connection surfaces with the STATUS command that follows.
+        }
+
+        return createdFolder;
     }
 
     private static MailTransportException ProtocolFailure(ServerEndpoint endpoint, string problem)
