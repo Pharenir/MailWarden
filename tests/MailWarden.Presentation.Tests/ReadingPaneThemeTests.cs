@@ -655,4 +655,54 @@ public sealed class ReadingPaneThemeTests
         Assert.Contains("keep_marker", reading.DocumentHtml, StringComparison.Ordinal);
         Assert.True(IsDark(reading));
     }
+
+    // ---- Case 16 (fix.1, F4) -------------------------------------------------------------------------------
+
+    // Case 16
+    [Fact(Timeout = TestTimeouts.PerTestMilliseconds)]
+    public async Task Failed_theme_rebuild_keeps_the_readable_document_and_logs_only_the_type_name()
+    {
+        (ShellHarness harness, _, ThemeBuilder builder, MailFolder inbox) = NewHarness();
+        MailMessage mail = AddHtml(harness, inbox, "mail_a", "<p>mail_a_html_marker</p>");
+        MailMessage next = AddHtml(harness, inbox, "mail_b", "<p>mail_b_html_marker</p>");
+        ReadingPaneViewModel reading = harness.Shell.Reading;
+        await reading.ShowAsync(mail);
+        string documentBefore = reading.DocumentHtml!;
+        builder.FailWith = new InvalidOperationException("builder_failure_marker");
+
+        Exception? failure = await Record.ExceptionAsync(() => reading.ApplyThemeAsync(ReadingTheme.Dark));
+
+        Assert.Null(failure);
+        Assert.Equal(documentBefore, reading.DocumentHtml);
+        Assert.Equal(ReadingState.Ready, reading.State);
+        Assert.Null(reading.ContentNotice);
+        Assert.Contains(nameof(InvalidOperationException), harness.Log.AllText, StringComparison.Ordinal);
+        Assert.DoesNotContain("builder_failure_marker", harness.Log.AllText, StringComparison.Ordinal);
+
+        // The reported theme counts from now on, also for the next mail and the next real change.
+        builder.FailWith = null;
+        await reading.ShowAsync(next);
+        Assert.True(IsDark(reading));
+        await reading.ApplyThemeAsync(ReadingTheme.Light);
+        Assert.True(IsLight(reading));
+        await reading.ApplyThemeAsync(ReadingTheme.Dark);
+        Assert.True(IsDark(reading));
+        Assert.Equal("mail_b", reading.Subject);
+    }
+
+    // Case 16 (unchanged): a failure while loading images still ends in the error state.
+    [Fact(Timeout = TestTimeouts.PerTestMilliseconds)]
+    public async Task Failure_while_loading_images_still_ends_in_the_error_state()
+    {
+        (ShellHarness harness, _, ThemeBuilder builder, MailFolder inbox) = NewHarness();
+        MailMessage mail = AddHtml(harness, inbox, "mail_a", RemoteImageHtml);
+        ReadingPaneViewModel reading = harness.Shell.Reading;
+        await reading.ShowAsync(mail);
+        builder.FailWith = new InvalidOperationException("builder_failure_marker");
+
+        reading.LoadRemoteImagesCommand.Execute(null);
+        await Wait.UntilAsync(() => reading.State == ReadingState.Error, "error state after the failed image build");
+
+        Assert.DoesNotContain("tracker.test", reading.DocumentHtml ?? string.Empty, StringComparison.Ordinal);
+    }
 }

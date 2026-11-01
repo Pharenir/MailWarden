@@ -496,4 +496,76 @@ public sealed class ReadingDocumentThemeTests
         Assert.True(made.HasOwnColors);
         Assert.False(made.WasReduced);
     }
+
+    // ---- Cases 14, 14a, 15 (fix.1, F1) ---------------------------------------------------------------------
+
+    public static TheoryData<string> RepaintingDeclarations => new()
+    {
+        "all:initial",
+        "filter:brightness(0)",
+        "FILTER : invert(1)",
+        "mix-blend-mode:multiply",
+        "box-shadow:0 0 1px 9999px #fff",
+        "border-image:linear-gradient(#fff,#fff) 1 fill",
+        "border-image-source:linear-gradient(#fff,#fff)",
+        "border-image-slice:1 fill",
+        "list-style-image:url(https://images.example.test/a.png)",
+        "content:url(https://images.example.test/a.png)",
+    };
+
+    // Case 14
+    [Theory(Timeout = TestTimeouts.PerTestMilliseconds)]
+    [MemberData(nameof(RepaintingDeclarations))]
+    public async Task A_declaration_that_repaints_text_alone_keeps_the_light_sheet(string declaration)
+    {
+        await Task.Yield();
+        string html = $"<p style=\"{declaration}\">body_marker</p>";
+
+        Assert.True(Sanitize(html).HasOwnColors, declaration);
+        Assert.True(IsLight(BuildDark(html)), declaration);
+    }
+
+    // Case 14a: the allow-list removes it, so it never reaches the output; the page stays dark.
+    [Fact(Timeout = TestTimeouts.PerTestMilliseconds)]
+    public async Task Backdrop_filter_is_dark_and_does_not_reach_the_output()
+    {
+        await Task.Yield();
+        const string html = "<p style=\"backdrop-filter:blur(1px)\">body_marker</p>";
+
+        ReadingDocument document = BuildDark(html);
+
+        Assert.True(IsDark(document));
+        Assert.DoesNotContain("backdrop-filter", document.Html, StringComparison.OrdinalIgnoreCase);
+        Assert.Contains("body_marker", document.Html, StringComparison.Ordinal);
+    }
+
+    // Case 15
+    [Theory(Timeout = TestTimeouts.PerTestMilliseconds)]
+    [InlineData("border:1px solid #ccc")]
+    [InlineData("outline:1px solid #ccc")]
+    [InlineData("text-shadow:1px 1px #ccc")]
+    [InlineData("border-color:#ccc")]
+    [InlineData("border-radius:4px")]
+    public async Task Border_outline_and_text_shadow_do_not_make_a_mail_light(string declaration)
+    {
+        await Task.Yield();
+        string html = $"<p style=\"{declaration}\">body_marker</p>";
+
+        Assert.False(Sanitize(html).HasOwnColors, declaration);
+        Assert.True(IsDark(BuildDark(html)), declaration);
+    }
+
+    // F5: links in <mark> get a readable colour, in the dark style only.
+    [Fact(Timeout = TestTimeouts.PerTestMilliseconds)]
+    public async Task Mark_link_rule_is_in_the_dark_style_only()
+    {
+        await Task.Yield();
+        MailContent content = ContentWith("<p><mark>x</mark></p>");
+
+        string dark = ReadingDocumentBuilder.Build(content, false, true, ReadingTheme.Dark).Html;
+        string light = ReadingDocumentBuilder.Build(content, false, true, ReadingTheme.Light).Html;
+
+        Assert.Contains("mark a", dark, StringComparison.Ordinal);
+        Assert.DoesNotContain("mark a", light, StringComparison.Ordinal);
+    }
 }
