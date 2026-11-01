@@ -447,18 +447,18 @@ public sealed class ActionRaceTests
     {
         (ShellHarness harness, MessageRowViewModel[] rows, _, TaskCompletionSource release, _) = await DeletingAsync();
 
+        // The product may serialise actions behind the one being saved, so the calls are awaited after the release.
         harness.Shell.MarkReadCommand.Execute(null);
-        await WaitForCallsAsync(harness, "SetSeen");
         harness.Shell.ToggleFlagCommand.Execute(null);
-        await WaitForCallsAsync(harness, "SetFlagged");
         harness.Shell.MarkUnreadCommand.Execute(null);
-        await WaitForCallsAsync(harness, "SetSeen", 2);
+        release.SetResult();
 
+        await WaitForCallsAsync(harness, "MoveToTrash");
+        await WaitForCallsAsync(harness, "SetSeen", 2);
+        await WaitForCallsAsync(harness, "SetFlagged");
         Assert.Equal(new[] { rows[1].Message.Id }, harness.Actions.CallsNamed("SetSeen")[0].MessageIds.ToArray());
         Assert.Equal(new[] { rows[1].Message.Id }, harness.Actions.CallsNamed("SetFlagged")[0].MessageIds.ToArray());
-        Assert.Empty(harness.Actions.CallsNamed("MoveToTrash")); // the blocked delete has not been stored yet
-        release.SetResult();
-        await WaitForCallsAsync(harness, "MoveToTrash");
+        Assert.Equal(new[] { rows[0].Message.Id }, Assert.Single(harness.Actions.CallsNamed("MoveToTrash")).MessageIds.ToArray());
     }
 
     // Delete, permanent delete and move leave the follow row alone while the delete is being saved.

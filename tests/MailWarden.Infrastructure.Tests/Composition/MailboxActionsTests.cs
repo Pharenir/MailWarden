@@ -748,6 +748,8 @@ public sealed class MailboxActionsTests
 
         Assert.Equal(MailboxActions.PartlyDoneText, failure.Message);
         Assert.DoesNotContain("marker_storage_failure", failure.Message, StringComparison.Ordinal);
+        Assert.Contains("StorageException", harness.Log.AllText, StringComparison.Ordinal);
+        Assert.DoesNotContain("marker_storage_failure", harness.Log.AllText, StringComparison.Ordinal);
         Assert.Equal(1, await harness.CommandCountAsync(account));
     }
 
