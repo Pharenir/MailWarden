@@ -106,8 +106,7 @@ the last pass. It stays digits for the counts. A test that compares the old word
 
 Tested by me (no proof):
 - `dotnet build MailWarden.sln -warnaserror`: 0 errors, 0 warnings.
-- Test classes matching `ClassifyingSyncCycle` (21) and `ShellViewModel` (30) through the watchdog: all passed. None of the
-  new cases 19-21 exists yet, as far as these counts can tell; the old "cleared" part of case 14 is not in these classes or
-  is not affected, I did not read them.
+- Test classes matching `ClassifyingSyncCycle` (21) and `ShellViewModel` (30) through the watchdog: all passed. I did not read them, so I cannot
+  say which cases they cover, in particular whether the old "cleared" part of case 14 is among them.
 
 Untested: cases 19-21; S1-S3 after this change.
