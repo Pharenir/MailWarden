@@ -143,16 +143,17 @@ public sealed class WindowSettingsTests : IDisposable
         }
     }
 
-    // Case 18: null is "unknown" and equals a missing key.
-    [Fact]
-    public void Null_window_values_are_treated_as_unknown()
+    // Case 18: null is not a number; the loader fails fast and names the key (builder's reading, fail-fast rule).
+    [Theory]
+    [InlineData("""{"windowWidth": null}""", "windowWidth")]
+    [InlineData("""{"windowHeight": null}""", "windowHeight")]
+    [InlineData("""{"windowX": null}""", "windowX")]
+    [InlineData("""{"windowY": null}""", "windowY")]
+    public void Null_window_values_are_rejected_naming_the_key(string json, string key)
     {
-        UiSettings loaded = LoadFrom("""{"windowWidth": null, "windowHeight": null, "windowX": null, "windowY": null}""");
+        UiSettingsException exception = LoadFailureOf(json);
 
-        Assert.Null(loaded.WindowWidth);
-        Assert.Null(loaded.WindowHeight);
-        Assert.Null(loaded.WindowX);
-        Assert.Null(loaded.WindowY);
+        Assert.Contains(key, exception.Message, StringComparison.Ordinal);
     }
 
     // Case 18: round trip with every value, then with unknown window values.
