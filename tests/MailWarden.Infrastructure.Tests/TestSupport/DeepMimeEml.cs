@@ -57,4 +57,35 @@ internal static class DeepMimeEml
 
         return Encoding.ASCII.GetBytes(inner);
     }
-}
+
+    public const string HarmlessText = "harmless_text";
+
+    /// <summary>
+    /// A top-level <c>multipart/mixed</c> with a harmless text part first and, as second part, a chain of
+    /// <paramref name="depth"/> - 1 further nested <c>multipart/mixed</c> parts with a text part in the innermost.
+    /// </summary>
+    public static byte[] HarmlessTextThenNestedMultipart(int depth)
+    {
+        var text = new StringBuilder(Headers);
+        text.Append("Content-Type: multipart/mixed; boundary=\"b0\"\r\n\r\n");
+        text.Append("--b0\r\nContent-Type: text/plain\r\n\r\n").Append(HarmlessText).Append("\r\n");
+        for (int level = 0; level < depth - 1; level++)
+        {
+            text.Append("--b").Append(level).Append("\r\n");
+            if (level < depth - 2)
+            {
+                text.Append("Content-Type: multipart/mixed; boundary=\"b").Append(level + 1).Append("\"\r\n\r\n");
+            }
+            else
+            {
+                text.Append("Content-Type: text/plain\r\n\r\n").Append(Marker).Append("\r\n");
+            }
+        }
+
+        for (int level = depth - 2; level >= 0; level--)
+        {
+            text.Append("--b").Append(level).Append("--\r\n");
+        }
+
+        return Encoding.ASCII.GetBytes(text.ToString());
+    }}

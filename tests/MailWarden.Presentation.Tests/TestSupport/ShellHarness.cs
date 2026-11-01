@@ -7,14 +7,14 @@ internal sealed class ShellHarness
 {
     public static readonly DateTimeOffset FixedNow = new(2026, 10, 31, 12, 0, 0, TimeSpan.Zero);
 
-    public ShellHarness(UiSettings? initialSettings = null)
+    public ShellHarness(UiSettings? initialSettings = null, TimeProvider? clock = null)
     {
         ReadModel = new FakeMailboxReadModel();
         Controller = new FakeMailboxController();
         Dispatcher = new FakeUiDispatcher();
         Settings = new FakeUiSettingsStore { Stored = initialSettings ?? UiSettings.Default };
         Log = new FakeCriticalLog();
-        Clock = new FixedClock(FixedNow);
+        Clock = clock ?? new FixedClock(FixedNow);
         Shell = new ShellViewModel(ReadModel, Controller, Dispatcher, Settings, Log, Clock);
     }
 
@@ -28,7 +28,7 @@ internal sealed class ShellHarness
 
     public FakeCriticalLog Log { get; }
 
-    public FixedClock Clock { get; }
+    public TimeProvider Clock { get; }
 
     public ShellViewModel Shell { get; }
 

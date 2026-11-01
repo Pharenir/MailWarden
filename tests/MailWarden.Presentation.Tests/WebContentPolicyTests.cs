@@ -304,4 +304,98 @@ public sealed class WebContentPolicyTests
         Assert.False(WebContentPolicy.AllowRequest(uri, isImageRequest: false, allowRemoteImages: true));
         Assert.False(WebContentPolicy.AllowRequest(uri, isImageRequest: true, allowRemoteImages: false));
     }
-}
+
+    // ---- Case 76 (L8) --------------------------------------------------------------------------------------
+
+    // Case 76
+    [Theory]
+    [InlineData("http://router/pixel.gif")]
+    [InlineData("https://fritz.box/pixel.gif")]
+    [InlineData("https://FRITZ.BOX/pixel.gif")]
+    [InlineData("https://nas.local/pixel.gif")]
+    [InlineData("https://printer.lan/pixel.gif")]
+    [InlineData("https://db.internal/pixel.gif")]
+    [InlineData("https://x.home.arpa/pixel.gif")]
+    [InlineData("https://host.localdomain/pixel.gif")]
+    [InlineData("http://100.64.0.1/pixel.gif")]
+    [InlineData("http://100.127.255.255/pixel.gif")]
+    [InlineData("http://198.18.0.1/pixel.gif")]
+    [InlineData("http://198.19.255.255/pixel.gif")]
+    [InlineData("http://192.0.0.5/pixel.gif")]
+    [InlineData("http://224.0.0.1/pixel.gif")]
+    [InlineData("http://239.255.255.250/pixel.gif")]
+    [InlineData("http://255.255.255.255/pixel.gif")]
+    [InlineData("http://[ff02::1]/pixel.gif")]
+    [InlineData("http://[ff00::1]/pixel.gif")]
+    [InlineData("http://[::127.0.0.1]/pixel.gif")]
+    [InlineData("http://[::ffff:10.0.0.1]/pixel.gif")]
+    [InlineData("http://[64:ff9b::7f00:1]/pixel.gif")]
+    [InlineData("http://[2002:c0a8:101::]/pixel.gif")]
+    public void Names_without_a_dot_local_endings_and_special_ranges_are_denied_even_with_approval(string uri)
+    {
+        Assert.False(WebContentPolicy.AllowRequest(uri, isImageRequest: true, allowRemoteImages: true));
+    }
+
+    // Case 76 positive control: public names and addresses next to the denied ranges are allowed with approval.
+    [Theory]
+    [InlineData("https://images.example.test/pixel.gif")]
+    [InlineData("http://8.8.8.8/pixel.gif")]
+    [InlineData("https://fritz.box.example.test/pixel.gif")]
+    [InlineData("https://local.example.test/pixel.gif")]
+    [InlineData("https://nas.localx.test/pixel.gif")]
+    [InlineData("https://home.arpa.example.test/pixel.gif")]
+    [InlineData("https://100.63.255.255/pixel.gif")]
+    [InlineData("https://100.128.0.1/pixel.gif")]
+    [InlineData("https://198.17.255.255/pixel.gif")]
+    [InlineData("https://198.20.0.1/pixel.gif")]
+    [InlineData("https://192.0.1.1/pixel.gif")]
+    [InlineData("https://223.255.255.255/pixel.gif")]
+    [InlineData("https://[2606:4700::1111]/pixel.gif")]
+    [InlineData("https://[2003::1]/pixel.gif")]
+    public void Public_names_and_neighbouring_addresses_are_allowed_with_approval(string uri)
+    {
+        Assert.True(WebContentPolicy.AllowRequest(uri, isImageRequest: true, allowRemoteImages: true));
+        Assert.False(WebContentPolicy.AllowRequest(uri, isImageRequest: true, allowRemoteImages: false));
+    }
+
+    // ---- Case 77 (L9) --------------------------------------------------------------------------------------
+
+    // Case 77
+    [Theory]
+    [InlineData("mailto:a@example.test&attach=c:/y")]
+    [InlineData("mailto:a@example.test&attach=c:/y&cc=b@example.test")]
+    [InlineData("MAILTO:a@example.test&ATTACH=c:/y")]
+    public void Sanitize_mailto_cuts_the_address_at_the_first_ampersand(string uri)
+    {
+        string result = WebContentPolicy.SanitizeMailto(uri);
+
+        Assert.DoesNotContain("attach", result, StringComparison.OrdinalIgnoreCase);
+        Assert.DoesNotContain("c:/y", result, StringComparison.OrdinalIgnoreCase);
+        Assert.StartsWith("mailto:a@example.test", result, StringComparison.OrdinalIgnoreCase);
+        Assert.DoesNotContain("&", result.Split('?')[0], StringComparison.Ordinal);
+    }
+
+    // Case 77
+    [Fact]
+    public void Sanitize_mailto_encodes_a_raw_question_mark_inside_a_value()
+    {
+        string result = WebContentPolicy.SanitizeMailto("mailto:a@example.test?subject=x?attach=c:/y");
+
+        Assert.Equal(new[] { "subject" }, QueryKeys(result));
+        Assert.Equal(1, result.Count(character => character == '?'));
+        Assert.Contains("%3F", result, StringComparison.OrdinalIgnoreCase);
+        Assert.Equal("x?attach=c:/y", QueryValue(result, "subject"));
+    }
+
+    // Case 77 positive control: ordinary addresses and parameters are not touched.
+    [Fact]
+    public void Sanitize_mailto_keeps_ordinary_links_intact()
+    {
+        string result = WebContentPolicy.SanitizeMailto("mailto:a@example.test?subject=Hello%20World&cc=b@example.test");
+
+        Assert.StartsWith("mailto:a@example.test?", result, StringComparison.Ordinal);
+        Assert.Equal(new[] { "cc", "subject" }, QueryKeys(result).OrderBy(key => key, StringComparer.Ordinal).ToArray());
+        Assert.Equal("Hello World", QueryValue(result, "subject"));
+        Assert.Equal("b@example.test", QueryValue(result, "cc"));
+        Assert.Equal("mailto:a@example.test", WebContentPolicy.SanitizeMailto("mailto:a@example.test"));
+    }}

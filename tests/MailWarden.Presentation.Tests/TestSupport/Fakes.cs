@@ -3,6 +3,7 @@ using MailWarden.Infrastructure.Composition;
 using MailWarden.Infrastructure.Logging;
 using MailWarden.Infrastructure.Mime;
 using MailWarden.Infrastructure.Sync;
+using MimeKit;
 
 namespace MailWarden.Presentation.Tests.TestSupport;
 
@@ -455,20 +456,38 @@ internal sealed class FakeMailboxReadModel : IMailboxReadModel
     }
 }
 
-/// <summary>Builders for artificial message content. All values are synthetic.</summary>
+/// <summary>
+/// Builders for artificial message content. The content is produced by the real <see cref="MailContentReader"/> from a
+/// generated message, so every member (including parsed sender mailboxes) is consistent with the product's own reader.
+/// All values are synthetic.
+/// </summary>
 internal static class TestContent
 {
-    public static MailContent Plain(string subject, string text, IReadOnlyList<MailAttachmentInfo>? attachments = null) =>
-        new(
-            subject,
-            "Sender A <sender_a@example.test>",
-            ["Recipient B <recipient_b@example.test>"],
-            ["Copy D <copy_d@example.test>"],
-            new DateTimeOffset(2026, 6, 15, 10, 0, 0, TimeSpan.FromHours(2)),
-            null,
-            text,
-            new Dictionary<string, string>(),
-            attachments ?? []);
+    public static readonly (string Name, string Address)[] DefaultSender = [("Sender A", "sender_a@example.test")];
+
+    public static MailContent Plain(
+        string subject,
+        string text,
+        IReadOnlyList<MailAttachmentInfo>? attachments = null,
+        (string Name, string Address)[]? from = null)
+    {
+        var message = new MimeMessage { Subject = "placeholder", Date = new DateTimeOffset(2026, 6, 15, 10, 0, 0, TimeSpan.FromHours(2)) };
+        foreach ((string name, string address) in from ?? DefaultSender)
+        {
+            message.From.Add(new MailboxAddress(name, address));
+        }
+
+        message.To.Add(new MailboxAddress("Recipient B", "recipient_b@example.test"));
+        message.Cc.Add(new MailboxAddress("Copy D", "copy_d@example.test"));
+        message.Body = new TextPart("plain") { Text = text };
+        using var stream = new MemoryStream();
+        message.WriteTo(stream);
+        stream.Position = 0;
+        MailContent read = MailContentReader.ReadAsync(stream).GetAwaiter().GetResult();
+
+        // Subject and attachments are set directly: tests need hostile sizes and unclean texts the reader would not keep.
+        return read with { Subject = subject, Attachments = attachments ?? [] };
+    }
 
     public static MailContent Html(string subject, string html, IReadOnlyList<MailAttachmentInfo>? attachments = null) =>
         Plain(subject, "plain text", attachments) with { Html = html };

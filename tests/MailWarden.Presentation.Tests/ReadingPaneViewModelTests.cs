@@ -71,9 +71,8 @@ public sealed class ReadingPaneViewModelTests
     {
         (ShellHarness harness, MailFolder inbox) = NewHarness();
         MailMessage message = harness.ReadModel.AddMessage(inbox);
-        MailContent dirty = TestContent.Plain("Re:\u202E subject\u0007", "text") with
+        MailContent dirty = TestContent.Plain("Re:\u202E subject\u0007", "text", from: [("Se\u202Ender", "sender_a@example.test")]) with
         {
-            From = "Se\u202Ender <sender_a@example.test>",
             To = ["Rec\u2066ipient <recipient_b@example.test>"],
         };
         harness.ReadModel.SetContent(message.Id, dirty);
@@ -347,9 +346,8 @@ public sealed class ReadingPaneViewModelTests
     {
         (ShellHarness harness, MailFolder inbox) = NewHarness();
         MailMessage message = harness.ReadModel.AddMessage(inbox);
-        MailContent huge = TestContent.Plain(new string('s', 365 * 1024), "text") with
+        MailContent huge = TestContent.Plain(new string('s', 365 * 1024), "text", from: [("N" + new string(' ', 5_000) + "M" + new string('x', 5_000), "sender_a@example.test")]) with
         {
-            From = "N" + new string(' ', 5_000) + "M" + new string('x', 5_000) + " <sender_a@example.test>",
             To = [.. Enumerable.Range(0, 5_000).Select(index => $"Recipient {index} <recipient_{index}@example.test>")],
             Cc = [.. Enumerable.Range(0, 5_000).Select(index => $"Copy {index} <copy_{index}@example.test>")],
         };
