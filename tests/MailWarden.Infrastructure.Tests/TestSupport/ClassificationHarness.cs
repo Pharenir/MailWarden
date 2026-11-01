@@ -145,7 +145,8 @@ internal sealed class ClassificationHarness : IAsyncDisposable
         ClassificationPolicy policy,
         IEmlStore? eml = null,
         IMailCommandQueue? queue = null,
-        IMailFolderProvisioner? provisioner = null) =>
+        IMailFolderProvisioner? provisioner = null,
+        IReadOnlyList<ISpamSignal>? signals = null) =>
         new(
             Storage.Accounts,
             Storage.Folders,
@@ -158,7 +159,8 @@ internal sealed class ClassificationHarness : IAsyncDisposable
             provisioner ?? Provisioner,
             ClassifierSettings.Default,
             policy,
-            Clock);
+            Clock,
+            signals);
 
     public Task<ClassificationPassReport> RunAsync(ClassificationPolicy policy, CancellationToken ct = default) =>
         CreatePass(policy).RunAsync(Account.Id, ct);
