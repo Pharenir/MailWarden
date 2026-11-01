@@ -18,3 +18,20 @@ Runtime about 16 s via the watchdog (no soft limit exceeded, no abort).
 
 ## Not covered
 Case 19 (real data, planner). `AccountPipelines` / `AccountCycleSteps.Harvest` composition and the probe (D8) have no automated test.
+
+## verify.2 (after fix.2, cases 20-26)
+
+Result: PASS, stage S3 green. Build `-warnaserror` 0 warnings, 0 errors.
+
+| Project | Tests | Passed |
+|---|---|---|
+| MailWarden.Core.Tests | 527 | 527 |
+| MailWarden.Infrastructure.Tests | 1486 | 1486 |
+| MailWarden.Presentation.Tests | 356 | 356 |
+| Total | 2369 | 2369 |
+
+Runtime about 16 s via the watchdog, no limit reached.
+
+First run: 1 failure, `ContactSenderDirectoryHardeningTests.Punycode_and_u_form_of_a_domain_are_one_entry_in_the_store`.
+The store keeps a Punycode and a U-form entry as two rows; R5 only requires that lookups match both forms, which other tests prove.
+Class: own test over-specified (c). Test removed; no product change.
