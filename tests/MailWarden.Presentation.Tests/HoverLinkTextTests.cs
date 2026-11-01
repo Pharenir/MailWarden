@@ -89,10 +89,8 @@ public sealed class HoverLinkTextTests
         reading.HoverLinkText = target;
 
         string shown = reading.HoverLinkText ?? string.Empty;
-        Assert.StartsWith("www.example.test", shown, StringComparison.Ordinal);
-        Assert.Contains("aaaa", shown, StringComparison.Ordinal);
-        Assert.True(shown.Length <= MaxLength + 100, $"length was {shown.Length}");
-        Assert.True(shown.Length > 100);
+        Assert.StartsWith("www.example.test | https://www.example.test/", shown, StringComparison.Ordinal);
+        Assert.True(shown.Length <= MaxLength && shown.Length > 100, $"length was {shown.Length}");
     }
 
     // Case 29 (U5): user info cannot put a foreign host in front; the real host (after the @) comes first.
@@ -105,7 +103,8 @@ public sealed class HoverLinkTextTests
         reading.HoverLinkText = target;
 
         string shown = reading.HoverLinkText ?? string.Empty;
-        Assert.StartsWith("evil.example.test", shown, StringComparison.Ordinal);
+        Assert.StartsWith("evil.example.test | ", shown, StringComparison.Ordinal);
+        Assert.True(shown.Length <= MaxLength);
         Assert.DoesNotMatch(@"^\W*trusted\.example\.test", shown);
     }
 

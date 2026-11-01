@@ -676,13 +676,13 @@ public sealed class MailboxActionsTests
         IReadOnlyList<MailMessage> fromInbox = await harness.AddMessagesAsync(inbox, 1);
         IReadOnlyList<MailMessage> fromTrash = await harness.AddMessagesAsync(trash, 1);
         MailActionException none = await Assert.ThrowsAsync<MailActionException>(() => harness.Actions.MoveToTrashAsync(fromTrash));
-        Assert.DoesNotContain("teilweise", none.Message, StringComparison.OrdinalIgnoreCase);
+        Assert.NotEqual(MailboxActions.PartlyDoneText, none.Message);
         Assert.Equal(0, await harness.CommandCountAsync(account));
 
         MailActionException mixed = await Assert.ThrowsAsync<MailActionException>(() => harness.Actions.MoveToTrashAsync([.. fromInbox, .. fromTrash]));
 
         long stored = await harness.CommandCountAsync(account);
-        Assert.Equal(stored > 0, mixed.Message.Contains("teilweise", StringComparison.OrdinalIgnoreCase));
+        Assert.Equal(stored > 0, mixed.Message == MailboxActions.PartlyDoneText);
         AssertFixedText(mixed);
     }
 }
