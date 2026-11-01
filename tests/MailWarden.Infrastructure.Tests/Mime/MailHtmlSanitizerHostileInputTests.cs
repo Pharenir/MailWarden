@@ -190,7 +190,8 @@ public sealed class MailHtmlSanitizerHostileInputTests
         Assert.True(outcome.AllocatedBytes < 1_500_000_000L, $"allocated {outcome.AllocatedBytes / 1_000_000} MB on the calling thread");
         Assert.True(outcome.Result.Html.Length < 2_000_000, $"output has {outcome.Result.Html.Length} characters");
         Assert.Contains("before_marker", outcome.Result.Html, StringComparison.Ordinal);
-        Assert.True(outcome.Result.WasReduced, "the pre-scan limit or the parser budget must be reported");    }
+        Assert.True(outcome.Result.WasReduced, "the pre-scan limit or the parser budget must be reported");
+    }
 
     // ---- Case 79 (M1) --------------------------------------------------------------------------------------
 
