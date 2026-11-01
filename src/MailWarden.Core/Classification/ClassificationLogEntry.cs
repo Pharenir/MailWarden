@@ -11,11 +11,14 @@ namespace MailWarden.Core.Classification;
 /// <param name="ClassifiedAt">Decision time; the clock of the quarantine retention.</param>
 /// <param name="EffectiveMode">Mode the decision was made in (RecordOnly also while Act is suspended).</param>
 /// <param name="Outcome">What became of the decision.</param>
-/// <param name="PlannedAction">Action of the routing table; <see cref="ClassificationAction.None"/> without a tier.</param>
-/// <param name="Tier">Decided tier, null for <see cref="ClassificationOutcome.ReadFailed"/>.</param>
+/// <param name="PlannedAction">Action of the routing table; <see cref="ClassificationAction.None"/> for
+/// <see cref="ClassificationOutcome.ReadFailed"/>.</param>
+/// <param name="Tier">Decided tier; null for <see cref="ClassificationOutcome.ReadFailed"/> and for a readable message
+/// without one usable sender.</param>
 /// <param name="Score">Sum of the points; 0 without a tier.</param>
 /// <param name="AuthStatus">Authentication state of the decision, null without a tier.</param>
-/// <param name="Override">Reason text when an allow/block/contact rule decided, else null.</param>
+/// <param name="Override">Reason text when an allow/block/contact rule decided or the message has no single usable sender,
+/// else null.</param>
 /// <param name="Signals">All findings; empty without a tier.</param>
 public sealed record ClassificationLogEntry(
     Guid AccountId,

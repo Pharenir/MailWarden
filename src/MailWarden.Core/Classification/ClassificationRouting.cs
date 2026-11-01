@@ -18,11 +18,6 @@ public static class ClassificationRouting
     /// value.</exception>
     public static ClassificationAction Route(FolderRole sourceRole, SpamTier tier)
     {
-        if (!Enum.IsDefined(tier))
-        {
-            throw new ArgumentOutOfRangeException(nameof(tier), tier, "Unknown spam tier.");
-        }
-
         return sourceRole switch
         {
             FolderRole.Inbox => tier switch
@@ -30,15 +25,39 @@ public static class ClassificationRouting
                 SpamTier.TrustedContact => ClassificationAction.None,
                 SpamTier.LikelyLegit => ClassificationAction.MoveToScreener,
                 SpamTier.LikelySpam => ClassificationAction.MoveToJunk,
-                _ => ClassificationAction.MoveToQuarantine,
+                SpamTier.CertainSpam => ClassificationAction.MoveToQuarantine,
+                _ => throw UnknownTier(tier),
             },
-            FolderRole.Junk => tier == SpamTier.TrustedContact
-                ? ClassificationAction.MoveToInbox
-                : ClassificationAction.None,
-            _ => throw new ArgumentOutOfRangeException(
-                nameof(sourceRole),
-                sourceRole,
-                "Only Inbox and Junk are classified."),
+            FolderRole.Junk => tier switch
+            {
+                SpamTier.TrustedContact => ClassificationAction.MoveToInbox,
+                SpamTier.LikelyLegit or SpamTier.LikelySpam or SpamTier.CertainSpam => ClassificationAction.None,
+                _ => throw UnknownTier(tier),
+            },
+            _ => throw UnclassifiedRole(sourceRole),
         };
     }
+
+    /// <summary>
+    /// Action for a readable message without one usable From address, which has no tier. The sender causes this, so it must
+    /// not stay unfiltered: from the Inbox it goes to the Screener; in Junk it stays.
+    /// </summary>
+    /// <param name="sourceRole">Role of the folder the message is in.</param>
+    /// <returns>The action to carry out.</returns>
+    /// <exception cref="ArgumentOutOfRangeException">The role is neither Inbox nor Junk.</exception>
+    public static ClassificationAction RouteWithoutSender(FolderRole sourceRole)
+    {
+        return sourceRole switch
+        {
+            FolderRole.Inbox => ClassificationAction.MoveToScreener,
+            FolderRole.Junk => ClassificationAction.None,
+            _ => throw UnclassifiedRole(sourceRole),
+        };
+    }
+
+    private static ArgumentOutOfRangeException UnknownTier(SpamTier tier) =>
+        new(nameof(tier), tier, "Unknown spam tier.");
+
+    private static ArgumentOutOfRangeException UnclassifiedRole(FolderRole sourceRole) =>
+        new(nameof(sourceRole), sourceRole, "Only Inbox and Junk are classified.");
 }

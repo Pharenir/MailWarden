@@ -15,14 +15,21 @@ namespace MailWarden.Infrastructure.Classification;
 /// </summary>
 /// <remarks>
 /// <para>
-/// Safety rules: the first pass over a folder only sets its marker, so existing mail is never classified. Act is suspended
-/// while the address book is empty. A message key in the log is never decided again. Retention deletes only mail this app
-/// moved to the Quarantine, by the stored decision time.
+/// Safety rules: a folder is only handled after a completed sync (it has a stored sync state), and the first pass over it
+/// only sets its marker, so existing mail is never classified. Act is suspended while the address book is empty. A message
+/// key in the log is never decided again. Retention deletes only mail this app moved to the Quarantine, by the stored
+/// decision time.
 /// </para>
 /// <para>
-/// A folder's entries and marker are committed in one transaction, after its commands were enqueued. A crash in between
-/// can only repeat a move of UIDs that are already gone, which the server ignores. Cancellation propagates as
+/// A folder's entries and marker are committed in one transaction, after its commands were enqueued. After a crash in
+/// between, a stored command can still run in the next cycle: the mail is then moved without a log entry. Retention never
+/// deletes it for that reason, and it is decided again if it lands in the Inbox or Junk. Cancellation propagates as
 /// <see cref="OperationCanceledException"/>; a folder whose commit did not run is handled again by the next pass.
+/// </para>
+/// <para>
+/// A message whose EML is missing or no message at all gets the final outcome <see cref="ClassificationOutcome.ReadFailed"/>
+/// and stays where it is. A readable message without one usable From address is caused by the sender and is routed with
+/// <see cref="ClassificationRouting.RouteWithoutSender"/>, without a tier.
 /// </para>
 /// <para>
 /// No report or exception of this class contains subject, body or address text. Reason texts go to the local decision
@@ -31,8 +38,12 @@ namespace MailWarden.Infrastructure.Classification;
 /// </remarks>
 public sealed class ClassificationPass
 {
+    // Fixed text, no message data: stands in the Override column of a decision without a tier.
+    private const string NoUsableSenderReason = "Message has no single usable sender";
+
     private readonly IAccountStore accounts;
     private readonly IFolderStore folders;
+    private readonly IFolderSyncStateStore syncStates;
     private readonly IMessageStore messages;
     private readonly IEmlStore emlStore;
     private readonly IContactStore contacts;
@@ -46,6 +57,7 @@ public sealed class ClassificationPass
     /// <summary>Creates the pass. Settings and policy are validated here (fail fast).</summary>
     /// <param name="accounts">Account store.</param>
     /// <param name="folders">Folder store.</param>
+    /// <param name="syncStates">Sync state per folder; a folder without one has no completed sync yet.</param>
     /// <param name="messages">Message store.</param>
     /// <param name="emlStore">Store of the raw messages.</param>
     /// <param name="contacts">Address book.</param>
@@ -60,6 +72,7 @@ public sealed class ClassificationPass
     public ClassificationPass(
         IAccountStore accounts,
         IFolderStore folders,
+        IFolderSyncStateStore syncStates,
         IMessageStore messages,
         IEmlStore emlStore,
         IContactStore contacts,
@@ -72,6 +85,7 @@ public sealed class ClassificationPass
     {
         this.accounts = accounts ?? throw new ArgumentNullException(nameof(accounts));
         this.folders = folders ?? throw new ArgumentNullException(nameof(folders));
+        this.syncStates = syncStates ?? throw new ArgumentNullException(nameof(syncStates));
         this.messages = messages ?? throw new ArgumentNullException(nameof(messages));
         this.emlStore = emlStore ?? throw new ArgumentNullException(nameof(emlStore));
         this.contacts = contacts ?? throw new ArgumentNullException(nameof(contacts));
@@ -129,18 +143,20 @@ public sealed class ClassificationPass
 
         // Step 5: retention, only when explicitly switched on and only while acting.
         ct.ThrowIfCancellationRequested();
-        int retentionDeletes = effectiveMode == ClassificationMode.Act && policy.QuarantineRetentionDays > 0
-            ? await EnqueueRetentionDeletesAsync(account.Id, accountFolders, ct).ConfigureAwait(false)
-            : 0;
+        if (effectiveMode == ClassificationMode.Act && policy.QuarantineRetentionDays > 0)
+        {
+            await EnqueueRetentionDeletesAsync(state, ct).ConfigureAwait(false);
+        }
 
         return new ClassificationPassReport(
             state.Classified,
             state.SkippedKnown,
             state.ReadFailed,
             state.MovesEnqueued,
-            retentionDeletes,
+            state.RetentionDeletesEnqueued,
             actSuspended,
-            state.TierCounts);
+            state.TierCounts,
+            state.RetentionDeletesRejected);
     }
 
     private static MailFolder? FindFolder(IEnumerable<MailFolder> accountFolders, FolderRole role)
@@ -160,6 +176,19 @@ public sealed class ClassificationPass
         };
     }
 
+    // Every failure means "no decision possible"; exception messages can quote message data and are not kept.
+    private static ClassificationResult? TryClassify(SpamClassifier classifier, ClassificationInput input)
+    {
+        try
+        {
+            return classifier.Classify(input);
+        }
+        catch (Exception exception) when (exception is not OutOfMemoryException)
+        {
+            return null;
+        }
+    }
+
     private async Task<ContactSenderDirectory> CreateSenderDirectoryAsync(CancellationToken ct)
     {
         IReadOnlyList<Contact> allContacts = await contacts.ListAsync(ct).ConfigureAwait(false);
@@ -171,6 +200,13 @@ public sealed class ClassificationPass
 
     private async Task HandleFolderAsync(MailFolder folder, PassState state, CancellationToken ct)
     {
+        // The sync stores UIDVALIDITY before its first fetch and the sync state only after the folder completed (a
+        // UIDVALIDITY reset deletes the state). Without a state the local rows are an incomplete copy: old mail would look new.
+        if (await syncStates.GetAsync(folder.Id, ct).ConfigureAwait(false) is null)
+        {
+            return;
+        }
+
         IReadOnlyDictionary<uint, MessageFlags> localMessages = await messages
             .GetUidFlagsAsync(folder.Id, ct)
             .ConfigureAwait(false);
@@ -203,8 +239,10 @@ public sealed class ClassificationPass
                 continue;
             }
 
-            // One decision per message: also a second copy in this pass counts as known.
-            string messageKey = MessageKey.For(message);
+            // The key needs the top-most Received header, so the EML is read before the known check. One decision per
+            // message: also a second copy in this pass counts as known.
+            ClassificationMessage? content = await TryReadContentAsync(message, ct).ConfigureAwait(false);
+            string messageKey = MessageKey.For(message, content?.TopReceived);
             if (!state.DecidedKeys.Add(messageKey)
                 || await log.GetAsync(state.AccountId, messageKey, ct).ConfigureAwait(false) is not null)
             {
@@ -212,8 +250,7 @@ public sealed class ClassificationPass
                 continue;
             }
 
-            ClassificationResult? result = await TryClassifyAsync(message, state.Classifier, ct).ConfigureAwait(false);
-            ClassificationLogEntry entry = Decide(folder, message, messageKey, result, state, out MailFolder? target);
+            ClassificationLogEntry entry = Decide(folder, message, messageKey, content, state, out MailFolder? target);
             if (target is not null)
             {
                 if (!movesByTarget.TryGetValue(target.Id, out List<PendingMove>? targetMoves))
@@ -228,19 +265,17 @@ public sealed class ClassificationPass
             entries.Add(entry);
         }
 
-        // Marker and entries only after enqueueing, so that a crash can never lose a planned move.
+        // Marker and entries only after enqueueing, so that a crash can never lose a planned move. The other way round a
+        // crash leaves a stored command without an entry; see the class remarks.
         await EnqueueMovesAsync(folder, movesByTarget, entries, state, ct).ConfigureAwait(false);
         await log
             .CommitAsync(entries, new ClassificationMarker(folder.Id, folder.UidValidity, newUids[^1]), ct)
             .ConfigureAwait(false);
     }
 
-    // Reads the EML into memory and classifies it. Every failure means "no decision possible": the message stays where it
-    // is and the entry holds no exception text, because exception messages can quote message data.
-    private async Task<ClassificationResult?> TryClassifyAsync(
-        MailMessage message,
-        SpamClassifier classifier,
-        CancellationToken ct)
+    // The only way from a stored message to its EML content, used for the key of the pass and of the retention. Null when
+    // the message has no EML or the file cannot be read; the top-most Received header is unknown then.
+    private async Task<ClassificationMessage?> TryReadContentAsync(MailMessage message, CancellationToken ct)
     {
         if (message.EmlPath is null)
         {
@@ -256,8 +291,7 @@ public sealed class ClassificationPass
             }
 
             buffer.Position = 0;
-            ClassificationInput? input = await ClassificationInputReader.ReadAsync(buffer, ct).ConfigureAwait(false);
-            return input is null ? null : classifier.Classify(input);
+            return await ClassificationInputReader.ReadMessageAsync(buffer, ct).ConfigureAwait(false);
         }
         catch (Exception exception) when (exception is not (OperationCanceledException or OutOfMemoryException))
         {
@@ -265,39 +299,45 @@ public sealed class ClassificationPass
         }
     }
 
-    // Routing of one message. The outcome Enqueued is provisional: EnqueueMovesAsync replaces it when the queue rejects.
+    // Tier and routing of one message. The outcome Enqueued is provisional: EnqueueMovesAsync replaces it when the queue
+    // rejects.
     private ClassificationLogEntry Decide(
         MailFolder folder,
         MailMessage message,
         string messageKey,
-        ClassificationResult? result,
+        ClassificationMessage? content,
         PassState state,
         out MailFolder? target)
     {
         target = null;
-        if (result is null)
+
+        ClassificationResult? result = null;
+        bool hasDecision = content is { Parsed: true };
+        if (content?.Input is ClassificationInput input)
         {
-            state.ReadFailed++;
-            return new ClassificationLogEntry(
-                state.AccountId,
-                messageKey,
-                folder.Id,
-                message.Uid,
-                timeProvider.GetUtcNow(),
-                state.EffectiveMode,
-                ClassificationOutcome.ReadFailed,
-                ClassificationAction.None,
-                Tier: null,
-                Score: 0,
-                AuthStatus: null,
-                Override: null,
-                Signals: []);
+            result = TryClassify(state.Classifier, input);
+            hasDecision = result is not null;
         }
 
-        state.Classified++;
-        state.TierCounts[result.Tier]++;
+        if (!hasDecision)
+        {
+            state.ReadFailed++;
+            return CreateEntry(folder, message, messageKey, state, ClassificationOutcome.ReadFailed, ClassificationAction.None, null, null);
+        }
 
-        ClassificationAction action = ClassificationRouting.Route(folder.Role, result.Tier);
+        ClassificationAction action;
+        if (result is null)
+        {
+            // Readable, but no single usable sender.
+            action = ClassificationRouting.RouteWithoutSender(folder.Role);
+        }
+        else
+        {
+            state.Classified++;
+            state.TierCounts[result.Tier]++;
+            action = ClassificationRouting.Route(folder.Role, result.Tier);
+        }
+
         ClassificationOutcome outcome;
         if (action == ClassificationAction.None)
         {
@@ -313,6 +353,20 @@ public sealed class ClassificationPass
             outcome = target is null ? ClassificationOutcome.TargetMissing : ClassificationOutcome.Enqueued;
         }
 
+        string? overrideReason = result is null ? NoUsableSenderReason : result.Override;
+        return CreateEntry(folder, message, messageKey, state, outcome, action, result, overrideReason);
+    }
+
+    private ClassificationLogEntry CreateEntry(
+        MailFolder folder,
+        MailMessage message,
+        string messageKey,
+        PassState state,
+        ClassificationOutcome outcome,
+        ClassificationAction action,
+        ClassificationResult? result,
+        string? overrideReason)
+    {
         return new ClassificationLogEntry(
             state.AccountId,
             messageKey,
@@ -322,11 +376,11 @@ public sealed class ClassificationPass
             state.EffectiveMode,
             outcome,
             action,
-            result.Tier,
-            result.Score,
-            result.AuthStatus,
-            result.Override,
-            result.Signals);
+            result?.Tier,
+            result?.Score ?? 0,
+            result?.AuthStatus,
+            overrideReason,
+            result is null ? [] : result.Signals);
     }
 
     // One command per target and at most 1,000 UIDs; a rejected command only affects its own messages.
@@ -369,22 +423,24 @@ public sealed class ClassificationPass
     }
 
     // Only messages this app moved to the Quarantine, by the stored decision time (never the sender's Date header). A
-    // message without such an entry is never deleted. A rejected command is tried again by the next pass.
-    private async Task<int> EnqueueRetentionDeletesAsync(
-        Guid accountId,
-        IReadOnlyList<MailFolder> accountFolders,
-        CancellationToken ct)
+    // message without such an entry, or without a readable EML (its key is unknown), is never deleted. UIDs that are already
+    // in a queued command are skipped, so a waiting or failed delete is not repeated by every pass.
+    private async Task EnqueueRetentionDeletesAsync(PassState state, CancellationToken ct)
     {
         DateTimeOffset now = timeProvider.GetUtcNow();
-        int deletesEnqueued = 0;
-        foreach (MailFolder folder in accountFolders.Where(folder => folder.Role == FolderRole.Quarantine && folder.UidValidity != 0))
+        IReadOnlyList<MailCommand> queuedCommands = await queue.ListAsync(state.AccountId, ct).ConfigureAwait(false);
+        foreach (MailFolder folder in state.AccountFolders.Where(folder => folder.Role == FolderRole.Quarantine && folder.UidValidity != 0))
         {
+            // A command of an older UIDVALIDITY addresses other messages than these UIDs now.
+            var queuedUids = new HashSet<uint>(queuedCommands
+                .Where(command => command.FolderId == folder.Id && command.FolderUidValidity == folder.UidValidity)
+                .SelectMany(command => command.Uids));
             IReadOnlyDictionary<uint, MessageFlags> localMessages = await messages
                 .GetUidFlagsAsync(folder.Id, ct)
                 .ConfigureAwait(false);
 
             var expiredUids = new List<uint>();
-            foreach (uint uid in localMessages.Keys.Order())
+            foreach (uint uid in localMessages.Keys.Where(uid => !queuedUids.Contains(uid)).Order())
             {
                 ct.ThrowIfCancellationRequested();
                 MailMessage? message = await messages.GetByUidAsync(folder.Id, uid, ct).ConfigureAwait(false);
@@ -393,8 +449,14 @@ public sealed class ClassificationPass
                     continue;
                 }
 
+                ClassificationMessage? content = await TryReadContentAsync(message, ct).ConfigureAwait(false);
+                if (content is not { Parsed: true })
+                {
+                    continue;
+                }
+
                 ClassificationLogEntry? entry = await log
-                    .GetAsync(accountId, MessageKey.For(message), ct)
+                    .GetAsync(state.AccountId, MessageKey.For(message, content.TopReceived), ct)
                     .ConfigureAwait(false);
                 if (entry is { Outcome: ClassificationOutcome.Enqueued, PlannedAction: ClassificationAction.MoveToQuarantine }
                     && entry.ClassifiedAt.AddDays(policy.QuarantineRetentionDays) <= now)
@@ -411,16 +473,14 @@ public sealed class ClassificationPass
                     await queue
                         .EnqueueDeletePermanentlyAsync(folder.Id, folder.UidValidity, commandUids, ct)
                         .ConfigureAwait(false);
-                    deletesEnqueued += commandUids.Length;
+                    state.RetentionDeletesEnqueued += commandUids.Length;
                 }
                 catch (Exception exception) when (exception is ArgumentException or InvalidOperationException)
                 {
-                    // Not counted; the messages are still local, so the next pass finds them again.
+                    state.RetentionDeletesRejected += commandUids.Length;
                 }
             }
         }
-
-        return deletesEnqueued;
     }
 
     // Position of the message's entry in the entry list of its folder, and its UID.
@@ -452,5 +512,9 @@ public sealed class ClassificationPass
         public int ReadFailed { get; set; }
 
         public int MovesEnqueued { get; set; }
+
+        public int RetentionDeletesEnqueued { get; set; }
+
+        public int RetentionDeletesRejected { get; set; }
     }
 }

@@ -20,6 +20,7 @@ public enum ClassificationOutcome
     /// <summary>The queue rejected the command; the message stays.</summary>
     EnqueueFailed = 5,
 
-    /// <summary>EML missing or unreadable, or no usable From address, or the classifier failed; no tier.</summary>
+    /// <summary>EML missing, unreadable or no message at all, or the classifier failed; no tier. The message stays where it
+    /// is and this outcome is final.</summary>
     ReadFailed = 6,
 }
