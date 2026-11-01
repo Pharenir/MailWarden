@@ -386,12 +386,12 @@ public sealed class ShellViewModelTests
 
     // Case 41
     [Fact]
-    public void Read_model_interface_has_only_the_five_read_members()
+    public void Read_model_interface_has_only_read_members()
     {
         string[] methods = [.. typeof(IMailboxReadModel).GetMethods().Select(method => method.Name).OrderBy(name => name, StringComparer.Ordinal)];
 
         Assert.Equal(
-            new[] { "CountUnreadAsync", "ListAccountsAsync", "ListFoldersAsync", "ListMessagesAsync", "ReadContentAsync" },
+            new[] { "CountUnreadAsync", "GetFolderRoleAsync", "ListAccountsAsync", "ListFoldersAsync", "ListMessagesAsync", "ReadContentAsync" },
             methods);
         Assert.Empty(typeof(IMailboxReadModel).GetProperties());
         Assert.Empty(typeof(IMailboxReadModel).GetEvents());
