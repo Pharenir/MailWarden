@@ -162,4 +162,42 @@ public sealed class SenderLineTests
         Assert.Contains("+1 weitere", line, StringComparison.Ordinal);
         Assert.DoesNotContain("other@other.test", line, StringComparison.Ordinal);
     }
-}
+
+    // Case 89 (M4): 101 characters are cut to 100 plus the ellipsis, and the address stays visible.
+    [Fact(Timeout = TestTimeouts.PerTestMilliseconds)]
+    public async Task Name_of_101_characters_is_cut_to_100_and_the_address_stays_visible()
+    {
+        string line = await FromOfAsync((new string('L', 101), "sender_a@example.test"));
+
+        Assert.Contains(new string('L', 100) + Ellipsis, line, StringComparison.Ordinal);
+        Assert.DoesNotContain(new string('L', 101), line, StringComparison.Ordinal);
+        Assert.Contains("sender_a@example.test", line, StringComparison.Ordinal);
+    }
+
+    // Case 89 (M4): next to a name of exactly 100 characters the address is shown complete (up to 60 characters).
+    [Fact(Timeout = TestTimeouts.PerTestMilliseconds)]
+    public async Task Name_of_exactly_100_characters_and_an_address_of_60_stay_unchanged()
+    {
+        string address = new string('a', 50) + "@evil.test";
+        Assert.Equal(60, address.Length);
+
+        string line = await FromOfAsync((new string('L', 100), address));
+
+        Assert.Contains(new string('L', 100), line, StringComparison.Ordinal);
+        Assert.Contains(address, line, StringComparison.Ordinal);
+        Assert.DoesNotContain(Ellipsis, line, StringComparison.Ordinal);
+    }
+
+    // Case 89 (M4): an address over 60 characters next to a long name is cut in the middle; the domain stays at the end.
+    [Fact(Timeout = TestTimeouts.PerTestMilliseconds)]
+    public async Task Address_over_60_characters_is_cut_in_the_middle_and_keeps_the_domain()
+    {
+        string address = new string('b', 80) + "@evil.test";
+
+        string line = await FromOfAsync((new string('L', 100), address));
+
+        Assert.Contains(new string('L', 100), line, StringComparison.Ordinal);
+        Assert.Contains(Ellipsis + "@evil.test", line, StringComparison.Ordinal);
+        Assert.EndsWith("@evil.test", WithoutClosingBracket(line), StringComparison.Ordinal);
+        Assert.DoesNotContain(new string('b', 70), line, StringComparison.Ordinal);
+    }}

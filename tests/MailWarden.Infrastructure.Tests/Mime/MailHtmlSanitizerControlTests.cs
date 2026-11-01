@@ -1,5 +1,6 @@
 using System.Text;
 using System.Text.RegularExpressions;
+using AngleSharp.Dom;
 using AngleSharp.Html.Dom;
 using AngleSharp.Html.Parser;
 using MailWarden.Infrastructure.Mime;
@@ -20,6 +21,12 @@ public sealed class MailHtmlSanitizerControlTests
     private static readonly Regex DangerousElement = new(
         @"<\s*(script|style|iframe|object|embed|svg|math|textarea|title|link|meta|base|noscript|noembed|noframes|xmp|plaintext|listing|form|input|button|select)[\s>/]",
         RegexOptions.IgnoreCase | RegexOptions.CultureInvariant);
+
+    // M5: svg and math without an end tag lose only the tag; these swallow the rest of the input.
+    public static TheoryData<string> SwallowedWithoutEndTag =>
+    [
+        "script", "style", "title", "textarea", "iframe", "noembed", "noframes", "noscript",
+    ];
 
     public static TheoryData<string> RawTextElements =>
     [
@@ -140,7 +147,7 @@ public sealed class MailHtmlSanitizerControlTests
 
     // Case 70: without an end tag the rest of the input is swallowed, as the parser would do; nothing of it is markup.
     [Theory(Timeout = TestTimeouts.PerTestMilliseconds)]
-    [MemberData(nameof(RawTextElements))]
+    [MemberData(nameof(SwallowedWithoutEndTag))]
     public async Task Raw_text_element_without_end_tag_swallows_the_rest(string tag)
     {
         string html = $"<p>before_marker</p><{tag}>alert(1) <b>after_bold</b> <i>after_italic</i> tail_text";
@@ -156,7 +163,6 @@ public sealed class MailHtmlSanitizerControlTests
     // Case 70: mixed case and an end tag that never matches.
     [Theory(Timeout = TestTimeouts.PerTestMilliseconds)]
     [InlineData("<ScRiPt>x <b>after</b></scrip>")]
-    [InlineData("<SVG><b>after</b> </svgx>")]
     [InlineData("<STYLE>a{} <b>after</b> </styl>")]
     public async Task Mixed_case_raw_text_element_with_a_wrong_end_tag_swallows_the_rest(string opening)
     {
@@ -307,6 +313,196 @@ public sealed class MailHtmlSanitizerControlTests
         return read with { Html = html, PlainText = "plain text" };
     }
 
+    // ---- Case 85 (M5) --------------------------------------------------------------------------------------
+
+    // Case 85: svg and math without a usable end tag lose only the tag; what follows is scanned normally and stays.
+    [Theory(Timeout = TestTimeouts.PerTestMilliseconds)]
+    [InlineData("<p>A_marker</p><svg/><p>B_marker</p>")]
+    [InlineData("<p>A_marker</p><math/><p>B_marker</p>")]
+    [InlineData("<p>A_marker</p><svg><p>B_marker</p>")]
+    [InlineData("<p>A_marker</p><math><p>B_marker</p>")]
+    [InlineData("<p>A_marker</p><SVG/><p>B_marker</p>")]
+    public async Task Svg_and_math_without_end_tag_lose_only_the_tag(string html)
+    {
+        SanitizedHtml result = await SanitizeAsync(html);
+
+        AssertNoDangerousElement(result);
+        string text = Parse(result).Body!.TextContent;
+        Assert.Contains("A_marker", text, StringComparison.Ordinal);
+        Assert.Contains("B_marker", text, StringComparison.Ordinal);
+        Assert.False(result.WasReduced);
+    }
+
+    // Case 85: markup after an unclosed svg is still sanitized (the content is scanned, not trusted).
+    [Fact(Timeout = TestTimeouts.PerTestMilliseconds)]
+    public async Task Content_after_an_unclosed_svg_is_still_sanitized()
+    {
+        SanitizedHtml result = await SanitizeAsync("<svg><p>B_marker</p><script>evil()</script><img src=\"file:///c:/x.png\" onerror=\"x()\">");
+
+        AssertNoDangerousElement(result);
+        Assert.DoesNotContain("onerror", result.Html, StringComparison.OrdinalIgnoreCase);
+        Assert.DoesNotContain("file:", result.Html, StringComparison.OrdinalIgnoreCase);
+        Assert.Contains("B_marker", Parse(result).Body!.TextContent, StringComparison.Ordinal);
+    }
+
+    // Case 85: with an end tag the element goes as before and no notice appears.
+    [Fact(Timeout = TestTimeouts.PerTestMilliseconds)]
+    public async Task Svg_with_end_tag_and_inner_title_is_removed_without_a_notice()
+    {
+        SanitizedHtml result = await SanitizeAsync("<p>A_marker</p><svg><title>x_inner</title></svg><p>B_marker</p>");
+
+        AssertNoDangerousElement(result);
+        string text = Parse(result).Body!.TextContent;
+        Assert.Contains("A_marker", text, StringComparison.Ordinal);
+        Assert.Contains("B_marker", text, StringComparison.Ordinal);
+        Assert.DoesNotContain("x_inner", result.Html, StringComparison.Ordinal);
+        Assert.False(result.WasReduced);
+    }
+
+    // ---- Case 86 (M5) --------------------------------------------------------------------------------------
+
+    // Case 86: these swallow the rest without an end tag, and that counts as a reduction.
+    [Theory(Timeout = TestTimeouts.PerTestMilliseconds)]
+    [InlineData("noscript")]
+    [InlineData("textarea")]
+    [InlineData("iframe")]
+    [InlineData("noembed")]
+    [InlineData("noframes")]
+    public async Task Unterminated_swallowing_element_keeps_the_text_before_it_and_marks_the_reduction(string tag)
+    {
+        SanitizedHtml result = await SanitizeAsync($"<p>A_marker</p><{tag}>B_marker");
+
+        AssertNoDangerousElement(result);
+        Assert.Contains("A_marker", Parse(result).Body!.TextContent, StringComparison.Ordinal);
+        Assert.DoesNotContain("B_marker", result.Html, StringComparison.Ordinal);
+        Assert.True(result.WasReduced);
+    }
+
+    // Case 86 positive control: with an end tag the text after the element stays and there is no notice.
+    [Theory(Timeout = TestTimeouts.PerTestMilliseconds)]
+    [InlineData("noscript")]
+    [InlineData("textarea")]
+    [InlineData("iframe")]
+    [InlineData("noembed")]
+    [InlineData("noframes")]
+    [InlineData("svg")]
+    [InlineData("math")]
+    public async Task Terminated_element_removes_its_content_and_marks_no_reduction(string tag)
+    {
+        SanitizedHtml result = await SanitizeAsync($"<p>A_marker</p><{tag}>inner_marker</{tag}><p>B_marker</p>");
+
+        AssertNoDangerousElement(result);
+        string text = Parse(result).Body!.TextContent;
+        Assert.Contains("A_marker", text, StringComparison.Ordinal);
+        Assert.Contains("B_marker", text, StringComparison.Ordinal);
+        Assert.DoesNotContain("inner_marker", result.Html, StringComparison.Ordinal);
+        Assert.False(result.WasReduced);
+    }
+
+    // Case 86 / M5: script, style and title never cause a notice, even when they are not terminated.
+    [Theory(Timeout = TestTimeouts.PerTestMilliseconds)]
+    [InlineData("script")]
+    [InlineData("style")]
+    [InlineData("title")]
+    public async Task Script_style_and_title_never_cause_a_notice(string tag)
+    {
+        SanitizedHtml terminated = await SanitizeAsync($"<p>A_marker</p><{tag}>x</{tag}><p>B_marker</p>");
+        SanitizedHtml unterminated = await SanitizeAsync($"<p>A_marker</p><{tag}>B_marker");
+
+        Assert.False(terminated.WasReduced);
+        Assert.False(unterminated.WasReduced);
+        Assert.Contains("A_marker", unterminated.Html, StringComparison.Ordinal);
+        Assert.DoesNotContain("B_marker", unterminated.Html, StringComparison.Ordinal);
+    }
+
+    // ---- Case 81 (M1, M2): positive controls ---------------------------------------------------------------
+
+    // Case 81
+    [Fact(Timeout = TestTimeouts.PerTestMilliseconds)]
+    public async Task Empty_and_abruptly_closed_comments_stay_comments_and_hide_nothing()
+    {
+        const string html =
+            "<p>one_marker</p><!----><p>two_marker</p><!--><p>three_marker</p><!----!><p>four_marker</p><!-- text --><p>five_marker</p>";
+
+        SanitizedHtml result = await SanitizeAsync(html);
+
+        Assert.False(result.WasReduced);
+        string text = Parse(result).Body!.TextContent;
+        foreach (string marker in new[] { "one_marker", "two_marker", "three_marker", "four_marker", "five_marker" })
+        {
+            Assert.Contains(marker, text, StringComparison.Ordinal);
+        }
+    }
+
+    // Case 81
+    [Fact(Timeout = TestTimeouts.PerTestMilliseconds)]
+    public async Task Two_thousand_links_are_not_a_reduction()
+    {
+        string html = string.Concat(Enumerable.Range(0, 2_000).Select(index => $"<a href=\"https://example.test/{index}\">link_{index}</a> "));
+
+        SanitizedHtml result = await SanitizeAsync(html);
+
+        Assert.False(result.WasReduced);
+        Assert.Equal(2_000, Parse(result).QuerySelectorAll("a[href]").Length);
+    }
+
+    // Case 81
+    [Fact(Timeout = TestTimeouts.PerTestMilliseconds)]
+    public async Task Twenty_thousand_ordinary_elements_are_not_a_reduction()
+    {
+        SanitizedHtml result = await SanitizeAsync(Repeat("<span>x</span>", 20_000));
+
+        Assert.False(result.WasReduced);
+        Assert.Equal(20_000, Regex.Matches(result.Html, @"<span[\s>]").Count);
+    }
+
+    // Case 81
+    [Fact(Timeout = TestTimeouts.PerTestMilliseconds)]
+    public async Task Base64_image_over_64_kilobytes_is_not_a_reduction_and_stays()
+    {
+        string dataUri = "data:image/png;base64," + Convert.ToBase64String(new byte[100_000]);
+
+        SanitizedHtml result = await SanitizeAsync($"<p>text_marker</p><img src=\"{dataUri}\" alt=\"keep_alt\">");
+
+        Assert.False(result.WasReduced);
+        Assert.Equal(dataUri, Parse(result).QuerySelector("img")?.GetAttribute("src"));
+    }
+
+    // Case 81: a long attribute value is only a problem together with a "<" inside it.
+    [Fact(Timeout = TestTimeouts.PerTestMilliseconds)]
+    public async Task Long_attribute_value_without_angle_brackets_is_not_a_reduction()
+    {
+        SanitizedHtml result = await SanitizeAsync($"<p title=\"{new string('t', 70_000)}\">text_marker</p>");
+
+        Assert.False(result.WasReduced);
+        Assert.Contains("text_marker", Parse(result).Body!.TextContent, StringComparison.Ordinal);
+    }
+
+    // ---- Case 90 (M8) --------------------------------------------------------------------------------------
+
+    // Case 90: anchors are closed by the parser itself, so they do not count for the formatting limit.
+    [Fact(Timeout = TestTimeouts.PerTestMilliseconds)]
+    public async Task Link_after_200_unclosed_named_anchors_stays()
+    {
+        string html = Repeat("<a name=x>", 200) + "<a href=\"https://example.test/\">link_marker</a>";
+
+        SanitizedHtml result = await SanitizeAsync(html);
+
+        IElement? link = Parse(result).QuerySelectorAll("a[href]").FirstOrDefault();
+        Assert.NotNull(link);
+        Assert.Equal("https://example.test/", link.GetAttribute("href"));
+        Assert.Contains("link_marker", link.TextContent, StringComparison.Ordinal);
+    }
+
+    // Case 90: the same for nobr.
+    [Fact(Timeout = TestTimeouts.PerTestMilliseconds)]
+    public async Task Text_after_200_unclosed_nobr_elements_stays()
+    {
+        SanitizedHtml result = await SanitizeAsync(Repeat("<nobr>", 200) + "<a href=\"https://example.test/\">link_marker</a>");
+
+        Assert.NotNull(Parse(result).QuerySelector("a[href]"));
+        Assert.Contains("link_marker", Parse(result).Body!.TextContent, StringComparison.Ordinal);
+    }
     // Guards the helper pattern itself so that the other tests cannot pass vacuously.
     [Fact]
     public void Dangerous_element_pattern_matches_what_it_should_and_nothing_else()

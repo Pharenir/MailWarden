@@ -155,4 +155,87 @@ public sealed class MailHtmlSanitizerHostileInputTests
         Assert.Equal(64, Regex.Matches(result.Html, @"<b[\s>]").Count);
         Assert.Contains("text_marker", result.Html, StringComparison.Ordinal);
     }
-}
+
+    // ---- Case 78 (M2) --------------------------------------------------------------------------------------
+
+    private static string Attributes(int count)
+    {
+        var attributes = new StringBuilder();
+        for (int index = 0; index < count; index++)
+        {
+            attributes.Append(" a").Append(index).Append("=\"x\"");
+        }
+
+        return attributes.ToString();
+    }
+
+    // Case 78: comment ends the parser accepts (`--!>`, `-->` right after `<!--`) must not hide a tag from the pre-scan.
+    [Theory(Timeout = TestTimeouts.PerTestMilliseconds)]
+    [InlineData("<!--!><a x=\"-->")]
+    [InlineData("<!---!><a x=\"-->")]
+    [InlineData("<!--!><a src=\"data:-->")]
+    [InlineData("<!---!><a src=\"data:-->")]
+    public async Task Comment_end_variants_followed_by_an_open_attribute_value_and_100000_attributes_are_safe(string opening)
+    {
+        string html = "<p>before_marker</p>" + opening + "<div" + Attributes(100_000) + "\">" + "<script>evil_marker()</script><iframe src=\"x\"></iframe>";
+
+        SanitizedHtml result = await SanitizeAsync(html);
+
+        AssertNoDangerousElement(result);
+        Assert.True(result.Html.Length < 2_000_000, $"output has {result.Html.Length} characters");
+        Assert.Contains("before_marker", result.Html, StringComparison.Ordinal);
+    }
+
+    // ---- Case 79 (M1) --------------------------------------------------------------------------------------
+
+    // Case 79: reconstructed formatting elements (fmtObject, fmtTable) must be counted by the parser budget.
+    [Theory(Timeout = TestTimeouts.PerTestMilliseconds)]
+    [InlineData("<object>", "</object>")]
+    [InlineData("<table><tr><td>", "</td></tr></table>")]
+    public async Task Formatting_reconstruction_around_object_and_table_is_bounded(string open, string close)
+    {
+        string html = "<div>" + Repeat($"<span><b aI=1>{open}</b>{close}</span>", 1_000) + "</div>" + Repeat("<p>x</p>", 16_000);
+
+        (SanitizedHtml Result, long AllocatedBytes) outcome = await Task.Run(() =>
+        {
+            long before = GC.GetAllocatedBytesForCurrentThread();
+            SanitizedHtml result = MailHtmlSanitizer.Sanitize(html, new Dictionary<string, string>(), allowRemoteImages: false);
+            return (result, GC.GetAllocatedBytesForCurrentThread() - before);
+        });
+
+        AssertNoDangerousElement(outcome.Result);
+        Assert.True(outcome.AllocatedBytes < 1_500_000_000L, $"allocated {outcome.AllocatedBytes / 1_000_000} MB on the calling thread");
+        Assert.True(outcome.Result.Html.Length < 20_000_000, $"output has {outcome.Result.Html.Length} characters");
+        Assert.True(outcome.Result.WasReduced, "the parser budget must have been hit and reported");
+    }
+
+    // ---- Case 80 (M1) --------------------------------------------------------------------------------------
+
+    // Case 80: more than 100,000 elements through plain markup: the result is the text without markup.
+    [Fact(Timeout = TestTimeouts.PerTestMilliseconds)]
+    public async Task More_than_100000_elements_give_the_text_without_markup()
+    {
+        string html =
+            "<p>before_marker</p>" +
+            string.Concat(Enumerable.Range(0, 110_000).Select(index => $"<span>word{index} </span>")) +
+            "<script>evil_marker()</script><iframe src=\"x\"></iframe>";
+
+        SanitizedHtml result = await SanitizeAsync(html);
+
+        AssertNoDangerousElement(result);
+        Assert.True(result.WasReduced);
+        Assert.DoesNotMatch(new Regex(@"<\s*(span|p|div|a|b)[\s>/]", RegexOptions.IgnoreCase | RegexOptions.CultureInvariant), result.Html);
+        Assert.Contains("before_marker", result.Html, StringComparison.Ordinal);
+        Assert.Contains("word0 ", result.Html, StringComparison.Ordinal);
+        Assert.Contains("word109999", result.Html, StringComparison.Ordinal);
+    }
+
+    // Case 80 positive control: just below the budget the markup is kept.
+    [Fact(Timeout = TestTimeouts.PerTestMilliseconds)]
+    public async Task Fifty_thousand_elements_keep_their_markup()
+    {
+        SanitizedHtml result = await SanitizeAsync(Repeat("<span>x</span>", 50_000));
+
+        Assert.False(result.WasReduced);
+        Assert.Equal(50_000, Regex.Matches(result.Html, @"<span[\s>]").Count);
+    }}

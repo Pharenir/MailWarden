@@ -18,6 +18,8 @@ public sealed class ReadingPaneBuildGuardTests
         private readonly Dictionary<string, ManualResetEventSlim> _blocks = [];
         private readonly List<string> _calls = [];
         private readonly List<string> _entered = [];
+        private ManualResetEventSlim? _remoteImageGate;
+        private bool _remoteImageBuildEntered;
 
         public IReadOnlyList<string> Calls
         {
@@ -35,6 +37,34 @@ public sealed class ReadingPaneBuildGuardTests
             lock (_gate)
             {
                 return _entered.Contains(subject);
+            }
+        }
+
+        /// <summary>True once a build with allowRemoteImages = true has started (and is blocked if the gate is set).</summary>
+        public bool RemoteImageBuildEntered
+        {
+            get
+            {
+                lock (_gate)
+                {
+                    return _remoteImageBuildEntered;
+                }
+            }
+        }
+
+        public void BlockRemoteImageBuilds()
+        {
+            lock (_gate)
+            {
+                _remoteImageGate = new ManualResetEventSlim(initialState: false);
+            }
+        }
+
+        public void ReleaseRemoteImageBuilds()
+        {
+            lock (_gate)
+            {
+                _remoteImageGate?.Set();
             }
         }
 
@@ -57,11 +87,22 @@ public sealed class ReadingPaneBuildGuardTests
         public ReadingDocument Build(MailContent content, bool allowRemoteImages)
         {
             ManualResetEventSlim? block;
+            ManualResetEventSlim? remoteGate = null;
             lock (_gate)
             {
                 _calls.Add(content.Subject);
                 _entered.Add(content.Subject);
                 _blocks.TryGetValue(content.Subject, out block);
+                if (allowRemoteImages)
+                {
+                    _remoteImageBuildEntered = true;
+                    remoteGate = _remoteImageGate;
+                }
+            }
+
+            if (remoteGate is not null && !remoteGate.Wait(TimeSpan.FromSeconds(25)))
+            {
+                throw new TimeoutException("test gate was never released");
             }
 
             if (block is not null && !block.Wait(TimeSpan.FromSeconds(25)))
@@ -281,9 +322,10 @@ public sealed class ReadingPaneBuildGuardTests
         Assert.Equal(new[] { "mail_first", "mail_last" }, builder.Calls.ToArray());
     }
 
-    // Case 72 (planner, L3): the same mail again during its own build starts no second build.
+    // Case 82 (M3): the same mail again during its own build keeps waiting for that build; when it ends in time the HTML
+    // document is shown, without a notice, from one build.
     [Fact(Timeout = TestTimeouts.PerTestMilliseconds)]
-    public async Task Selecting_the_same_mail_again_during_its_own_build_starts_no_second_build()
+    public async Task Same_mail_selected_again_during_its_build_gets_the_html_document_without_a_notice()
     {
         (ShellHarness harness, ManualTimeProvider clock, BlockingBuilder builder, MailFolder inbox) = NewHarness();
         MailMessage mail = AddMail(harness, inbox, "mail_a");
@@ -295,18 +337,155 @@ public sealed class ReadingPaneBuildGuardTests
         Task second = reading.ShowAsync(mail);
         await Wait.NegativeWindowAsync();
         builder.Release("mail_a");
-        await Record.ExceptionAsync(() => Task.WhenAll(first, second));
+        await Task.WhenAll(first, second);
         await Wait.NegativeWindowAsync();
 
         Assert.Equal(new[] { "mail_a" }, builder.Calls.ToArray());
-        // Only "no second build" is fixed by the requirement. The final view is either the finished html document, or
-        // the text version together with its notice - never a text version without a notice or a half state.
         Assert.Equal(ReadingState.Ready, reading.State);
         Assert.Equal("mail_a", reading.Subject);
-        bool htmlShown = reading.DocumentHtml?.Contains("mail_a_html_marker", StringComparison.Ordinal) == true;
-        bool textShownWithNotice = reading.DocumentHtml?.Contains("mail_a_plain_marker", StringComparison.Ordinal) == true && reading.ContentNotice is not null;
-        Assert.True(htmlShown || textShownWithNotice, "neither the html document nor the text version with a notice is shown");    }
+        Assert.Contains("mail_a_html_marker", reading.DocumentHtml, StringComparison.Ordinal);
+        Assert.DoesNotContain("mail_a_plain_marker", reading.DocumentHtml, StringComparison.Ordinal);
+        Assert.Null(reading.ContentNotice);
+    }
 
+    // Case 82: it stays one build even when the mail is selected again several times.
+    [Fact(Timeout = TestTimeouts.PerTestMilliseconds)]
+    public async Task Selecting_the_same_mail_many_times_during_its_build_still_builds_once()
+    {
+        (ShellHarness harness, ManualTimeProvider clock, BlockingBuilder builder, MailFolder inbox) = NewHarness();
+        MailMessage mail = AddMail(harness, inbox, "mail_a");
+        builder.BlockSubject("mail_a");
+        ReadingPaneViewModel reading = harness.Shell.Reading;
+        Task first = reading.ShowAsync(mail);
+        await Wait.UntilAsync(() => builder.HasEntered("mail_a") && clock.ActiveTimerCount >= 1, "build running and time limit armed");
+
+        Task[] again = [.. Enumerable.Range(0, 5).Select(_ => reading.ShowAsync(mail))];
+        await Wait.NegativeWindowAsync();
+        builder.Release("mail_a");
+        await Task.WhenAll(again.Append(first));
+        await Wait.NegativeWindowAsync();
+
+        Assert.Equal(new[] { "mail_a" }, builder.Calls.ToArray());
+        Assert.Contains("mail_a_html_marker", reading.DocumentHtml, StringComparison.Ordinal);
+        Assert.Null(reading.ContentNotice);
+    }
+
+    // Case 83 (M3): the text version and the notice appear only after a real timeout.
+    [Fact(Timeout = TestTimeouts.PerTestMilliseconds)]
+    public async Task Same_mail_selected_again_gets_the_text_version_only_after_the_limit_passed()
+    {
+        (ShellHarness harness, ManualTimeProvider clock, BlockingBuilder builder, MailFolder inbox) = NewHarness();
+        MailMessage mail = AddMail(harness, inbox, "mail_a");
+        builder.BlockSubject("mail_a");
+        ReadingPaneViewModel reading = harness.Shell.Reading;
+        Task first = reading.ShowAsync(mail);
+        await Wait.UntilAsync(() => builder.HasEntered("mail_a") && clock.ActiveTimerCount >= 1, "build running and time limit armed");
+        Task second = reading.ShowAsync(mail);
+        await Wait.NegativeWindowAsync();
+        Assert.Null(reading.ContentNotice);
+
+        clock.Advance(ReadingPaneViewModel.BuildTimeLimit + TimeSpan.FromSeconds(1));
+        await Task.WhenAll(first, second);
+
+        Assert.Equal(ReadingState.Ready, reading.State);
+        Assert.Contains("mail_a_plain_marker", reading.DocumentHtml, StringComparison.Ordinal);
+        Assert.DoesNotContain("mail_a_html_marker", reading.DocumentHtml, StringComparison.Ordinal);
+        Assert.False(string.IsNullOrWhiteSpace(reading.ContentNotice));
+        Assert.Equal(new[] { "mail_a" }, builder.Calls.ToArray());
+
+        builder.Release("mail_a");
+    }
+
+    // ---- Case 84 (M3) --------------------------------------------------------------------------------------
+
+    private const string RemoteImageMailHtml = "<p>keep_marker</p><img src=\"https://tracker.test/a.gif\">";
+
+    private static void AssertApprovalMatchesDocument(ReadingPaneViewModel reading)
+    {
+        bool documentHasRemoteImage = reading.DocumentHtml?.Contains("tracker.test", StringComparison.Ordinal) == true;
+        if (reading.CanLoadRemoteImages)
+        {
+            Assert.False(documentHasRemoteImage, "images are shown although the pane still offers to load them");
+        }
+
+        if (documentHasRemoteImage)
+        {
+            Assert.False(reading.CanLoadRemoteImages, "a document with remote images but without an approval");
+        }
+    }
+
+    // Case 84: a rebuild with remote images runs, the same mail is selected again: the document and the approval agree.
+    [Fact(Timeout = TestTimeouts.PerTestMilliseconds)]
+    public async Task Same_mail_selected_during_a_rebuild_with_images_never_shows_a_document_with_the_wrong_approval()
+    {
+        (ShellHarness harness, ManualTimeProvider clock, BlockingBuilder builder, MailFolder inbox) = NewHarness();
+        MailMessage mail = harness.ReadModel.AddMessage(inbox, "mail_a");
+        harness.ReadModel.SetContent(mail.Id, TestContent.Html("mail_a", RemoteImageMailHtml));
+        ReadingPaneViewModel reading = harness.Shell.Reading;
+        await reading.ShowAsync(mail);
+        Assert.True(reading.CanLoadRemoteImages);
+        builder.BlockRemoteImageBuilds();
+        reading.LoadRemoteImagesCommand.Execute(null);
+        await Wait.UntilAsync(() => builder.RemoteImageBuildEntered && clock.ActiveTimerCount >= 1, "rebuild with images running");
+
+        Task again = reading.ShowAsync(mail);
+        await Wait.NegativeWindowAsync();
+        builder.ReleaseRemoteImageBuilds();
+        Exception? failure = await Record.ExceptionAsync(() => again);
+        for (int round = 0; round < 3; round++)
+        {
+            await Wait.NegativeWindowAsync();
+        }
+
+        Assert.Null(failure);
+        Assert.Equal(ReadingState.Ready, reading.State);
+        AssertApprovalMatchesDocument(reading);
+    }
+
+    // Case 84: the same when the rebuild runs into the limit.
+    [Fact(Timeout = TestTimeouts.PerTestMilliseconds)]
+    public async Task Same_mail_selected_during_a_rebuild_that_times_out_never_shows_a_document_with_the_wrong_approval()
+    {
+        (ShellHarness harness, ManualTimeProvider clock, BlockingBuilder builder, MailFolder inbox) = NewHarness();
+        MailMessage mail = harness.ReadModel.AddMessage(inbox, "mail_a");
+        harness.ReadModel.SetContent(mail.Id, TestContent.Html("mail_a", RemoteImageMailHtml));
+        ReadingPaneViewModel reading = harness.Shell.Reading;
+        await reading.ShowAsync(mail);
+        builder.BlockRemoteImageBuilds();
+        reading.LoadRemoteImagesCommand.Execute(null);
+        await Wait.UntilAsync(() => builder.RemoteImageBuildEntered && clock.ActiveTimerCount >= 1, "rebuild with images running");
+        Task again = reading.ShowAsync(mail);
+        await Wait.NegativeWindowAsync();
+
+        clock.Advance(ReadingPaneViewModel.BuildTimeLimit + TimeSpan.FromSeconds(1));
+        Exception? failure = await Record.ExceptionAsync(() => again);
+        builder.ReleaseRemoteImageBuilds();
+        for (int round = 0; round < 3; round++)
+        {
+            await Wait.NegativeWindowAsync();
+        }
+
+        Assert.Null(failure);
+        AssertApprovalMatchesDocument(reading);
+    }
+
+    // Case 84 positive control: without a second selection the approved rebuild shows the images.
+    [Fact(Timeout = TestTimeouts.PerTestMilliseconds)]
+    public async Task Approved_rebuild_without_interference_shows_the_images()
+    {
+        (ShellHarness harness, _, BlockingBuilder builder, MailFolder inbox) = NewHarness();
+        MailMessage mail = harness.ReadModel.AddMessage(inbox, "mail_a");
+        harness.ReadModel.SetContent(mail.Id, TestContent.Html("mail_a", RemoteImageMailHtml));
+        ReadingPaneViewModel reading = harness.Shell.Reading;
+        await reading.ShowAsync(mail);
+
+        reading.LoadRemoteImagesCommand.Execute(null);
+        await Wait.UntilAsync(() => reading.DocumentHtml?.Contains("tracker.test", StringComparison.Ordinal) == true, "images shown");
+
+        Assert.False(reading.CanLoadRemoteImages);
+        Assert.True(builder.RemoteImageBuildEntered);
+        AssertApprovalMatchesDocument(reading);
+    }
     // Case 72 (planner, L3): at most one build at a time, whatever is selected.
     [Fact(Timeout = TestTimeouts.PerTestMilliseconds)]
     public async Task Never_two_builds_run_at_the_same_time()
@@ -440,4 +619,48 @@ public sealed class ReadingPaneBuildGuardTests
 
         Assert.False(string.IsNullOrWhiteSpace(harness.Shell.Reading.ContentNotice));
     }
-}
+
+    // ---- Cases 87 and 88 (pane part) -----------------------------------------------------------------------
+
+    private const string MessageHeaders =
+        "From: Sender A <sender_a@example.test>\r\nTo: Recipient B <recipient_b@example.test>\r\nSubject: eml_subject\r\n" +
+        "Date: Mon, 15 Jun 2026 10:00:00 +0200\r\nMessage-ID: <eml@example.test>\r\nMIME-Version: 1.0\r\n";
+
+    private static async Task<ReadingPaneViewModel> ShowEmlAsync(string body)
+    {
+        var harness = new ShellHarness();
+        (_, MailFolder inbox) = harness.SeedInbox("Account_A", 0);
+        MailMessage message = harness.ReadModel.AddMessage(inbox, "eml_subject");
+        using var stream = new MemoryStream(System.Text.Encoding.ASCII.GetBytes(MessageHeaders + body));
+        harness.ReadModel.SetContent(message.Id, await MailContentReader.ReadAsync(stream));
+
+        await harness.Shell.Reading.ShowAsync(message);
+        return harness.Shell.Reading;
+    }
+
+    // Case 87
+    [Theory(Timeout = TestTimeouts.PerTestMilliseconds)]
+    [InlineData("Content-Type: multipart/mixed\r\n\r\ntext without any part\r\n")]
+    [InlineData("Content-Type: multipart/mixed; boundary=\"never_occurs\"\r\n\r\ntext without any part\r\n")]
+    public async Task Multipart_without_usable_boundary_sets_the_notice(string body)
+    {
+        ReadingPaneViewModel reading = await ShowEmlAsync(body);
+
+        Assert.Equal(ReadingState.Ready, reading.State);
+        Assert.False(string.IsNullOrWhiteSpace(reading.ContentNotice));
+    }
+
+    // Case 88 positive control: a feedback report next to the text is an ordinary attachment and sets no notice.
+    [Fact(Timeout = TestTimeouts.PerTestMilliseconds)]
+    public async Task Feedback_report_part_is_listed_as_attachment_and_sets_no_notice()
+    {
+        ReadingPaneViewModel reading = await ShowEmlAsync(
+            "Content-Type: multipart/mixed; boundary=\"b1\"\r\n\r\n" +
+            "--b1\r\nContent-Type: text/plain\r\n\r\nreport_text\r\n" +
+            "--b1\r\nContent-Type: message/feedback-report\r\n\r\nFeedback-Type: abuse\r\n" +
+            "--b1--\r\n");
+
+        Assert.Equal(ReadingState.Ready, reading.State);
+        Assert.Null(reading.ContentNotice);
+        Assert.Single(reading.AttachmentNames);
+    }}
