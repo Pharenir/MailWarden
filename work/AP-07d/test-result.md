@@ -20,3 +20,13 @@ Das Maximum der Bremse (1000) entspricht der Befehlsgroesse (1000 UIDs); die Auf
 ## Hinweise
 - Case 13 ueber `OpenWithCycleStepsAsync` getestet (Event aus der Service-Schleife, Folgezyklus bei Moves, kein Folgezyklus ohne Moves, kein Event waehrend Dispose).
 - Cases 17 und 18 sind manuell (nicht automatisiert).
+
+## verify.2 (nach fix.2, Stand f91df74)
+Stufe:        S3
+Auswahl nach: voll
+Ergebnis:     2137 von 2137 Tests gruen (Core 511, Infrastructure 1270, Presentation 356)
+Fehlschlaege: keine
+Nicht gelaufen: nichts
+Laufzeit:     15,8 s (weiche Grenze nicht ueberschritten)
+Abbruch:      -
+Neu in fix.2: Faelle 19 und 20 (Abbruch-Exception mit/ohne abgebrochenem Token), Fall 21 und geaenderter Fall 14 (Summen seit App-Start, saubere Durchlaeufe loeschen nichts).
