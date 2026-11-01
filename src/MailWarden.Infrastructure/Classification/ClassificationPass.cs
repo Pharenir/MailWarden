@@ -34,6 +34,11 @@ namespace MailWarden.Infrastructure.Classification;
 /// error must not become a mass move, and the mail may be from a contact.
 /// </para>
 /// <para>
+/// The brake: when the moves planned for one folder in one pass exceed <see cref="ClassificationPolicy.MaxMovesPerPass"/>,
+/// none of them is enqueued. Their entries get the final outcome <see cref="ClassificationOutcome.BrakeHeld"/> and keep their
+/// planned action; the marker advances as usual, so they are not decided again.
+/// </para>
+/// <para>
 /// No report or exception of this class contains subject, body or address text. Reason texts go to the local decision
 /// log only. Not thread-safe; one pass at a time.
 /// </para>
@@ -163,7 +168,21 @@ public sealed class ClassificationPass
             actSuspended,
             state.TierCounts,
             state.RetentionDeletesRejected,
-            state.EvaluationFailed);
+            state.EvaluationFailed,
+            state.BrakeHeld);
+    }
+
+    // The brake of the folder has fired: every planned move of this folder stays where it is, with its planned action in the log.
+    private static void HoldMoves(
+        Dictionary<long, List<PendingMove>> movesByTarget,
+        List<ClassificationLogEntry> entries,
+        PassState state)
+    {
+        foreach (PendingMove move in movesByTarget.Values.SelectMany(targetMoves => targetMoves))
+        {
+            entries[move.EntryIndex] = entries[move.EntryIndex] with { Outcome = ClassificationOutcome.BrakeHeld };
+            state.BrakeHeld++;
+        }
     }
 
     private static MailFolder? FindFolder(IEnumerable<MailFolder> accountFolders, FolderRole role)
@@ -274,8 +293,17 @@ public sealed class ClassificationPass
         }
 
         // Marker and entries only after enqueueing, so that a crash can never lose a planned move. The other way round a
-        // crash leaves a stored command without an entry; see the class remarks.
-        await EnqueueMovesAsync(folder, movesByTarget, entries, state, ct).ConfigureAwait(false);
+        // crash leaves a stored command without an entry; see the class remarks. Only effective Act plans moves, so the
+        // brake cannot touch RecordOnly.
+        if (movesByTarget.Values.Sum(targetMoves => targetMoves.Count) > policy.MaxMovesPerPass)
+        {
+            HoldMoves(movesByTarget, entries, state);
+        }
+        else
+        {
+            await EnqueueMovesAsync(folder, movesByTarget, entries, state, ct).ConfigureAwait(false);
+        }
+
         await log
             .CommitAsync(entries, new ClassificationMarker(folder.Id, folder.UidValidity, newUids[^1]), ct)
             .ConfigureAwait(false);
@@ -545,5 +573,7 @@ public sealed class ClassificationPass
         public int RetentionDeletesRejected { get; set; }
 
         public int EvaluationFailed { get; set; }
+
+        public int BrakeHeld { get; set; }
     }
 }

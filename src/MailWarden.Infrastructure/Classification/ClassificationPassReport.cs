@@ -17,6 +17,9 @@ namespace MailWarden.Infrastructure.Classification;
 /// them again.</param>
 /// <param name="EvaluationFailed">Messages stored with outcome <see cref="ClassificationOutcome.EvaluationFailed"/>; part of
 /// neither <paramref name="Classified"/> nor <paramref name="ReadFailed"/>.</param>
+/// <param name="BrakeHeld">Messages stored with outcome <see cref="ClassificationOutcome.BrakeHeld"/>. When they got a tier
+/// they also count in <paramref name="Classified"/> and <paramref name="TierCounts"/>; they never count in
+/// <paramref name="MovesEnqueued"/>.</param>
 public sealed record ClassificationPassReport(
     int Classified,
     int SkippedKnown,
@@ -26,4 +29,5 @@ public sealed record ClassificationPassReport(
     bool ActSuspendedNoContacts,
     IReadOnlyDictionary<SpamTier, int> TierCounts,
     int RetentionDeletesRejected,
-    int EvaluationFailed);
+    int EvaluationFailed,
+    int BrakeHeld);
