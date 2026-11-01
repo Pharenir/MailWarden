@@ -1,18 +1,14 @@
-# AP-04a – Testergebnis (verify.4, nach fix.4)
+# AP-04a – Testergebnis (verify.5, nach fix.5)
 
 ```
 Stufe:        S3
 Auswahl nach: voll
-Ergebnis:     1678 von 1678 Tests grün (Core 430, Infrastructure 928, Presentation 320)
+Ergebnis:     1700 von 1700 Tests grün (Core 430, Infrastructure 947, Presentation 323)
 Fehlschläge:  –
 Nicht gelaufen: Fälle 42-48 (manuell, Dennis)
-Laufzeit:     14,8 s
+Laufzeit:     15 s
 Abbruch:      –
-Auffällig:    Schwere Eingaben (Fälle 49, 66-68, 78-80) laufen ohne Prozessende innerhalb des Testlimits. Fall 78 meldet WasReduced true.
+Auffällig:    Fall 91 (CSS-Rekursion, calc mit bis zu 12.000 Klammern, &#40-Ketten) lief ohne Prozessende; Fälle 93 und 95 grün.
 ```
 
-Stand: `feat/ap-04a-ui-read` nach Merge von `test/ap-04a-ui-read`, Build `-warnaserror` grün. Ergebnis: **PASS**.
-
-## Verlauf
-Lauf 1: 1677 grün, 1 rot (eigener Testfehler, a): `Fifty_thousand_elements_keep_their_markup`. Meine zusätzlich erfundene Kontrolle (50.000 `<span>x</span>`, ca. 700 KB) liegt über den Laufzeit-/Textbudgets, `WasReduced` war true. Der Vertrag (Fall 81) nennt 20.000 gewöhnliche Tags; dieser Fall ist grün. Die überzählige Kontrolle wurde entfernt. Lauf 2: alles grün.
-Behoben/erledigt seit verify.3: Same-Mail-Test (Fall 82/83), Klartext-CSP, `OpaquePartsTests` (rfc822) und `Name_of_exactly_100…` sind jetzt grün.
+Stand: `feat/ap-04a-ui-read` nach Merge von `test/ap-04a-ui-read` (Tests Fälle 91-95 in Commit dd66604), Build `-warnaserror` grün. Ergebnis: **PASS**, kein Fehlschlag, keine Testkorrektur nötig.
