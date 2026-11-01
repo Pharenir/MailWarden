@@ -1,3 +1,4 @@
+using System.Globalization;
 using MailWarden.Core.Model;
 using MailWarden.Core.Storage;
 using Microsoft.Data.Sqlite;
@@ -147,29 +148,8 @@ public sealed class SqliteMessageStore(SqliteDatabase database) : IMessageStore
         try
         {
             await using var command = database.Connection.CreateCommand();
-
-            // Filter: FolderId wins over Role; AccountId narrows either. Only fixed SQL fragments are concatenated.
-            string fromClause = SelectColumns;
-            string whereClause = " WHERE 1 = 1";
-            if (query.FolderId is long folderId)
-            {
-                whereClause += " AND m.folder_id = $folder_id";
-                command.Parameters.AddWithValue("$folder_id", folderId);
-            }
-            else if (query.Role is FolderRole role)
-            {
-                fromClause += " JOIN folders AS f ON f.id = m.folder_id";
-                whereClause += " AND f.role = $role";
-                command.Parameters.AddWithValue("$role", (int)role);
-            }
-
-            if (query.AccountId is Guid accountId)
-            {
-                whereClause += " AND m.account_id = $account_id";
-                command.Parameters.AddWithValue("$account_id", SqliteValues.FromGuid(accountId));
-            }
-
-            command.CommandText = fromClause + whereClause + NewestFirst + " LIMIT $limit OFFSET $offset;";
+            string filterClause = ApplyViewFilter(command, query);
+            command.CommandText = SelectColumns + filterClause + NewestFirst + " LIMIT $limit OFFSET $offset;";
             command.Parameters.AddWithValue("$limit", query.Limit);
             command.Parameters.AddWithValue("$offset", query.Offset);
             return await ReadMessagesAsync(command, ct).ConfigureAwait(false);
@@ -177,6 +157,26 @@ public sealed class SqliteMessageStore(SqliteDatabase database) : IMessageStore
         catch (SqliteException exception)
         {
             throw SqliteValues.Wrap("Listing messages", exception);
+        }
+    }
+
+    /// <inheritdoc />
+    public async Task<int> CountUnreadAsync(MessageQuery query, CancellationToken ct = default)
+    {
+        ArgumentNullException.ThrowIfNull(query);
+
+        try
+        {
+            await using var command = database.Connection.CreateCommand();
+            string filterClause = ApplyViewFilter(command, query);
+            command.CommandText = "SELECT count(*) FROM messages AS m" + filterClause + " AND (m.flags & $seen) = 0;";
+            command.Parameters.AddWithValue("$seen", (int)MessageFlags.Seen);
+            object? count = await command.ExecuteScalarAsync(ct).ConfigureAwait(false);
+            return Convert.ToInt32(count, CultureInfo.InvariantCulture);
+        }
+        catch (SqliteException exception)
+        {
+            throw SqliteValues.Wrap("Counting unread messages", exception);
         }
     }
 
@@ -384,6 +384,33 @@ public sealed class SqliteMessageStore(SqliteDatabase database) : IMessageStore
         {
             throw SqliteValues.Wrap("Updating message flags", exception);
         }
+    }
+
+    // Filter of a view, shared by ListAsync and CountUnreadAsync: FolderId wins over Role; AccountId narrows either.
+    // Returns the JOIN and WHERE text for messages AS m; only fixed SQL fragments are concatenated.
+    private static string ApplyViewFilter(SqliteCommand command, MessageQuery query)
+    {
+        string joinClause = string.Empty;
+        string whereClause = " WHERE 1 = 1";
+        if (query.FolderId is long folderId)
+        {
+            whereClause += " AND m.folder_id = $folder_id";
+            command.Parameters.AddWithValue("$folder_id", folderId);
+        }
+        else if (query.Role is FolderRole role)
+        {
+            joinClause = " JOIN folders AS f ON f.id = m.folder_id";
+            whereClause += " AND f.role = $role";
+            command.Parameters.AddWithValue("$role", (int)role);
+        }
+
+        if (query.AccountId is Guid accountId)
+        {
+            whereClause += " AND m.account_id = $account_id";
+            command.Parameters.AddWithValue("$account_id", SqliteValues.FromGuid(accountId));
+        }
+
+        return joinClause + whereClause;
     }
 
     private static async Task<IReadOnlyList<MailMessage>> ReadMessagesAsync(SqliteCommand command, CancellationToken ct)

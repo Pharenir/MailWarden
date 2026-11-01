@@ -45,6 +45,15 @@ public interface IMessageStore
     Task<IReadOnlyList<MailMessage>> ListAsync(MessageQuery query, CancellationToken ct = default);
 
     /// <summary>
+    /// Number of messages without <see cref="MessageFlags.Seen"/> matching Role/AccountId/FolderId of the query (same
+    /// filter meaning as <see cref="ListAsync"/>); Limit and Offset are ignored.
+    /// </summary>
+    /// <param name="query">Filter; its paging values are ignored.</param>
+    /// <param name="ct">Cancellation token.</param>
+    /// <returns>The number of unread messages.</returns>
+    Task<int> CountUnreadAsync(MessageQuery query, CancellationToken ct = default);
+
+    /// <summary>
     /// Full-text search over subject, sender address, sender name and indexed body text; case-insensitive.
     /// Every word must match (prefix match); words are separated by whitespace and control characters; search syntax
     /// characters are treated as text.
