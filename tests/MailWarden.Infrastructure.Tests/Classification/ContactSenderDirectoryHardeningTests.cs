@@ -94,6 +94,20 @@ public sealed class ContactSenderDirectoryHardeningTests
         Assert.Equal(ListMembership.Blocked, blocked.GetListMembership(sender));
     }
 
+    // Case 27: an "xn--" label with a look-alike character inside is not exact either (Allow none, Block still matches)
+    [Fact]
+    public void Xn_label_with_a_fullwidth_letter_never_hits_an_allow_entry_but_still_hits_a_block_entry()
+    {
+        const string sender = "sender_a@xn--mller-kvａ.example";
+        ContactSenderDirectory allowed = Create(Domain("müller.example", ListMembership.Allowed));
+        ContactSenderDirectory blocked = Create(Domain("müller.example", ListMembership.Blocked));
+
+        Assert.Equal(ListMembership.None, allowed.GetListMembership(sender));
+        Assert.Equal(ListMembership.Blocked, blocked.GetListMembership(sender));
+        // Control: the real Punycode form of the entry is allowed.
+        Assert.Equal(ListMembership.Allowed, allowed.GetListMembership("sender_a@xn--mller-kva.example"));
+    }
+
     // Case 27: positive controls with the same entries
     [Fact]
     public void Plain_ascii_and_real_punycode_senders_are_allowed()
