@@ -119,3 +119,23 @@ Fragen an den Planer:
 5. Fall 43 "Befehl fehlgeschlagen": mit einem Dekorator getestet, der alle Befehle als `Failed` listet (kein echter Executor).
 6. G12/G13 (Subscribe, Provisioner-Verhalten) und G14 (Probe) sind ohne Fake-IMAP nicht unit-testbar; `TierCounts` mit allen vier Stufen
    und `ContactCount` ohne eigene Adresse in der Tabelle sind nicht zusaetzlich getestet (Fall 30 prueft `TryGetValue` je Stufe).
+
+## author.2 (Decisions fix.3, H1-H8) - ungelaufen
+| Fall | Test |
+|---|---|
+| 47 / 42 | `ClassificationPassFix2Tests.Senderless_*` jetzt auf Junk (Inbox Act `Enqueued`/`MoveToJunk`, RecordOnly `Recorded`, Junk `NoAction`, ohne Junk-Ordner `TargetMissing`); Fall 22 (`Unreadable_mails_...`): Mails ohne brauchbares From -> Junk-Befehl [14,17], Screener [18] |
+| H2 | `Senderless_mails_with_the_same_message_id_and_different_received_are_two_decisions` (+ Kontrolle gleiche Received = ein Eintrag) |
+| 48 | Core `ClassificationRoutingTests` (`RouteWithoutSender`: Inbox -> MoveToJunk, Junk -> None, andere Rollen -> ArgumentOutOfRangeException) |
+| 49 | `ClassificationMessageReaderTests` (`ReadTopReceivedAsync`: gleicher Wert wie `ReadMessageAsync().TopReceived` bei normal und gefaltet, ohne Received null, Garbage null, ohne From, nur oberstes Received, IOException propagiert) |
+| 50 | `Quarantine_mail_with_a_corrupt_body_but_readable_headers_is_deleted_when_due` (Kontrolle intakt + 4 Beschädigungen: Multipart ohne Boundary, offenes Multipart, ungültiges Base64, unbekannter Charset mit ungültigem QP) und `Quarantine_mail_with_an_unreadable_file_is_never_deleted` |
+| 51 | Core `NonAsciiSeparatorTests` (0xA0, 0x85, 0x80, 0x9F spalten nicht, Status bleibt Failed; ASCII Leerzeichen/Tab trennen weiter) |
+
+Fragen an den Planer:
+1. **Signaturen angenommen:** `ClassificationRouting.RouteWithoutSender(FolderRole)` (statisch, Rückgabe `ClassificationAction`) und
+   `ClassificationInputReader.ReadTopReceivedAsync(Stream, CancellationToken ct = default)` -> `Task<string?>`.
+2. **H2, Ausnahme beim Bau des Inputs oder aus `Classify`:** nicht herstellbar (Signale werden im Pass erzeugt); nur der Teil "Schlüssel
+   enthält das Received" ist getestet. Gibt es eine konkrete Mail, die das auslöst?
+3. **Fall 50:** die Beschädigungen sind Annahmen (Multipart ohne/mit offener Boundary, ungültiges Base64, unbekannter Charset mit kaputtem
+   Quoted-Printable). Liest MimeKit sie ohnehin ohne Ausnahme, beweist der Test nur "Schlüssel stimmt".
+4. **Fall 51:** der Test geht über den Klassifizierer, weil `AuthenticationResultsTokenizer` nicht öffentlich ist; ein direkter
+   Tokenizer-Test bräuchte `InternalsVisibleTo`.
