@@ -10,8 +10,8 @@ namespace MailWarden.Infrastructure.Background;
 
 /// <summary>
 /// Long-running service that keeps all accounts of one data folder current: one loop per account runs cycles (queued
-/// commands, then a sync pass) on a schedule, after triggers and after IDLE changes of the inbox; one IDLE watcher per
-/// account reports inbox changes. Holds the <see cref="DataFolderLock"/> while running, unless the composition already
+/// commands, then <c>syncAccount</c>, which in the running app is sync pass and classification pass) on a schedule, after
+/// triggers and after IDLE changes of the inbox; one IDLE watcher per account reports inbox changes. Holds the <see cref="DataFolderLock"/> while running, unless the composition already
 /// holds it and passes it in.
 /// </summary>
 /// <remarks>
@@ -66,7 +66,11 @@ public sealed class MailboxService : IAsyncDisposable
     /// <param name="paths">Data folder whose lock the service holds while running.</param>
     /// <param name="accounts">Account store; the accounts to keep current are read from here.</param>
     /// <param name="executeCommands">Runs the queued commands of an account (<c>CommandExecutor.ExecutePendingAsync</c>).</param>
-    /// <param name="syncAccount">Runs one sync pass of an account (<c>SyncEngine.SyncAccountAsync</c>).</param>
+    /// <param name="syncAccount">
+    /// Runs everything after the commands: in the running app the whole cycle of sync pass and classification pass
+    /// (<see cref="MailWarden.Infrastructure.Composition.ClassifyingSyncCycle.RunAsync"/>). An exception of either pass
+    /// becomes the account's error state.
+    /// </param>
     /// <param name="idleWatchers">Opens the inbox watcher of an account.</param>
     /// <param name="options">Poll interval, IDLE renewal and trigger debounce.</param>
     /// <param name="delay">Every wait of the service goes through it.</param>
@@ -452,7 +456,8 @@ public sealed class MailboxService : IAsyncDisposable
         }
     }
 
-    // One cycle: queued commands, then the sync pass. Failures become a status; only a stop propagates.
+    // One cycle: queued commands, then syncAccount (sync pass and classification pass). Failures become a status; only a
+    // stop propagates.
     private async Task<CycleOutcome> RunCycleAsync(AccountWorker worker, CancellationToken ct)
     {
         Guid accountId = worker.Account.Id;

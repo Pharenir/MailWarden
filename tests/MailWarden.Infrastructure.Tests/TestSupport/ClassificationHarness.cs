@@ -141,6 +141,9 @@ internal sealed class ClassificationHarness : IAsyncDisposable
     /// <summary>Policy "Act" with the given retention.</summary>
     public static ClassificationPolicy ActWithRetention(int days) => new(ClassificationMode.Act, days);
 
+    /// <summary>Policy "Act" with the given move limit per folder and pass (the brake of AP-07d), retention 0.</summary>
+    public static ClassificationPolicy ActWithLimit(int maxMovesPerPass) => Act with { MaxMovesPerPass = maxMovesPerPass };
+
     public ClassificationPass CreatePass(
         ClassificationPolicy policy,
         IEmlStore? eml = null,

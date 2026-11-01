@@ -38,6 +38,9 @@ public sealed class ShellViewModel : ObservableObject, IDisposable
     // Last known state per account; a failed cycle reloads only when the state changes.
     private readonly Dictionary<Guid, AccountSyncState> lastStates = [];
 
+    // Classification results per known account since the app started; touched on the UI thread only.
+    private readonly Dictionary<Guid, ClassificationTally> classificationTallies = [];
+
     /// <summary>Creates the shell and loads the settings. Nothing else runs before <see cref="InitializeAsync"/>.</summary>
     /// <param name="readModel">Read access to the stored mail.</param>
     /// <param name="controller">The background service.</param>
@@ -177,6 +180,7 @@ public sealed class ShellViewModel : ObservableObject, IDisposable
         if (!isSubscribed)
         {
             controller.StatusChanged += OnStatusChanged;
+            controller.ClassificationPassCompleted += OnClassificationPassCompleted;
             isSubscribed = true;
         }
 
@@ -194,6 +198,7 @@ public sealed class ShellViewModel : ObservableObject, IDisposable
         if (isSubscribed)
         {
             controller.StatusChanged -= OnStatusChanged;
+            controller.ClassificationPassCompleted -= OnClassificationPassCompleted;
             isSubscribed = false;
         }
 
@@ -340,6 +345,80 @@ public sealed class ShellViewModel : ObservableObject, IDisposable
         log.Write(CriticalLogLevel.Critical, "ShellViewModel.OnStatusChanged", $"Handling a status change failed: {exception.GetType().Name}");
     }
 
+    // Raised on the thread of the account's cycle; same rules as OnStatusChanged.
+    private void OnClassificationPassCompleted(object? sender, ClassificationPassSummary summary)
+    {
+        try
+        {
+            dispatcher.Post(() => ApplyClassificationSummary(summary));
+        }
+        catch (Exception exception) when (exception is not OutOfMemoryException)
+        {
+            WriteSummaryHandlerFailure(exception);
+        }
+    }
+
+    // On the UI thread. An account the navigation does not show is ignored, like its status.
+    private void ApplyClassificationSummary(ClassificationPassSummary summary)
+    {
+        try
+        {
+            if (!isSubscribed || !Navigation.AccountIds.Contains(summary.AccountId))
+            {
+                return;
+            }
+
+            ClassificationTally tally = classificationTallies.GetValueOrDefault(summary.AccountId);
+            classificationTallies[summary.AccountId] = new ClassificationTally(
+                tally.EvaluationFailed + summary.EvaluationFailed,
+                tally.BrakeHeld + summary.BrakeHeld,
+                summary.ActSuspendedNoContacts);
+            UpdateClassificationBanner();
+        }
+        catch (Exception exception) when (exception is not OutOfMemoryException)
+        {
+            WriteSummaryHandlerFailure(exception);
+        }
+    }
+
+    // A clean pass clears nothing: these mails stay unsorted, so the sums must not disappear unseen. They end with the app;
+    // acknowledging them comes with AP-08. An account that has left the navigation no longer counts.
+    private void UpdateClassificationBanner()
+    {
+        List<ClassificationTally> tallies =
+        [
+            .. classificationTallies
+                .Where(accountTally => Navigation.AccountIds.Contains(accountTally.Key))
+                .Select(accountTally => accountTally.Value),
+        ];
+        int evaluationFailed = tallies.Sum(tally => tally.EvaluationFailed);
+        int brakeHeld = tallies.Sum(tally => tally.BrakeHeld);
+
+        if (evaluationFailed > 0 || brakeHeld > 0)
+        {
+            banner.Set(ShellBanner.BannerSource.Classification, UiText.BannerClassificationProblems(evaluationFailed, brakeHeld));
+        }
+        else
+        {
+            banner.Clear(ShellBanner.BannerSource.Classification);
+        }
+
+        // Only true in Act: while the mode is RecordOnly this never shows.
+        if (tallies.Any(tally => tally.IsWaitingForContacts))
+        {
+            banner.Set(ShellBanner.BannerSource.ClassificationWaiting, UiText.BannerClassificationWaiting);
+        }
+        else
+        {
+            banner.Clear(ShellBanner.BannerSource.ClassificationWaiting);
+        }
+    }
+
+    private void WriteSummaryHandlerFailure(Exception exception)
+    {
+        log.Write(CriticalLogLevel.Critical, "ShellViewModel.OnClassificationPassCompleted", $"Handling a classification summary failed: {exception.GetType().Name}");
+    }
+
     private void RequestReload()
     {
         lock (reloadGate)
@@ -406,4 +485,7 @@ public sealed class ShellViewModel : ObservableObject, IDisposable
             log.Write(CriticalLogLevel.Critical, source, $"Background work of the shell failed: {exception.GetType().Name}");
         }
     }
+
+    // Counts added since the app started; the waiting flag follows the account's last summary.
+    private readonly record struct ClassificationTally(int EvaluationFailed, int BrakeHeld, bool IsWaitingForContacts);
 }

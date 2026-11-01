@@ -77,6 +77,8 @@ public partial class App : Application
     private static string DescribeStartFailure(Exception exception) => exception switch
     {
         DataFolderInUseException => UiText.StartErrorInUse,
+        InvalidDataException { Data: var details } when details[MailWardenRuntime.InvalidFileNameDataKey] is string fileName
+            => UiText.StartErrorInvalidClassifierFile(fileName),
         SchemaVersionException => UiText.StartErrorSchemaTooNew,
         ArgumentException or IOException or UnauthorizedAccessException or NotSupportedException => UiText.StartErrorInvalidDataFolder,
         _ => UiText.StartErrorOther,
@@ -87,11 +89,11 @@ public partial class App : Application
         DataPaths paths = ResolveDataPaths();
         criticalLog = new CriticalFileLog(paths.LogRoot, TimeProvider.System);
 
-        runtime = await MailWardenRuntime.OpenAsync(paths);
+        runtime = await MailWardenRuntime.OpenAsync(paths, log: criticalLog);
         var dispatcher = new DispatcherQueueUiDispatcher(Microsoft.UI.Dispatching.DispatcherQueue.GetForCurrentThread());
         shell = new ShellViewModel(
             runtime.ReadModel,
-            new MailboxServiceController(runtime.Service),
+            new MailboxServiceController(runtime),
             dispatcher,
             new UiSettingsFile(Path.Combine(paths.Root, UiSettingsFile.FileName)),
             criticalLog,

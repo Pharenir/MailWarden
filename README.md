@@ -17,7 +17,8 @@ processed/missing; no names), reconnects within a pass if the connection was los
 the Gmail folder "Important". A command queue (local to server: flags, move, trash, delete, empty folder; see
 "Command queue") and a background service with schedule and IDLE (see "Background service") are implemented as
 libraries; the app starts the background service. The app only reads: accounts are still added with the AuthProbe
-tool, and actions, search and attachments come with AP-04b. The classifier does not sort or move any mail yet.
+tool, and actions, search and attachments come with AP-04b. The spam filter runs after every sync in the app, but by
+default it only records its decisions and moves no mail (see "Spam filter").
 
 ## Using the app
 The app shows the mail of all accounts and keeps it current through the background service. It is read-only: opening
@@ -38,8 +39,8 @@ a message does not mark it as read, and nothing is deleted, moved or flagged on 
   pane. The parts can be resized with the splitters. Layout, sizes and theme are kept in `ui-settings.json` in the
   data folder.
 - **Design:** System, Hell or Dunkel changes the app. Mail content is always shown on a light background.
-- **Info bar:** shows notices, for example when the settings file is invalid (the defaults apply) or a list cannot be
-  loaded.
+- **Info bar:** shows notices, for example when the settings file is invalid (the defaults apply), a list cannot be
+  loaded or the spam filter has a problem (see "Spam filter").
 
 Safe display of mail:
 - HTML is cleaned before it is shown. Scripts, forms and similar elements are removed.
@@ -56,11 +57,29 @@ If the app cannot start (invalid `MAILWARDEN_DATA_DIR`, data folder already in u
 it shows a window "MailWarden kann nicht starten" with the reason. Critical errors are logged in
 `logs\mailwarden.log` (type names and fixed texts only, no mail content).
 
-Spam filter status: the classification pass (new mail in Inbox and Junk is classified after a sync, the decision with
-all reasons is stored, and in mode `act` mail is moved to Screener, Junk or Quarantine through the command queue) is
-implemented as a library, but **not yet wired into the app**. Until then it only runs in tests. By default it only
-records decisions and moves nothing (`recordOnly`); `act` stays off, and it pauses while the address book is empty.
-Mail that was already there is never sorted automatically. It has not been tried against a real mail server yet.
+## Spam filter
+After every sync of an account the running app classifies the new mail in Inbox and Junk. Every decision is stored
+with all reasons. Mail that was already there when a folder was first synced is never sorted automatically.
+
+- **Default: record only.** Without the file `classification-policy.json` (`mode` `recordOnly`) the filter only
+  records its decisions. It moves and deletes nothing.
+- **Mode `act`:** only if you set `"mode": "act"` in `classification-policy.json`. Then new mail is moved to Screener,
+  Junk or Quarantine through the command queue, soon after it arrived. It pauses while the address book is empty.
+  The address book cannot be filled yet (AP-06), so `act` does not move anything yet.
+- **Brake:** the key `maxMovesPerPass` (whole number 1 to 1000, default 100) limits the moves of one folder in one
+  pass. If more mails would be moved, **none** of them is moved. They stay in their folder and are not decided again.
+- **Notice in the app:** the info bar shows "Spamfilter seit dem Start: nicht bewertet N, von der Bremse
+  zurückgehalten M. Diese Mails bleiben in ihrem Ordner." The numbers are sums since the app started and stay
+  until you close the app. If `act` is set but the address book is empty, a second notice says that the filter waits
+  for the address book.
+- **Invalid settings file:** if `classification-policy.json` or `classifier-settings.json` is invalid, the app does
+  not start. It shows the window "MailWarden kann nicht starten" with the file name. Correct or remove the file and
+  start again. The files are read once at start; changes apply after a restart.
+- **Errors in the log:** if a pass fails, `logs\mailwarden.log` gets one line with the type name. The account then
+  waits like after any other error (see "Background service"). Counts of problems are logged as well, without mail data.
+
+The filter works on the local copy. On the server it only creates the folders Screener and Quarantine and sends the
+move commands, both only in mode `act`. It has not been tried against a real mail server in the running app yet.
 Details: `docs\classifier.md`.
 
 ## Command queue
@@ -144,8 +163,8 @@ Layout:
 | `auth-config.json` | optional OAuth client configuration (see Environment variables) |
 | `ui-settings.json` | optional window settings (layout, theme, sizes); written by the app when you change them |
 | `mailwarden.lock` | lock file while the app runs (one process per data folder) |
-| `classifier-settings.json` | optional spam classifier settings (thresholds, lists); the loader exists, the app does not read the file yet (see `docs\classifier.md`) |
-| `classification-policy.json` | optional policy of the classification pass (`mode`: `recordOnly` (default) or `act`; `quarantineRetentionDays`: 0 = never delete); the loader exists, the app does not read the file yet (see `docs\classifier.md`) |
+| `classifier-settings.json` | optional spam classifier settings (thresholds, lists); read once at start, an invalid file stops the start (see `docs\classifier.md`) |
+| `classification-policy.json` | optional policy of the classification pass (`mode`: `recordOnly` (default) or `act`; `quarantineRetentionDays`: 0 = never delete; `maxMovesPerPass`: 1 to 1000, default 100); read once at start, an invalid file stops the start (see "Spam filter" and `docs\classifier.md`) |
 | `logs\` | log file `mailwarden.log` (critical errors only) |
 
 On start the app creates the data folder, the database and the lock file itself. `mail\` appears with the first

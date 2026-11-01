@@ -252,7 +252,7 @@ AP-03 neu geteilt: AP-03b = Abgleich robust/schnell, **AP-03c** = Befehlswartesc
 - [ ] Härtung: widersprüchliche `compauth`-Ergebnisse im obersten Header → None (review.1 P2)
 
 ### Vertagt aus AP-07c
-- [ ] **D8** (Anbindung des Durchlaufs in `MailWardenRuntime`, nach AP-04a und AP-07c auf `main`) **inkl. J4:** Bremse – stellt ein Durchlauf mehr
+- [x] **D8** (erledigt in AP-07d, Fälle 17 und 18 offen) (Anbindung des Durchlaufs in `MailWardenRuntime`, nach AP-04a und AP-07c auf `main`) **inkl. J4:** Bremse – stellt ein Durchlauf mehr
   Verschiebungen ein als ein Grenzwert, nur protokollieren und warnen. Grenzwert dort entscheiden. Dazu die Sichtbarkeit von
   `EvaluationFailed` in der App (der Durchlauf schreibt keine Logzeile, sonst bleibt ein Programmfehler unbemerkt)
 - [ ] `Trim` in `AuthenticationResultsParser` (und `DomainNames.Normalize`) auf ASCII begrenzen (keine Sicherheitsrelevanz, F4)
@@ -263,6 +263,34 @@ AP-03 neu geteilt: AP-03b = Abgleich robust/schnell, **AP-03c** = Befehlswartesc
 - [ ] Altbestand prüfen: der Durchlauf sortiert vorhandene Mails nie ein, eine bewusste Prüfung gehört nach AP-08
 - [ ] AP-06 (Kontakte, Allow-/Block-Listen) ist Voraussetzung für `Act`: solange das Adressbuch leer ist, ruht der Modus
 - [x] Fall 33 erledigt (2026-11-01, `work\AP-07c\requirement.md`): Versand, Ordner anlegen, Verschieben, Schlüssel stabil auf beiden Anbietern. Dennis 2026-11-01: Mails und Ordner erscheinen im Web und in der Outlook-App. Testmails und beide Ordner liegen weiter in Konto 2 und im Google-Konto
+
+### Vertagt aus AP-07d
+Stand: Verdrahtung, Bremse und Hinweis sind umgesetzt und mit Fakes getestet (S3 2137/2137). Noch offen: Fall 17 (Dennis, manuell,
+`work\manual-tests.md` Teil 7) und Fall 18 (Planer, `act` auf einer Kopie mit Testmails nach Freigabe von Dennis).
+Erledigt aus AP-07c: D8, J4 (Bremse) und die Sichtbarkeit von `EvaluationFailed` (Hinweis in der App, Logzeile), siehe dort.
+
+**Bedingungen vor `Act` auf einem echten Konto:**
+- [ ] `BrakeHeld` ist endgültig: eine Salve über dem Grenzwert bleibt unsortiert (secure M1). AP-08 soll „zurückgehaltene
+  Mails nachträglich sortieren“ anbieten; das Protokoll behält Aktion und UID. Dennis legt `maxMovesPerPass` mit diesem
+  Wissen fest
+- [ ] Die Marke kann eine Lücke überspringen: eine später nachgeladene UID unter der Marke wird nie entschieden (secure N1, review N3)
+- [ ] Beim Durchlauf einen Stream statt `MemoryStream` für die EML (secure N2; siehe auch AP-07c oben)
+- [ ] Aufbewahrung fragt zuerst das Protokoll nach abgelaufenen Einträgen, statt jede Quarantäne-Datei zu lesen (secure N3)
+- [ ] AP-06 (Adressbuch) – ohne Kontakte ruht `Act`
+- [ ] Fall 18 bestanden (Planer)
+
+**Ohne Bedingung:**
+- [ ] Ein dauerhafter Fehler des Durchlaufs bremst den Abgleich des Kontos auf höchstens alle 30 Minuten (review S3)
+- [ ] Zurück von `act` auf `recordOnly` stoppt bereits eingestellte Befehle nicht (review N2)
+- [ ] Scheitert der zweite Ordner (Junk) eines Durchlaufs, erreichen die Zahlen des ersten weder Hinweis noch Logzeile; die
+  Einträge bleiben (review N1)
+- [ ] `MailWardenRuntime.OpenWithCycleStepsAsync` könnte `internal` werden (secure N4; heute public, weil `InternalsVisibleTo` fehlt)
+- [ ] AP-04b: beim Entfernen eines Kontos die Summen im Hinweis neu berechnen (Konten, die die Navigation verlassen, zählen
+  erst ab dem nächsten Durchlauf nicht mehr)
+- [ ] Hinweis quittieren (heute endet er nur mit der App) → AP-08
+- [ ] Bilder bei vertrauenswürdiger Mail automatisch laden (Wunsch aus der Anforderung, später)
+- [ ] Befund der Tester: das Maximum der Bremse (1000) entspricht der Befehlsgröße, ein Aufteilen von Verschiebungen
+  im Durchlauf gibt es nicht mehr – bewusst bestätigen (Planer)
 
 WinUI-App für Fall 30: im Projektordner `dotnet build MailWarden.sln`, dann
 `src\MailWarden.App\bin\x64\Debug\net9.0-windows10.0.19041.0\win-x64\MailWarden.App.exe` starten.

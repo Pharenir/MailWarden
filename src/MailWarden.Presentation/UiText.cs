@@ -86,6 +86,21 @@ public static class UiText
     /// <summary>Banner: the message list could not be loaded.</summary>
     public static string BannerListFailed => "Die Nachrichtenliste konnte nicht geladen werden.";
 
+    /// <summary>Banner: the filter is switched to act, but waits for the address book.</summary>
+    public static string BannerClassificationWaiting =>
+        "Der Spamfilter verschiebt noch nichts: Er wartet auf das Adressbuch.";
+
+    /// <summary>Banner: since the app started, classification passes had mail that stays where it is because of a problem.</summary>
+    /// <param name="evaluationFailed">Mails that could not be evaluated since the start, added over the accounts.</param>
+    /// <param name="brakeHeld">Mails the brake held since the start, added over the accounts.</param>
+    /// <returns>The banner text.</returns>
+    public static string BannerClassificationProblems(int evaluationFailed, int brakeHeld)
+    {
+        return string.Create(
+            CultureInfo.InvariantCulture,
+            $"Spamfilter seit dem Start: nicht bewertet {evaluationFailed}, von der Bremse zurückgehalten {brakeHeld}. Diese Mails bleiben in ihrem Ordner.");
+    }
+
     /// <summary>Error window: title.</summary>
     public static string StartErrorTitle => "MailWarden kann nicht starten";
 
@@ -105,6 +120,14 @@ public static class UiText
     /// <summary>Error window: any other start failure.</summary>
     public static string StartErrorOther =>
         "Beim Start ist ein Fehler aufgetreten. Details stehen in der Protokolldatei im Datenordner (logs).";
+
+    /// <summary>Error window: a settings file of the spam filter in the data folder is invalid.</summary>
+    /// <param name="fileName">Name of the file, without a path.</param>
+    /// <returns>The text.</returns>
+    public static string StartErrorInvalidClassifierFile(string fileName)
+    {
+        return $"Die Datei {fileName} im Datenordner ist ungültig. Korrigiere sie und starte erneut.";
+    }
 
     /// <summary>Navigation label of a folder role.</summary>
     /// <param name="role">One of <see cref="MailView.GroupRoles"/>.</param>

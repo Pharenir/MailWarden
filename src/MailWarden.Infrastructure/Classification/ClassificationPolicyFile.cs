@@ -15,6 +15,7 @@ public static class ClassificationPolicyFile
 
     private const string ModeKey = "mode";
     private const string QuarantineRetentionDaysKey = "quarantineRetentionDays";
+    private const string MaxMovesPerPassKey = "maxMovesPerPass";
     private const string RecordOnlyValue = "recordOnly";
     private const string ActValue = "act";
 
@@ -28,9 +29,9 @@ public static class ClassificationPolicyFile
 
     /// <summary>
     /// Loads the policy. A missing file gives <see cref="ClassificationPolicy.Default"/>. The file is a JSON object with
-    /// optional keys (camelCase, case-sensitive): "mode": "recordOnly" or "act", "quarantineRetentionDays": int. A
-    /// missing key keeps its default. Comments are an error, trailing commas are allowed. The result is validated with
-    /// <see cref="ClassificationPolicy.Validate"/>.
+    /// optional keys (camelCase, case-sensitive): "mode": "recordOnly" or "act", "quarantineRetentionDays": int,
+    /// "maxMovesPerPass": int. A missing key keeps its default. Comments are an error, trailing commas are allowed. The
+    /// result is validated with <see cref="ClassificationPolicy.Validate"/>.
     /// </summary>
     /// <param name="path">Full path of the policy file.</param>
     /// <returns>The loaded and validated policy.</returns>
@@ -91,7 +92,20 @@ public static class ClassificationPolicyFile
                 policy = property.Name switch
                 {
                     ModeKey => policy with { Mode = ReadMode(property, fileName) },
-                    QuarantineRetentionDaysKey => policy with { QuarantineRetentionDays = ReadRetentionDays(property, fileName) },
+                    QuarantineRetentionDaysKey => policy with
+                    {
+                        QuarantineRetentionDays = ReadWholeNumber(
+                            property,
+                            fileName,
+                            days => ClassificationPolicy.Default with { QuarantineRetentionDays = days }),
+                    },
+                    MaxMovesPerPassKey => policy with
+                    {
+                        MaxMovesPerPass = ReadWholeNumber(
+                            property,
+                            fileName,
+                            moves => ClassificationPolicy.Default with { MaxMovesPerPass = moves }),
+                    },
                     _ => throw InvalidKey(fileName, property.Name, "is not a known setting"),
                 };
             }
@@ -112,17 +126,17 @@ public static class ClassificationPolicyFile
     }
 
     // A whole JSON number in the allowed range; strings, decimals and null are wrong types. The range is checked with
-    // Validate so that the rule lives in one place.
-    private static int ReadRetentionDays(JsonProperty property, string fileName)
+    // Validate on a policy that differs only in this value, so that the rule lives in one place.
+    private static int ReadWholeNumber(JsonProperty property, string fileName, Func<int, ClassificationPolicy> policyWithValue)
     {
-        if (property.Value.ValueKind != JsonValueKind.Number || !property.Value.TryGetInt32(out var days))
+        if (property.Value.ValueKind != JsonValueKind.Number || !property.Value.TryGetInt32(out var number))
         {
             throw InvalidKey(fileName, property.Name, "must be a whole number");
         }
 
         try
         {
-            (ClassificationPolicy.Default with { QuarantineRetentionDays = days }).Validate();
+            policyWithValue(number).Validate();
         }
         catch (ArgumentException exception)
         {
@@ -131,7 +145,7 @@ public static class ClassificationPolicyFile
                 exception);
         }
 
-        return days;
+        return number;
     }
 
     // Key names are echoed truncated: an unknown key is file content of arbitrary length.

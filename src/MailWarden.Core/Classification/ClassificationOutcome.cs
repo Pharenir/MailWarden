@@ -28,4 +28,9 @@ public enum ClassificationOutcome
     /// error rather than to the sender, so nothing moves: no tier, no action, the message stays and this outcome is
     /// final.</summary>
     EvaluationFailed = 7,
+
+    /// <summary>The move was planned in effective Act, but the moves planned for this folder in this pass exceed
+    /// <see cref="ClassificationPolicy.MaxMovesPerPass"/>, so none of them is enqueued. The planned action stays visible,
+    /// the message stays where it is and this outcome is final.</summary>
+    BrakeHeld = 8,
 }
