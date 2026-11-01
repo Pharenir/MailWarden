@@ -56,6 +56,13 @@ If the app cannot start (invalid `MAILWARDEN_DATA_DIR`, data folder already in u
 it shows a window "MailWarden kann nicht starten" with the reason. Critical errors are logged in
 `logs\mailwarden.log` (type names and fixed texts only, no mail content).
 
+Spam filter status: the classification pass (new mail in Inbox and Junk is classified after a sync, the decision with
+all reasons is stored, and in mode `act` mail is moved to Screener, Junk or Quarantine through the command queue) is
+implemented as a library, but **not yet wired into the app**. Until then it only runs in tests. By default it only
+records decisions and moves nothing (`recordOnly`); `act` stays off, and it pauses while the address book is empty.
+Mail that was already there is never sorted automatically. It has not been tried against a real mail server yet.
+Details: `docs\classifier.md`.
+
 ## Command queue
 Actions that change the server (flags, move, move to Trash, permanent delete, empty folder) are never executed
 directly. They are stored as commands and executed later; the local store changes only after the server has confirmed.
@@ -131,13 +138,14 @@ Layout:
 
 | Entry | Content |
 |---|---|
-| `mailwarden.db` | SQLite database (schema version 4): accounts, folders, message metadata, full-text search index, sync state per folder (initial-window limit and change counter; every message missing locally is fetched on the next sync), command queue. An older database is upgraded automatically on start. |
+| `mailwarden.db` | SQLite database (schema version 5): accounts, folders, message metadata, full-text search index, sync state per folder (initial-window limit and change counter; every message missing locally is fetched on the next sync), command queue, contacts, classification decisions with their reasons. An older database is upgraded automatically on start. |
 | `mail\` | one `.eml` file per message, stored per account and folder |
 | `credentials\` | DPAPI-encrypted sign-in tokens, one `.bin` file per entry |
 | `auth-config.json` | optional OAuth client configuration (see Environment variables) |
 | `ui-settings.json` | optional window settings (layout, theme, sizes); written by the app when you change them |
 | `mailwarden.lock` | lock file while the app runs (one process per data folder) |
 | `classifier-settings.json` | optional spam classifier settings (thresholds, lists); the loader exists, the app does not read the file yet (see `docs\classifier.md`) |
+| `classification-policy.json` | optional policy of the classification pass (`mode`: `recordOnly` (default) or `act`; `quarantineRetentionDays`: 0 = never delete); the loader exists, the app does not read the file yet (see `docs\classifier.md`) |
 | `logs\` | log file `mailwarden.log` (critical errors only) |
 
 On start the app creates the data folder, the database and the lock file itself. `mail\` appears with the first

@@ -231,14 +231,16 @@ Sicherheitsregeln (Planer 2026-11-01): Standard nur protokollieren; Altbestand w
 ruht, solange das Adressbuch leer ist (→ AP-06); je Mail nur eine Entscheidung; Aufbewahrung Standard 0 = nie löschen.
 | # | Sollverhalten | Umgesetzt | Getestet |
 |---|---|---|---|
-| 1 | Nach dem Abgleich werden nur neu eingetroffene Mails aus Posteingang und Junk klassifiziert; erster Lauf setzt nur die Marke | | |
-| 2 | Jede Entscheidung wird mit Stufe, Punkten und allen Begründungen gespeichert, auch beim bloßen Protokollieren | | |
-| 3 | Modus `Act`: Verschieben über die Warteschlange nach Tabelle (Posteingang → Screener/Junk/Quarantäne; Junk → Posteingang nur für `TrustedContact`) | | |
-| 4 | Fehlende Ordner `Screener`/`Quarantine` werden angelegt; schlägt das fehl, bleibt die Mail liegen, nichts geht verloren | | |
-| 5 | Eine von Hand zurückgeholte Mail wird nicht erneut entschieden | | |
-| 6 | Aufbewahrung Quarantäne: nur von der App verschobene Mails, Uhr ist der Entscheidungszeitpunkt; 0 = nie | | |
-| 7 | Schema v5 migriert ältere Datenbanken ohne Datenverlust | | |
-| 8 | Echte Daten: Bestand auf einer Kopie plausibel; am Server nur nach Freigabe mit Testmails von Dennis | | |
+| 1 | Nach dem Abgleich werden nur neu eingetroffene Mails aus Posteingang und Junk klassifiziert; erster Lauf setzt nur die Marke | ✅ `ClassificationPass` (Marke je Ordner; nur Ordner mit abgeschlossenem Abgleich) | ✅ Fälle 11, 12, 21, 34, 35 – S3 1276/1276 |
+| 2 | Jede Entscheidung wird mit Stufe, Punkten und allen Begründungen gespeichert, auch beim bloßen Protokollieren | ✅ `ClassificationLogEntry`, `SqliteClassificationLog` (Schema v5) | ✅ Fälle 5, 12, 22, 52–54 – S3 1276/1276 |
+| 3 | Modus `Act`: Verschieben über die Warteschlange nach Tabelle (Posteingang → Screener/Junk/Quarantäne; Junk → Posteingang nur für `TrustedContact`) | ✅ `ClassificationRouting`, `ClassificationPass`; Modus `act` ist standardmäßig aus | ✅ Fälle 1, 13–16, 23–25, 37, 42, 47, 48 – S3 1276/1276; nur mit künstlichen Daten und Fake-Servern, am echten Server ungetestet (Fall 33 offen) |
+| 4 | Fehlende Ordner `Screener`/`Quarantine` werden angelegt; schlägt das fehl, bleibt die Mail liegen, nichts geht verloren | ✅ `MailKitFolderProvisioner`; `ClassificationPass` bricht bei einem Fehler ab, ohne zu speichern | Durchlauf-Seite mit Fake-Provisioner ✅ Fälle 17, 18 – S3 1276/1276; Provisioner ✅ Fall 33: Ordner auf Gmail und Outlook.com angelegt; Fehlerfall am echten Server nicht geprüft |
+| 5 | Eine von Hand zurückgeholte Mail wird nicht erneut entschieden | ✅ `MessageKey` (Message-ID + oberstes `Received`), Entscheidungsprotokoll | ✅ Fälle 2, 19, 20, 36–39 – S3 1276/1276; ✅ Fall 33: Schlüssel bleibt beim Verschieben auf Gmail und Outlook.com gleich, danach `SkippedKnown`; Zurückholen per Server-MOVE, nicht im Webmail |
+| 6 | Aufbewahrung Quarantäne: nur von der App verschobene Mails, Uhr ist der Entscheidungszeitpunkt; 0 = nie | ✅ `ClassificationPass` (Aufbewahrung, Standard 0) | ✅ Fälle 26–28, 39, 43, 44, 50 – S3 1276/1276; Löschen am echten Server ungetestet |
+| 7 | Schema v5 migriert ältere Datenbanken ohne Datenverlust | ✅ `SchemaMigrations` (v5), `SqliteDatabase.CurrentSchemaVersion` = 5 | ✅ Fälle 4, 6 – S3 1276/1276 |
+| 8 | Echte Daten: Bestand auf einer Kopie plausibel; am Server nur nach Freigabe mit Testmails von Dennis | ⚠️ Prüfprogramm `_scratch\classification-probe` (nicht im Repo) | ✅ Fall 32 erledigt (Planer 2026-11-01, Kopie der Entwicklungsdaten, nur Zählungen; plausibel, kein Absturz). ✅ Fall 33 (Planer 2026-11-01, Freigabe Dennis, Konten Konto 2 und Google, Testmails per Prüfprogramm): siehe Anforderung. `Act` auf echten Konten braucht weiter AP-06 und D8 |
+
+Weitere gelaufene Fälle (S3 1276/1276): 40, 41, 45, 46, 49, 51, 55 (Leser, Tokenizer, verschachtelte MIME-Teile). Nicht automatisiert: Fälle 31–33.
 
 Vollständiger Schnittstellenvertrag: `work\AP-07c\requirement.md`. Verdrahtung in die Laufzeit (D8) erst, wenn AP-04a
 und AP-07c auf `main` liegen.
@@ -257,16 +259,16 @@ Vollständiger Schnittstellenvertrag: `work\AP-07b\requirement.md`.
 ### AP-07 Klassifizierer (Kern des Projekts, deshalb vorab)
 | # | Sollverhalten | Umgesetzt | Getestet |
 |---|---|---|---|
-| 1 | Absender im Adressbuch + SPF/DKIM pass → `TrustedContact`, auch wenn Mail im Junk-Ordner lag → wird in Posteingang verschoben | AP-07a: Stufe (`SpamClassifier`, Kontakt + Authenticated; seit C11 verhindert DMARC fail das); Verschieben → AP-07c | `SpamClassifierTests` (15, 21a) |
+| 1 | Absender im Adressbuch + SPF/DKIM pass → `TrustedContact`, auch wenn Mail im Junk-Ordner lag → wird in Posteingang verschoben | AP-07a: Stufe (`SpamClassifier`, Kontakt + Authenticated; seit C11 verhindert DMARC fail das); Verschieben: AP-07c `ClassificationPass` (Modus `act`, standardmäßig aus; AP-07c #3) | `SpamClassifierTests` (15, 21a); Verschieben: AP-07c Fälle 13, 14 – am echten Server ungetestet (Fall 33 offen) |
 | 2 | Absender im Adressbuch, DKIM fail → **nicht** `TrustedContact`; Begründung nennt die fehlgeschlagene Prüfung | AP-07a `SpamClassifier`, `AuthenticationSignal` | `SpamClassifierTests` (16), `SignalReasonTests` (30) |
-| 3 | Domain `qzxkvb73.top`, nicht im Body, Auth fail → `CertainSpam` → Ordner `Quarantine`; Protokoll enthält jedes Signal mit Punkten | AP-07a: Stufe + Signale mit Begründung; Ordner `Quarantine` → AP-07c | `SpamClassifierTests` (14), `ClassifierSmokeTests` |
-| 4 | Unbekannter Absender, Auth pass, Domain plausibel → `LikelyLegit` → Ordner `Screener` | AP-07a: Stufe; Ordner → AP-07c | `SpamClassifierTests` (13) |
+| 3 | Domain `qzxkvb73.top`, nicht im Body, Auth fail → `CertainSpam` → Ordner `Quarantine`; Protokoll enthält jedes Signal mit Punkten | AP-07a: Stufe + Signale mit Begründung; Ordner `Quarantine`: AP-07c `ClassificationPass` (#3, #4) | `SpamClassifierTests` (14), `ClassifierSmokeTests`; AP-07c Fall 13 – Anlegen und Verschieben am echten Server ungetestet |
+| 4 | Unbekannter Absender, Auth pass, Domain plausibel → `LikelyLegit` → Ordner `Screener` | AP-07a: Stufe; Ordner `Screener`: AP-07c `ClassificationPass` (#3, #4) | `SpamClassifierTests` (13); AP-07c Fall 13 – am echten Server ungetestet |
 | 4a | Dennis bestätigt Screener-Mail („kein Junk“) → Absender ins Adressbuch, Mail in Posteingang, künftige Mails `TrustedContact` | → AP-08 | |
-| 4b | Fehlt `Screener` oder `Quarantine` auf dem Server, legt die App den Ordner an; schlägt das fehl → Mail bleibt liegen, Fehler im Log, kein Verlust | → AP-07c | |
+| 4b | Fehlt `Screener` oder `Quarantine` auf dem Server, legt die App den Ordner an; schlägt das fehl → Mail bleibt liegen, Fehler im Log, kein Verlust | AP-07c #4: `MailKitFolderProvisioner` | AP-07c Fälle 17, 18 (Fake) und Fall 33 (echte Server, Anlegen); „Fehler im Log“ kommt mit D8 |
 | 5 | Mail ohne `Authentication-Results`-Header → neutral (keine Punkte), nie Absturz | AP-07a `AuthStatusEvaluator`, Parser wirft nie | `SpamClassifierTests` (18), `AuthenticationResultsParserTests` (5) |
 | 6 | Block-Liste schlägt alles, Allow-Liste schlägt alles außer Auth-fail | AP-07a `SpamClassifier` (Entscheidungsreihenfolge) | `SpamClassifierTests` (19, 20) |
-| 7 | Quarantäne: Mails älter als X Tage werden gelöscht; X=0 bedeutet nie automatisch löschen | → AP-07c | |
-| 8 | Schwellen aus Einstellungen; ungültige Schwellen (Schwelle 2 ≤ Schwelle 1) → Fehler beim Laden | AP-07a `ClassifierSettings.Validate()` (Laden aus Datei → AP-07c) | `ClassifierSettingsTests` (27) |
+| 7 | Quarantäne: Mails älter als X Tage werden gelöscht; X=0 bedeutet nie automatisch löschen | AP-07c #6: `ClassificationPass` (Aufbewahrung, Standard 0 = nie) | AP-07c Fälle 26–28, 39, 43, 44, 50; Löschen am echten Server ungetestet |
+| 8 | Schwellen aus Einstellungen; ungültige Schwellen (Schwelle 2 ≤ Schwelle 1) → Fehler beim Laden | AP-07a `ClassifierSettings.Validate()` (Laden aus Datei: AP-07b `ClassifierSettingsFile`; Verwendung im Durchlauf: AP-07c) | `ClassifierSettingsTests` (27), `ClassifierSettingsFileTests` (13–20, AP-07b) |
 
 ## Risiken und offene Annahmen
 - **Microsoft App-Registrierung:** evtl. nur mit (kostenlosem) Azure-Konto, dafür ggf. Kreditkarte zur Verifizierung.

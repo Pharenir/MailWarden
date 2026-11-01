@@ -119,6 +119,36 @@ internal static class SchemaMigrations
         CREATE INDEX ix_mail_commands_target_folder ON mail_commands (target_folder_id);
         """;
 
+    /// <summary>
+    /// Version 5: decision log and per-folder marker of the classification pass (AP-07c). A decision belongs to its
+    /// account and deliberately has no reference to its source folder: it must outlive the folder, so that a message is
+    /// never decided twice. The marker disappears with its folder.
+    /// </summary>
+    private const string Version5 = """
+        CREATE TABLE classification_log (
+            account_id       TEXT    NOT NULL REFERENCES accounts (id) ON DELETE CASCADE,
+            message_key      TEXT    NOT NULL,
+            source_folder_id INTEGER NOT NULL,
+            source_uid       INTEGER NOT NULL,
+            classified_at    TEXT    NOT NULL, -- ISO 8601 round-trip ("O")
+            effective_mode   INTEGER NOT NULL,
+            outcome          INTEGER NOT NULL,
+            planned_action   INTEGER NOT NULL,
+            tier             INTEGER NULL,
+            score            INTEGER NOT NULL,
+            auth_status      INTEGER NULL,
+            override_reason  TEXT    NULL,
+            signals          TEXT    NOT NULL, -- JSON array of the findings
+            PRIMARY KEY (account_id, message_key)
+        );
+
+        CREATE TABLE classification_marker (
+            folder_id            INTEGER NOT NULL PRIMARY KEY REFERENCES folders (id) ON DELETE CASCADE,
+            uid_validity         INTEGER NOT NULL,
+            classified_up_to_uid INTEGER NOT NULL
+        );
+        """;
+
     /// <summary>All migrations in ascending order; versions are contiguous starting at 1.</summary>
     internal static readonly IReadOnlyList<(int Version, string Sql)> Ordered =
     [
@@ -126,5 +156,6 @@ internal static class SchemaMigrations
         (2, Version2),
         (3, Version3),
         (4, Version4),
+        (5, Version5),
     ];
 }

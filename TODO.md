@@ -251,6 +251,19 @@ AP-03 neu geteilt: AP-03b = Abgleich robust/schnell, **AP-03c** = Befehlswartesc
   (AP-07c/AP-04)
 - [ ] Härtung: widersprüchliche `compauth`-Ergebnisse im obersten Header → None (review.1 P2)
 
+### Vertagt aus AP-07c
+- [ ] **D8** (Anbindung des Durchlaufs in `MailWardenRuntime`, nach AP-04a und AP-07c auf `main`) **inkl. J4:** Bremse – stellt ein Durchlauf mehr
+  Verschiebungen ein als ein Grenzwert, nur protokollieren und warnen. Grenzwert dort entscheiden. Dazu die Sichtbarkeit von
+  `EvaluationFailed` in der App (der Durchlauf schreibt keine Logzeile, sonst bleibt ein Programmfehler unbemerkt)
+- [ ] `Trim` in `AuthenticationResultsParser` (und `DomainNames.Normalize`) auf ASCII begrenzen (keine Sicherheitsrelevanz, F4)
+- [ ] Beim Durchlauf einen Stream statt `MemoryStream` für die EML nutzen (secure N2)
+- [ ] Entscheidungsprotokoll ohne Löschfrist; enthält Begründungstexte mit Absender-Domain und Namensteilen (secure N4, AP-08)
+- [ ] „Warum?“-Ansicht zeigt Begründungen nur als Text, nie als HTML (AP-08)
+- [ ] Fehlgeschlagene Befehle sperren die Aufbewahrung ihrer UIDs bis zum Verwerfen → Verwerfen in der UI (AP-04b)
+- [ ] Altbestand prüfen: der Durchlauf sortiert vorhandene Mails nie ein, eine bewusste Prüfung gehört nach AP-08
+- [ ] AP-06 (Kontakte, Allow-/Block-Listen) ist Voraussetzung für `Act`: solange das Adressbuch leer ist, ruht der Modus
+- [x] Fall 33 erledigt (2026-11-01, `work\AP-07c\requirement.md`): Versand, Ordner anlegen, Verschieben, Schlüssel stabil auf beiden Anbietern. Dennis 2026-11-01: Mails und Ordner erscheinen im Web und in der Outlook-App. Testmails und beide Ordner liegen weiter in Konto 2 und im Google-Konto
+
 WinUI-App für Fall 30: im Projektordner `dotnet build MailWarden.sln`, dann
 `src\MailWarden.App\bin\x64\Debug\net9.0-windows10.0.19041.0\win-x64\MailWarden.App.exe` starten.
 
