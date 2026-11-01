@@ -80,6 +80,20 @@ public static class DomainNames
         return suffixLabelCount == 0 ? string.Empty : string.Join('.', labels[^suffixLabelCount..]);
     }
 
+    /// <summary>
+    /// True when the domain itself is a public suffix: a single label ("com") or a known multi-label suffix ("co.uk") of the
+    /// built-in list. A suffix outside that list is not recognised.
+    /// </summary>
+    /// <param name="domain">Host or domain name.</param>
+    /// <returns>True for a public suffix.</returns>
+    /// <exception cref="ArgumentNullException"><paramref name="domain"/> is null.</exception>
+    /// <exception cref="ArgumentException"><paramref name="domain"/> contains no label.</exception>
+    public static bool IsPublicSuffix(string domain)
+    {
+        var labels = SplitLabels(domain);
+        return labels.Length == 1 || MultiLabelPublicSuffixes.Contains(string.Join('.', labels));
+    }
+
     /// <summary>True when both domains have the same organisational domain (relaxed DMARC-style alignment).</summary>
     /// <param name="domainA">First host or domain name.</param>
     /// <param name="domainB">Second host or domain name.</param>

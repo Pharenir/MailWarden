@@ -52,7 +52,6 @@ public sealed class ContactHarvester
     /// <param name="emlStore">Store of the raw messages.</param>
     /// <param name="contacts">Address book.</param>
     /// <param name="markers">Harvest marker per folder.</param>
-    /// <param name="timeProvider">Part of the contract; a harvest stores no time so far.</param>
     /// <exception cref="ArgumentNullException">A parameter is null.</exception>
     public ContactHarvester(
         IAccountStore accounts,
@@ -61,8 +60,7 @@ public sealed class ContactHarvester
         IMessageStore messages,
         IEmlStore emlStore,
         IContactStore contacts,
-        IContactHarvestMarkerStore markers,
-        TimeProvider timeProvider)
+        IContactHarvestMarkerStore markers)
     {
         this.accounts = accounts ?? throw new ArgumentNullException(nameof(accounts));
         this.folders = folders ?? throw new ArgumentNullException(nameof(folders));
@@ -71,7 +69,6 @@ public sealed class ContactHarvester
         this.emlStore = emlStore ?? throw new ArgumentNullException(nameof(emlStore));
         this.contacts = contacts ?? throw new ArgumentNullException(nameof(contacts));
         this.markers = markers ?? throw new ArgumentNullException(nameof(markers));
-        ArgumentNullException.ThrowIfNull(timeProvider);
     }
 
     /// <summary>Harvests the new mail of all Sent folders of the account.</summary>

@@ -5,7 +5,7 @@ using MailWarden.Core.Storage;
 namespace MailWarden.Infrastructure.Classification;
 
 /// <summary>
-/// <see cref="IContactBook"/> over the two stores, without further logic.
+/// <see cref="IContactBook"/> over the two stores. Its only own rule: a name is cleaned like a collected one.
 /// </summary>
 /// <param name="contacts">Address book.</param>
 /// <param name="senderLists">Allow and block lists.</param>
@@ -17,7 +17,7 @@ public sealed class ContactBook(IContactStore contacts, ISenderListStore senderL
     /// <inheritdoc />
     public Task<Contact> AddContactAsync(string address, string name, CancellationToken ct = default)
     {
-        return contacts.UpsertAsync(new Contact(0, address, name, ContactSource.Manual), ct);
+        return contacts.UpsertAsync(new Contact(0, address, ContactNames.Clean(name), ContactSource.Manual), ct);
     }
 
     /// <inheritdoc />

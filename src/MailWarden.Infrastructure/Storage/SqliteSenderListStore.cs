@@ -54,6 +54,11 @@ public sealed class SqliteSenderListStore(SqliteDatabase database) : ISenderList
             throw new ArgumentException("A domain entry needs at least one dot and no '@'.", nameof(entry));
         }
 
+        if (entry.IsDomain && DomainNames.IsPublicSuffix(text!))
+        {
+            throw new ArgumentException("A domain entry must not be a public suffix.", nameof(entry));
+        }
+
         if (!entry.IsDomain && !AddressRules.IsWellFormedAddress(text))
         {
             throw new ArgumentException("An address entry needs '@' and a domain.", nameof(entry));

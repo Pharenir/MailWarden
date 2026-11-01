@@ -10,7 +10,7 @@ public interface IContactBook
 {
     /// <summary>Stores a manual contact; a contact with this address gets the new name and the source Manual.</summary>
     /// <param name="address">Address.</param>
-    /// <param name="name">Name, empty when unknown.</param>
+    /// <param name="name">Name, empty when unknown; cleaned and limited to 200 characters like a collected name.</param>
     /// <param name="ct">Cancellation token.</param>
     /// <returns>The stored contact.</returns>
     /// <exception cref="ArgumentException">The address is empty or whitespace.</exception>

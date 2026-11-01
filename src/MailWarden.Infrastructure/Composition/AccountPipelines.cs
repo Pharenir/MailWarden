@@ -142,8 +142,7 @@ internal sealed class AccountPipelines(
                 messages,
                 emlStore,
                 contacts,
-                new SqliteContactHarvestMarkerStore(database),
-                timeProvider);
+                new SqliteContactHarvestMarkerStore(database));
             var pass = new ClassificationPass(
                 accountStore,
                 folders,
