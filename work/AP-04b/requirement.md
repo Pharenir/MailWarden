@@ -129,3 +129,30 @@ Del, Shift+Del, Ctrl+Q (read), Ctrl+U (unread) in the message list; a toolbar wi
 
 ## Done when
 Build `-warnaserror`; S3 green; review APPROVE; security without Critical or High (trigger: actions that delete from the UI). Documenter: `README.md`, PLAN rows, `work\manual-tests.md` with a safe order for cases 21 and 22, TODO.
+
+## Decisions fix.2 (planner, 2026-11-01, after verify.1 PASS 2300/2300, review.1 BLOCK, secure.1 0/0/1/5)
+Binding; they change D1, D2, D6.
+- **U1 (review B1).** Every action works on a copy of the selection taken when the command executes, passed into the action; rows that are hidden by then are filtered out at the start. A second Del before the first row is hidden does nothing rather than hitting the next row. This holds for read, unread, flag, delete, permanent delete and move.
+- **U2 (secure M1).** `EmptyFolderAsync` and the preview refuse with `MailActionException` while `queue.ListAsync` holds a pending `Move` or `MoveToTrash` for this folder: a mail on its way out must not be deleted.
+- **U3 (secure N1, changes D1).** `CountForEmptyAsync` becomes `Task<EmptyFolderPreview> PreviewEmptyAsync(long folderId, CancellationToken ct)` with `public sealed record EmptyFolderPreview(int Count, uint HighestUid)`. `EmptyFolderAsync(long folderId, EmptyFolderPreview confirmed, CancellationToken ct)` refuses with `MailActionException` when the local highest UID is now above `confirmed.HighestUid` (a mail arrived that Dennis has not seen); the UI then asks again. Lower is fine.
+- **U4 (secure N2, N3).** A rejection after some groups were stored says "teilweise ausgeführt" through a fixed text of its own. Confirmations name the number of accounts when more than one is involved; the empty-folder confirmation names the cleaned account label of the folder, because it is his own account, not foreign data.
+- **U5 (review S1, secure N5, changes D6).** The status bar **stays on** for now (`IsStatusBarEnabled = true`) and the tooltip comes on top, so the target can never be invisible. Case 22 decides about switching the bar off. `HoverLinkText`: for an absolute http or https target longer than the limit, the host comes first (`Uri.Host`), then the cut text.
+- **U6 (review S2).** The state of "Ordner leeren" is updated after a search starts and ends.
+- **U7 (review S3).** Nothing is stored after `Dispose`, also when it happens during an await inside an action; the check is right before enqueuing.
+- **U8 (review S4, secure N4).** Key repeat is ignored (`KeyStatus.WasKeyDown`): holding Del acts once.
+- **U9 (review DPI).** Restoring the window: move first, then set the size, so a monitor with another scale cannot grow it on each start. Focus returns to the list after a row was removed.
+- **Into `TODO.md`:** repeated identical flag commands; `SyncListSelection` on Ctrl+A; read timer versus manual unread in the same window; `ToPendingAction` ignoring UIDVALIDITY; `InvalidOperationException` text; a reason enum instead of German texts in Infrastructure.
+
+### Additional test cases (fix.2)
+| # | Case | Expected |
+|---|---|---|
+| 23 | Action blocked on the gate, selection changes to another row, then it runs | the row selected at the keystroke is acted on, never the new one; permanent delete with a pending confirmation likewise |
+| 24 | Del twice fast on one row | one command, the next row untouched |
+| 25 | Pending `Move` from Junk (also after a failed attempt in backoff); preview and empty | `MailActionException`; nothing stored; positive control without it |
+| 26 | `EmptyFolderAsync`: mail arrives after the preview; a mail disappears after the preview | refused, UI asks again with the new count; goes ahead |
+| 27 | Rejection after one stored group | banner says partly done |
+| 28 | Confirmations: selection over 2 accounts; empty folder | number of accounts; account label; no sender or subject |
+| 29 | `HoverLinkText` over 500 characters with a host; with user info | host first; no foreign host in front |
+| 30 | Search started and ended in the Trash | `CanEmptyFolder` follows |
+| 31 | `Dispose` during an await in delete | nothing stored |
+| 32 | Manual, Dennis (replaces part of 22): link with a text other than its target shows the true target in the tooltip **and** the status bar | both visible, bar off only after this |
