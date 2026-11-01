@@ -50,6 +50,9 @@ public static class MailContentReader
     private static MailContent ToContent(MimeMessage message, CancellationToken ct)
     {
         (Dictionary<string, string> inlineImages, List<MailAttachmentInfo> attachments) = ReadParts(message, ct);
+        List<MailSender> senders = message.From.Mailboxes
+            .Select(mailbox => new MailSender(SafeDisplayText.Clean(mailbox.Name ?? string.Empty), SafeDisplayText.Clean(mailbox.Address)))
+            .ToList();
         return new MailContent(
             SafeDisplayText.Clean(message.Subject ?? string.Empty),
             string.Join(", ", DescribeAddresses(message.From)),
@@ -59,7 +62,29 @@ public static class MailContentReader
             message.HtmlBody,
             ReadPlainText(message),
             inlineImages,
-            attachments);
+            attachments,
+            senders,
+            ContainsOpaquePart(message.Body));
+    }
+
+    // A generic part with a container type is what the parser leaves at the depth limit. The walk is bounded by that
+    // limit. Delivery reports and the like have their own part types and are not opaque.
+    private static bool ContainsOpaquePart(MimeEntity? entity)
+    {
+        return entity switch
+        {
+            Multipart multipart => multipart.Any(ContainsOpaquePart),
+            MessagePart messagePart => ContainsOpaquePart(messagePart.Message?.Body),
+            MimePart part => IsOpaqueContainer(part),
+            _ => false,
+        };
+    }
+
+    private static bool IsOpaqueContainer(MimePart part)
+    {
+        return part.GetType() == typeof(MimePart)
+            && (part.ContentType.MediaType.Equals("multipart", StringComparison.OrdinalIgnoreCase)
+                || part.ContentType.MediaType.Equals("message", StringComparison.OrdinalIgnoreCase));
     }
 
     // MimeMessage.Date is MinValue when the header is absent or unreadable.
@@ -108,7 +133,8 @@ public static class MailContentReader
                 continue;
             }
 
-            if (IsBodyText(part))
+            // An opaque container is no attachment of the sender but a limit of this program; it gets a notice instead.
+            if (IsBodyText(part) || IsOpaqueContainer(part))
             {
                 continue;
             }
