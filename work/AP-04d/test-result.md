@@ -41,3 +41,14 @@ Changed tests: none. No earlier test expected the old behaviour (failed theme re
 ## verify.3 (list-style/content/box-shadow values; merged with `feat/ap-04d-reading-theme`)
 S3 green: 2516 of 2516 (Core 536, Infrastructure 1598, Presentation 382), 15.6 s, build `-warnaserror` clean, no red test, no changed test.
 New (+8, Infrastructure): dark for `list-style:none`, `list-style:disc`, `list-style-image:none`, `content:normal`; light for `list-style-image:url(...)`, `list-style:square url(...)`, `content:url(...)` and the accepted no-op `box-shadow:none`.
+
+## verify.4 (G1-G3, cases 4 new, 17-20; merged with `feat/ap-04d-reading-theme`)
+S3 green: 2523 of 2523 (Core 536, Infrastructure 1604, Presentation 383), 15.1 s, build `-warnaserror` clean, no red test.
+Veil marker: a rule in the `<style>` of the page holding `html::after`, `rgba(0,0,0,.25)`, `pointer-events:none` (text in the body does not count).
+
+Changed tests (contract change G1/G3):
+- Infrastructure `Html_with_own_colours_gives_the_same_document_in_both_themes` replaced by `Html_with_own_colours_gets_the_veil_in_the_dark_theme_and_nothing_in_the_light_theme` (light = call without theme, dark = light sheet plus veil, same body).
+- Infrastructure `A_hostile_style_attribute_keeps_the_light_document_unchanged_...`: the dark document is no longer equal to the light one; now light stays byte-identical, dark is light sheet plus veil with the same body.
+- Infrastructure helpers: `IsLight` = plain light theme (no veil), new `IsVeiledLight`; `IsDark` now also requires no veil. Cases 4, 5, 5 (approval), 7, 14 and the text-only test now assert the veil (case 17).
+- Presentation `Mail_with_own_colours_gives_the_same_html_in_both_themes_and_no_document_change` replaced by `Mail_with_own_colours_gets_the_veil_on_a_theme_change_without_reading_again` (case 20: `DocumentHtml` changes and is announced, no read, back to light is byte-identical).
+New: case 18 (no veil for plain text and HTML without colours), case 19 (light never has a veil, 4 inputs), `The_mail_cannot_influence_the_veil` (`html::after` in text or in a removed `<style>` changes nothing of the page style), `Mail_with_own_colours_keeps_the_image_approval_on_a_theme_change`. The CSP test (case 9, includes a mail with colours) stays unchanged and green.

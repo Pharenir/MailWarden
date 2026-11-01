@@ -125,7 +125,8 @@ public sealed class ReadingPaneThemeTests
     private static bool IsLight(ReadingPaneViewModel reading) =>
         reading.DocumentHtml is { } html
         && html.Contains(LightMarker, StringComparison.Ordinal)
-        && !html.Contains(DarkSchemeMarker, StringComparison.Ordinal);
+        && !html.Contains(DarkSchemeMarker, StringComparison.Ordinal)
+        && !html.Contains("html::after", StringComparison.Ordinal);
 
     // ---- Case 10 -------------------------------------------------------------------------------------------
 
@@ -266,24 +267,55 @@ public sealed class ReadingPaneThemeTests
         Assert.All(builder.Calls, call => Assert.False(call.AllowRemoteImages));
     }
 
-    // Case 10: a mail with colours of its own keeps its document; nothing is announced.
+    // Case 20 (G3): a mail with own colours gets the veil on a theme change; new document, no read, approval kept.
     [Fact(Timeout = TestTimeouts.PerTestMilliseconds)]
-    public async Task Mail_with_own_colours_gives_the_same_html_in_both_themes_and_no_document_change()
+    public async Task Mail_with_own_colours_gets_the_veil_on_a_theme_change_without_reading_again()
     {
         (ShellHarness harness, _, _, MailFolder inbox) = NewHarness();
         MailMessage mail = AddHtml(harness, inbox, "mail_a", "<p style=\"color:#000\">mail_a_html_marker</p>");
         ReadingPaneViewModel reading = harness.Shell.Reading;
         await reading.ShowAsync(mail);
         string before = reading.DocumentHtml!;
+        Assert.True(IsLight(reading));
+        int readsBefore = harness.ReadModel.ReadCalls;
         var changed = new List<string?>();
         ((INotifyPropertyChanged)reading).PropertyChanged += (_, args) => changed.Add(args.PropertyName);
 
         await reading.ApplyThemeAsync(ReadingTheme.Dark);
 
-        Assert.Equal(before, reading.DocumentHtml);
-        Assert.DoesNotContain(nameof(ReadingPaneViewModel.DocumentHtml), changed);
-        Assert.True(IsLight(reading));
+        Assert.NotEqual(before, reading.DocumentHtml);
+        Assert.Contains(nameof(ReadingPaneViewModel.DocumentHtml), changed);
+        Assert.Contains("html::after", reading.DocumentHtml, StringComparison.Ordinal);
+        Assert.Contains(LightMarker, reading.DocumentHtml, StringComparison.Ordinal);
+        Assert.DoesNotContain(DarkSchemeMarker, reading.DocumentHtml, StringComparison.Ordinal);
+        Assert.Contains("mail_a_html_marker", reading.DocumentHtml, StringComparison.Ordinal);
+        Assert.Equal(readsBefore, harness.ReadModel.ReadCalls);
         Assert.Equal(ReadingState.Ready, reading.State);
+
+        await reading.ApplyThemeAsync(ReadingTheme.Light);
+
+        Assert.Equal(before, reading.DocumentHtml);
+        Assert.Equal(readsBefore, harness.ReadModel.ReadCalls);
+    }
+
+    // Case 20: the approval of remote images survives the theme change of a mail with own colours (an <img> counts).
+    [Fact(Timeout = TestTimeouts.PerTestMilliseconds)]
+    public async Task Mail_with_own_colours_keeps_the_image_approval_on_a_theme_change()
+    {
+        (ShellHarness harness, _, _, MailFolder inbox) = NewHarness();
+        MailMessage mail = AddHtml(harness, inbox, "mail_a", RemoteImageHtml);
+        ReadingPaneViewModel reading = harness.Shell.Reading;
+        await reading.ShowAsync(mail);
+        reading.LoadRemoteImagesCommand.Execute(null);
+        await Wait.UntilAsync(() => reading.DocumentHtml?.Contains("tracker.test", StringComparison.Ordinal) == true, "images shown");
+        string before = reading.DocumentHtml!;
+
+        await reading.ApplyThemeAsync(ReadingTheme.Dark);
+
+        Assert.NotEqual(before, reading.DocumentHtml);
+        Assert.Contains("html::after", reading.DocumentHtml, StringComparison.Ordinal);
+        Assert.Contains("tracker.test", reading.DocumentHtml, StringComparison.Ordinal);
+        Assert.False(reading.CanLoadRemoteImages);
     }
 
     // Case 10 control: a mail without colours does announce the new document.

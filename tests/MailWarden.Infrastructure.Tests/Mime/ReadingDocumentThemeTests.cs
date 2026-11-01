@@ -34,15 +34,38 @@ public sealed class ReadingDocumentThemeTests
         return read with { Html = html, PlainText = plainText };
     }
 
+    private static string PageStyle(ReadingDocument document) =>
+        string.Concat(new HtmlParser().ParseDocument(document.Html).QuerySelectorAll("style").Select(style => style.TextContent));
+
+    // The veil is a rule of our own page style; text in the body never counts.
+    private static bool HasVeil(ReadingDocument document)
+    {
+        string style = PageStyle(document);
+        return style.Contains("html::after", StringComparison.Ordinal)
+            && style.Contains("rgba(0,0,0,.25)", StringComparison.Ordinal)
+            && style.Contains("pointer-events:none", StringComparison.Ordinal);
+    }
+
+    // Dark style: dark markers, no light marker, no veil (cases 1, 3, 18).
     private static bool IsDark(ReadingDocument document) =>
         document.Html.Contains(DarkSchemeMarker, StringComparison.Ordinal)
         && document.Html.Contains(DarkBackgroundMarker, StringComparison.Ordinal)
-        && !document.Html.Contains(LightMarker, StringComparison.Ordinal);
+        && !document.Html.Contains(LightMarker, StringComparison.Ordinal)
+        && !HasVeil(document);
 
+    // Plain light theme: light marker, no dark marker, no veil (cases 2, 8, 19).
     private static bool IsLight(ReadingDocument document) =>
         document.Html.Contains(LightMarker, StringComparison.Ordinal)
         && !document.Html.Contains(DarkSchemeMarker, StringComparison.Ordinal)
-        && !document.Html.Contains(DarkBackgroundMarker, StringComparison.Ordinal);
+        && !document.Html.Contains(DarkBackgroundMarker, StringComparison.Ordinal)
+        && !HasVeil(document);
+
+    // Light sheet under the veil: what a mail with own colours gets in the dark theme (cases 4, 17).
+    private static bool IsVeiledLight(ReadingDocument document) =>
+        document.Html.Contains(LightMarker, StringComparison.Ordinal)
+        && !document.Html.Contains(DarkSchemeMarker, StringComparison.Ordinal)
+        && !document.Html.Contains(DarkBackgroundMarker, StringComparison.Ordinal)
+        && HasVeil(document);
 
     private static ReadingDocument BuildDark(string html, bool allowRemoteImages = false) =>
         ReadingDocumentBuilder.Build(ContentWith(html), allowRemoteImages, allowEmbeddedImages: true, ReadingTheme.Dark);
@@ -157,25 +180,76 @@ public sealed class ReadingDocumentThemeTests
 
         ReadingDocument document = BuildDark("<p style=\"color:#000\">body_marker</p>");
 
-        Assert.True(IsLight(document));
+        Assert.True(IsVeiledLight(document));
         Assert.Contains("body_marker", document.Html, StringComparison.Ordinal);
         Assert.Matches("color:\\s*(#000|rgb)", document.Html);
     }
 
-    // Case 8 / D5 / D3: with own colours both themes give the same document.
+    // Case 4 (new) / 17 / 19: with own colours the dark theme gives the light sheet under the veil; light stays as today.
     [Fact(Timeout = TestTimeouts.PerTestMilliseconds)]
-    public async Task Html_with_own_colours_gives_the_same_document_in_both_themes()
+    public async Task Html_with_own_colours_gets_the_veil_in_the_dark_theme_and_nothing_in_the_light_theme()
     {
         await Task.Yield();
         MailContent content = ContentWith("<p style=\"color:#000\">body_marker</p><img src=\"" + EmbeddedPng + "\">");
 
-        string withoutTheme = ReadingDocumentBuilder.Build(content, allowRemoteImages: false).Html;
-        string light = ReadingDocumentBuilder.Build(content, false, true, ReadingTheme.Light).Html;
-        string dark = ReadingDocumentBuilder.Build(content, false, true, ReadingTheme.Dark).Html;
+        ReadingDocument withoutTheme = ReadingDocumentBuilder.Build(content, allowRemoteImages: false);
+        ReadingDocument light = ReadingDocumentBuilder.Build(content, false, true, ReadingTheme.Light);
+        ReadingDocument dark = ReadingDocumentBuilder.Build(content, false, true, ReadingTheme.Dark);
 
-        Assert.Equal(withoutTheme, light);
-        Assert.Equal(light, dark);
-        Assert.Contains(LightMarker, light, StringComparison.Ordinal);
+        Assert.Equal(withoutTheme.Html, light.Html);
+        Assert.True(IsLight(light));
+        Assert.True(IsVeiledLight(dark));
+        Assert.NotEqual(light.Html, dark.Html);
+        Assert.Matches(@"color:\s*(#000|rgb)", dark.Html);
+        Assert.Equal(Parse(light).Body!.InnerHtml, Parse(dark).Body!.InnerHtml);
+    }
+
+    // Case 18: no veil for plain text and HTML without colours in the dark theme.
+    [Fact(Timeout = TestTimeouts.PerTestMilliseconds)]
+    public async Task Plain_text_and_html_without_colours_get_no_veil_in_the_dark_theme()
+    {
+        await Task.Yield();
+
+        Assert.False(HasVeil(ReadingDocumentBuilder.BuildFromPlainText(ContentWith(null, "text"), ReadingTheme.Dark)));
+        Assert.False(HasVeil(BuildDark("<p>body_marker</p>")));
+        Assert.True(IsDark(BuildDark("<p>body_marker</p>")));
+    }
+
+    // Case 19: the light theme has no veil for any mail.
+    [Theory(Timeout = TestTimeouts.PerTestMilliseconds)]
+    [InlineData(null)]
+    [InlineData("<p>body_marker</p>")]
+    [InlineData("<p style=\"color:#000\">body_marker</p>")]
+    [InlineData("<p>x</p><img src=\"https://tracker.test/a.gif\">")]
+    public async Task Light_theme_has_no_veil_for_any_mail(string? html)
+    {
+        await Task.Yield();
+        MailContent content = ContentWith(html);
+
+        Assert.False(HasVeil(ReadingDocumentBuilder.Build(content, allowRemoteImages: false)));
+        Assert.False(HasVeil(ReadingDocumentBuilder.Build(content, true, true, ReadingTheme.Light)));
+    }
+
+    // G2 / D7: the veil does not depend on the mail; text or a removed <style> with the same words changes nothing.
+    [Fact(Timeout = TestTimeouts.PerTestMilliseconds)]
+    public async Task The_mail_cannot_influence_the_veil()
+    {
+        await Task.Yield();
+        const string words = "html::after{background:rgba(255,0,0,1);pointer-events:auto}";
+        string plainStyle = PageStyle(BuildDark("<p style=\"color:#000\">body_marker</p>"));
+
+        ReadingDocument withText = BuildDark($"<p style=\"color:#000\">{words}</p>");
+        ReadingDocument withStyle = BuildDark($"<style>{words}</style><p style=\"color:#000\">body_marker</p>");
+        ReadingDocument textOnlyDark = BuildDark($"<p>{words}</p>");
+        ReadingDocument styleOnlyDark = BuildDark($"<style>{words}</style><p>body_marker</p>");
+
+        Assert.Equal(plainStyle, PageStyle(withText));
+        Assert.Equal(plainStyle, PageStyle(withStyle));
+        Assert.Single(Parse(withStyle).QuerySelectorAll("style"));
+        Assert.DoesNotContain("255,0,0", PageStyle(withStyle), StringComparison.Ordinal);
+        // Words in the text do not give a mail without colours a veil, a removed <style> neither.
+        Assert.True(IsDark(textOnlyDark));
+        Assert.True(IsDark(styleOnlyDark));
     }
 
     // Case 8 / D5: HTML without colours in the light theme is the call without a theme.
@@ -219,7 +293,7 @@ public sealed class ReadingDocumentThemeTests
         await Task.Yield();
 
         Assert.True(Sanitize(html).HasOwnColors, $"sanitizer verdict for '{trigger}'");
-        Assert.True(IsLight(BuildDark(html)), $"dark build for '{trigger}'");
+        Assert.True(IsVeiledLight(BuildDark(html)), $"dark build for '{trigger}'");
     }
 
     // Case 5 control: without the trigger the same shapes are dark.
@@ -249,7 +323,7 @@ public sealed class ReadingDocumentThemeTests
         await Task.Yield();
 
         Assert.True(Sanitize(html, allowRemoteImages).HasOwnColors);
-        Assert.True(IsLight(BuildDark(html, allowRemoteImages)));
+        Assert.True(IsVeiledLight(BuildDark(html, allowRemoteImages)));
     }
 
     // Case 5: the verdict, and with it the page, does not jump on "Bilder laden".
@@ -262,8 +336,8 @@ public sealed class ReadingDocumentThemeTests
         ReadingDocument before = BuildDark(html, allowRemoteImages: false);
         ReadingDocument after = BuildDark(html, allowRemoteImages: true);
 
-        Assert.True(IsLight(before));
-        Assert.True(IsLight(after));
+        Assert.True(IsVeiledLight(before));
+        Assert.True(IsVeiledLight(after));
         Assert.Contains("tracker.test", after.Html, StringComparison.Ordinal);
         Assert.DoesNotContain("tracker.test", before.Html, StringComparison.Ordinal);
     }
@@ -336,7 +410,7 @@ public sealed class ReadingDocumentThemeTests
         await Task.Yield();
 
         Assert.True(Sanitize(html).HasOwnColors, html);
-        Assert.True(IsLight(BuildDark(html)), html);
+        Assert.True(IsVeiledLight(BuildDark(html)), html);
     }
 
     // Case 7: a CSS escape in the property name is the same property.
@@ -350,7 +424,7 @@ public sealed class ReadingDocumentThemeTests
         await Task.Yield();
 
         Assert.True(Sanitize(html).HasOwnColors, html);
-        Assert.True(IsLight(BuildDark(html)), html);
+        Assert.True(IsVeiledLight(BuildDark(html)), html);
     }
 
     // ---- Verdict without parse result ----------------------------------------------------------------------
@@ -368,7 +442,7 @@ public sealed class ReadingDocumentThemeTests
         Assert.True(sanitized.WasReduced);
         Assert.DoesNotContain("<p", sanitized.Html, StringComparison.Ordinal); // text-only result
         Assert.True(sanitized.HasOwnColors);
-        Assert.True(IsLight(dark));
+        Assert.True(IsVeiledLight(dark));
     }
 
     // ---- Case 9: CSP ---------------------------------------------------------------------------------------
@@ -447,7 +521,7 @@ public sealed class ReadingDocumentThemeTests
         Assert.Single(Parse(dark).QuerySelectorAll("style"));
     }
 
-    // Case 12: a style attribute with colours leaves the light sheet exactly as it is without a theme, and the base style stays first.
+    // Case 12: a hostile style attribute leaves the light document unchanged; in the dark theme only the veil is added, base style first.
     [Fact(Timeout = TestTimeouts.PerTestMilliseconds)]
     public async Task A_hostile_style_attribute_keeps_the_light_document_unchanged_and_the_base_style_first()
     {
@@ -461,10 +535,12 @@ public sealed class ReadingDocumentThemeTests
         ReadingDocument legacy = ReadingDocumentBuilder.Build(content, allowRemoteImages: false);
 
         Assert.Equal(legacy.Html, light.Html);
-        Assert.Equal(light.Html, dark.Html);
+        Assert.True(IsLight(light));
+        Assert.True(IsVeiledLight(dark));
         Assert.True(dark.Html.IndexOf(LightMarker, StringComparison.Ordinal) < dark.Html.IndexOf("body_marker", StringComparison.Ordinal));
         Assert.Single(Parse(dark).QuerySelectorAll("style"));
         Assert.DoesNotContain("tracker.test", dark.Html, StringComparison.Ordinal);
+        Assert.Equal(Parse(light).Body!.InnerHtml, Parse(dark).Body!.InnerHtml);
     }
 
     // Case 12: the theme choice does not touch the sanitizer output; only our own constants differ.
@@ -522,7 +598,7 @@ public sealed class ReadingDocumentThemeTests
         string html = $"<p style=\"{declaration}\">body_marker</p>";
 
         Assert.True(Sanitize(html).HasOwnColors, declaration);
-        Assert.True(IsLight(BuildDark(html)), declaration);
+        Assert.True(IsVeiledLight(BuildDark(html)), declaration);
     }
 
     // Case 14a: the allow-list removes it, so it never reaches the output; the page stays dark.
@@ -596,6 +672,6 @@ public sealed class ReadingDocumentThemeTests
         string html = $"<p style=\"{declaration}\">body_marker</p>";
 
         Assert.True(Sanitize(html).HasOwnColors, declaration);
-        Assert.True(IsLight(BuildDark(html)), declaration);
+        Assert.True(IsVeiledLight(BuildDark(html)), declaration);
     }
 }
