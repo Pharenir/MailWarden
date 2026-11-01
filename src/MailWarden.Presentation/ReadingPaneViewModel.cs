@@ -36,6 +36,11 @@ public enum ReadingState
 /// </summary>
 public sealed class ReadingPaneViewModel : ObservableObject
 {
+    // Parser, CSS parser and serializer recurse on what the mail holds, and a stack overflow ends the process without any
+    // handler. The limits of the limiter come first; this leaves room in proportion to the input for what they do not foresee.
+    // Only reserved, not committed; at most one build runs at a time.
+    private const int BuildThreadStackBytes = 256 * 1024 * 1024;
+
     private readonly IMailboxReadModel readModel;
     private readonly ICriticalLog log;
     private readonly TimeProvider timeProvider;
@@ -334,7 +339,8 @@ public sealed class ReadingPaneViewModel : ObservableObject
             TaskScheduler.Default);
     }
 
-    // Sanitizing a large mail takes noticeable time, so it leaves the UI thread here. The plain text is linear in its length.
+    // Sanitizing a large mail takes noticeable time, so it leaves the UI thread (see StartBuild). The plain text is linear in
+    // its length.
     private async Task<BuiltDocument> BuildWithinLimitAsync(long messageId, MailContent content, bool allowRemoteImages, CancellationToken ct)
     {
         bool isOwnBuildRunning = runningBuild is { IsCompleted: false }
@@ -359,11 +365,32 @@ public sealed class ReadingPaneViewModel : ObservableObject
         return new BuiltDocument(ReadingDocumentBuilder.BuildFromPlainText(content), IsPlainTextFallback: true);
     }
 
-    // Not cancelled together with its caller: the same mail selected again keeps waiting for this task, and it would fail
-    // when the first call cancels it before it has started. It may go on without a reader.
+    // On a thread of its own with a large stack, in the background so that it does not keep the process alive. Not cancelled
+    // together with its caller: the same mail selected again keeps waiting for this task. It may go on without a reader.
     private Task<ReadingDocument> StartBuild(long messageId, MailContent content, bool allowRemoteImages)
     {
-        Task<ReadingDocument> build = Task.Run(() => documentBuilder(content, allowRemoteImages), CancellationToken.None);
+        var completion = new TaskCompletionSource<ReadingDocument>(TaskCreationOptions.RunContinuationsAsynchronously);
+        var buildThread = new Thread(
+            () =>
+            {
+                try
+                {
+                    completion.SetResult(documentBuilder(content, allowRemoteImages));
+                }
+                catch (Exception exception)
+                {
+                    // Also OutOfMemoryException: the caller shows the failure, the pane must not stay in Loading.
+                    completion.SetException(exception);
+                }
+            },
+            BuildThreadStackBytes)
+        {
+            IsBackground = true,
+            Name = "MailWarden document build",
+        };
+        buildThread.Start();
+
+        Task<ReadingDocument> build = completion.Task;
         runningBuild = build;
         runningBuildMessageId = messageId;
         runningBuildAllowsImages = allowRemoteImages;
