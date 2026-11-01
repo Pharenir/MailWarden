@@ -1,4 +1,4 @@
-STEP-RESULT: done (fix.2: R1-R8 done, see section "fix.2")
+STEP-RESULT: done (fix.3: T1-T5 done, see section "fix.3")
 
 # AP-06 – Implementation notes (Builder, implement.1)
 
@@ -124,3 +124,24 @@ R1 and R2 change expectations of AP-07a; R3 needs a From with an account address
 - Build: `dotnet build MailWarden.sln -warnaserror`: 0 warnings, 0 errors, test projects compiled but not run. `tests\` not read and not changed. `_scratch\contact-probe` needed no change; R3 shows up in its `mails skipped` count. It was built, not started.
 - Own control, no proof: `_scratch\contact-selfcheck` (not in the repo, artificial data, prints labels and counts only), green, with cases 20-26 and the coordinator's precisions (one-label and listed parent, sibling, two or unusable From). IDN behaviour observed on this machine only.
 - Not exercised: the pass and the cycle at runtime with R1, the migration from v1 with data, case 19 (planner runs it again). No tester run. Tests of AP-07a about R1 and R2 are expected to be red.
+
+## fix.3 (T1-T5 of `requirement.md`; they change R2 and R5)
+| Rule | File | Change |
+|---|---|---|
+| T1 | `src\MailWarden.Core\Classification\AddressRules.cs` | `IsExactSender` also needs `IsStableLabel` for every label: `NormalizeDomain` leaves it unchanged, or it starts with `xn--` |
+| T2 | `src\MailWarden.Infrastructure\Classification\ContactSenderDirectory.cs` | `GetDomainMembership` normalises each level on its own |
+| T3 | `src\MailWarden.Core\Classification\AuthStatusEvaluator.cs` | the DMARC path uses `DomainNames.AreSameOrParentAndChild`; private `IsAligned` removed, it had no other caller |
+| T4 | `src\MailWarden.Infrastructure\Classification\ContactBook.cs` | `RemoveContactAsync` trims; null gives `ArgumentNullException` as in the store |
+| T5 | `src\MailWarden.Infrastructure\Classification\ContactHarvester.cs` | `IsAutomaticMarker` knows the further marks; all count as `MailsSkipped` |
+
+### Decisions where T1-T5 leave room
+- **T2, look-alike dots:** the walk also splits at U+3002, U+FF0E and U+FF61. When `IdnMapping` refuses a whole domain these dots are still in it, and `ab--cd\u3002xn--mller-kva.example` would hide the blocked parent otherwise.
+- **T3:** a DMARC pass for an unrelated domain falls through to DKIM and SPF as before, so an aligned DKIM pass can still authenticate. The result is `Unknown` when nothing else passes. A DMARC pass without `header.from` stays `Authenticated`, as in C22.
+- **T3, sibling:** `news.firma.test` with `header.from=mail.firma.test` is no longer authenticated on the DMARC path. A provider's relaxed DMARC can pass exactly there, so real mail can drop to `Unknown`. The planner's count before `Act` (`TODO.md`) can show how many.
+- **T3, left alone:** `DomainNames.AreAligned` and `TryGetOrganizationalDomain` keep their code; removing them is no part of T3.
+- **T5:** `X-Autoreply` and `X-Autorespond` count by presence, whatever the value. `Precedence` compares the keyword before a `;`, case-insensitively. `method` on `text/calendar` is compared case-insensitively. `Content-Class` by substring, case-insensitively. Only the top headers are read, so a `text/calendar` part inside a multipart mail does not count, as T5 says "top".
+
+### Tested / not tested (fix.3)
+- Build: `dotnet build MailWarden.sln -warnaserror`: 0 warnings, 0 errors, test projects compiled but not run.
+- Own control, no proof: `_scratch\contact-selfcheck` (not in the repo, artificial data, prints labels and counts only), green, with cases 27-31. IDN behaviour observed on this machine only.
+- Not exercised: pass and cycle at runtime with T3. No tester run. Tests of AP-07a and of fix.2 about DMARC with a sibling domain, and harvest fixtures with the new markers, can turn red. `tests\` not read and not changed. `_scratch\contact-probe` needed no change.
