@@ -1,4 +1,4 @@
-STEP-RESULT: done (fix.3: H1–H7 done, see section "fix.3"; H8 is the documenter's, D8 is not part of this step)
+STEP-RESULT: done (fix.4: J1–J3, J5, J6 done, see section "fix.4"; J4 and D8 are not part of this step)
 
 # AP-07c – Implementation notes (Builder, implement.1)
 
@@ -275,6 +275,45 @@ Questions F1 and F3 of fix.2 are answered by H2 and by "Decided after the measur
 ### Question to the planner (fix.3)
 - **F4** `AuthenticationResultsParser.cs:252`, `:276`, `DomainNames.Normalize`: should `Trim` there also be limited to ASCII, in line with H5? Not done: outside the order, and
   it touches the domain rules of the classifier. Risk is low: the positions belong to the provider's own text.
+
+## fix.4 (decisions J1–J6 of `requirement.md`)
+J1 withdraws the exception part of H2. J4 belongs to D8 and is not built. `Mime\MimeParserDefaults.cs` is unchanged.
+
+### Implementation per decision
+| J | Status | Where | Note |
+|---|---|---|---|
+| J1 | done | `ClassificationOutcome.cs`, `ClassificationPass.cs:348-353`, `ClassificationInputReader.cs:116` | outcome 7; tier null, action `None`, `Override` null, no signals, no command, marker advances. `TryClassify` now also lets cancellation through |
+| J2 | done | `ClassificationPassReport.cs`, last member | counted in neither `Classified` nor `ReadFailed` |
+| J3 | done | `ClassificationPass.cs`, last optional parameter | invalid signals surface in `RunAsync`, where the classifier is built |
+| J4 | not built | | by order, for D8 |
+| J5 | done, not started | `_scratch\classification-probe\Program.cs` | `{role} \| evaluation failed`, plus the type name or `input`, and per account. `pass` prints it too |
+| J6 | done | `ClassificationInputReader.cs:62`, `95` | both entry points. The probe's own two parses use it as well, because `stock` reads real mail on a copy |
+
+### Readings and additions
+- **`ClassificationMessage.InputFailed` is an addition to G3.** Without it, the pass could not tell "building the input threw" (moves nothing) from "no usable sender"
+  (goes to Junk), since both have `Input` null. It is an `init` property in the record body, so the three positional members and their deconstruction stay as they were.
+  `ReadAsync` still returns null in both cases.
+- **Override is null for `EvaluationFailed`:** J1 names no fixed text, and the existing text "Message has no single usable sender" would be wrong here.
+- **`EvaluationFailed` is final**, as a consequence of decision 4: the key is in the log, so after a fixed bug the mail stays where it is and counts as `SkippedKnown` (case 53). A later
+  check of such mail would belong to AP-08.
+- **Stack check on the mails above the limit:** `SyncEngine` and `MailContentReader` still parse with the defaults until AP-04a is merged, as J6 says. `SyncEngine` runs before this pass, so the
+  overflow stays possible there until then.
+
+### Tested / not tested (fix.4)
+**Tested by me (self-control, no proof, no replacement for a tester run):**
+- `-warnaserror`, each 0 errors and 0 warnings: `MailWarden.Infrastructure`, `MailWarden.sln`, `_scratch\classification-probe` (in the worktree).
+- Run singly: Infrastructure tests with filter `FullyQualifiedName~Classification`, 245 of 245 passed. Other tests were not run.
+- `_scratch\ap07c-selfcheck` (not in git, artificial data): all checks passed, including cases 52, 53 and 54 through a throwing signal, also that the marker text is not in the log, and
+  case 55 with 1,023 nested levels of both kinds on a thread-pool thread (process stayed alive, top-level values correct).
+
+**Not tested:**
+- **The `InputFailed` branch with a real exception:** no artificial input makes `CreateInput` throw. Only read and compiled. The `Classify` branch is covered by the throwing signal.
+- Case 55 without the limit, i.e. that the old setting really overflows here: not tried, because it would end the process. That comes from secure.1 of AP-04a.
+- `MailKitFolderProvisioner`: never run. The probe in all three modes.
+- Whether the top `Received` survives a MOVE: `Act` stays off until case 33 shows it.
+
+### Question to the planner (fix.4)
+None that blocks. For D8: J4's limit and `EvaluationFailed` belong in what the app shows, otherwise a programming error stays invisible apart from the local log (no log line is written by this pass).
 
 ## Note for the next patch script
 The shell tool collapsed `\\` to `\` inside a heredoc: `'\\'` broke one Python script and `\\r` became a real CR in
