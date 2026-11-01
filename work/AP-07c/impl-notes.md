@@ -1,4 +1,4 @@
-STEP-RESULT: done (fix.2: G1–G14 done, see section "fix.2"; D8 is not part of this step)
+STEP-RESULT: done (fix.3: H1–H7 done, see section "fix.3"; H8 is the documenter's, D8 is not part of this step)
 
 # AP-07c – Implementation notes (Builder, implement.1)
 
@@ -217,6 +217,64 @@ So H2 was a real, exploitable defect of implement.1, not only a conditional one.
 - **F2** `ClassificationInputReader.cs`, `GetRawValue`: is unfolded and trimmed acceptable as "raw value", or should it be byte-exact?
 - **F3** Mail without any `Received` header keeps the sender-controlled key (`m:` + Message-ID + LF). A provider always stamps delivered mail,
   so this should not occur for fetched mail; `stock` now counts it. If the count is not 0, the campaign bypass stays open for these mails.
+
+## fix.3 (decisions H1–H7 of `requirement.md`; H8 is the documenter's)
+Questions F1 and F3 of fix.2 are answered by H2 and by "Decided after the measurement".
+
+### Implementation per decision
+| H | Status | Where | Note |
+|---|---|---|---|
+| H1 | done | `ClassificationRouting.RouteWithoutSender` | Inbox → `MoveToJunk`, Junk → `None`. Retention does not touch it, its action is not `MoveToQuarantine` |
+| H2 | done | `ClassificationInputReader.cs:66-67`, `110`; `ClassificationPass.cs:341-346` | `ReadFailed` only for a missing or unreadable EML and `Parsed` false; fixed `Override` also for a failed input or `Classify` |
+| H3 | done | `ClassificationInputReader.cs:85-92`, `143`; `ClassificationPass.cs:305`, `466` | `HeaderList.LoadAsync` on the file stream, no `MemoryStream`, no body. `GetTopReceived` is the one shared helper |
+| H4 | done | `MailKitFolderProvisioner.cs:106-114` | role check, then SUBSCRIBE, only for a folder just created |
+| H5 | done | `AuthenticationResultsTokenizer.cs`, `IsSeparator` | separators are 0x00–0x20 and 0x7F |
+| H6 | done, not started | `_scratch\classification-probe\Program.cs` | not in git |
+| H7 | done, not started | same | not in git |
+
+### Readings and open points
+- **H3, garbage and "no Received" look the same:** as case 49 orders, `ReadTopReceivedAsync` gives null for both, so retention cannot tell them apart.
+  It treats only a missing or unreadable file as "never delete". An EML replaced by garbage is computed with a null Received: its key only
+  matches a decided mail that had no Received itself. Row Message-ID and header hash must match as well, so this needs a damaged file on top of
+  the no-Received case that the planner's measurement rule already covers.
+- **H5 reaches the tokenizer only, as ordered.** `AuthenticationResultsParser.cs:252` (verdict) and `:276` (`domainPart.Trim()`) and
+  `DomainNames.Normalize` still use .NET `Trim`, which strips 0xA0 and 0x85 at the **edges** of a value: `header.from=x.test` followed by 0xA0
+  reads as `x.test`. Before H5 these bytes split the value at the same place, so this is no regression, and bytes inside a value stay. See F4.
+- **H2 scope of the catch:** in `TryCreateInput` every exception except cancellation and out of memory counts as caused by the content, also an
+  `IOException`, because the message is already in memory at that point.
+- **H6:**
+  - The marker check runs before anything else in `pass` and `execute`; `stock` does not need it, because it writes nothing.
+  - "All commands are `Move`" is checked on pending commands. A `DeletePermanently` anywhere in the queue refuses, also a failed one.
+  - A mail that is not stored, or whose folder has another UIDVALIDITY than the command, counts as "lacks the marker" and refuses.
+  - The expected count must be greater than 0 and the marker not blank, otherwise usage is printed. Output is numbers only.
+- **H7:**
+  - Accounts are numbered by storing order in the database, label `account N (Provider)`. That is the only thing identifying them.
+  - "Different Message-IDs sharing a top Received" compares Inbox and Junk mail with a Message-ID, per account. It prints the mails and the number of
+    shared values. A mail without Message-ID is not in this count.
+  - "Below all Received" means the first Authentication-Results stands after the last Received. A mail with no Received does not count here.
+  - Reviewed all `Console.WriteLine` of the probe: labels come from enums and code, values are numbers; exceptions print the type name only.
+- **Copy of the probe:** `K:\Projekte\Windows-Tools\MailWarden\_scratch\classification-probe` holds `Program.cs` and `ClassificationProbe.csproj`, without `bin` and `obj`.
+  The references `..\..\src\...` resolve to the main folder there without a change. That copy **cannot compile until AP-07c is on the main folder's
+  checkout**, because the main `src` does not hold these classes yet. It was not built there.
+
+### Tested / not tested (fix.3)
+**Tested by me (self-control, no proof, no replacement for a tester run):**
+- `-warnaserror`, each 0 errors and 0 warnings: `MailWarden.Core`, `MailWarden.Infrastructure`, `MailWarden.sln`, `_scratch\classification-probe` (in the worktree).
+- Run singly: Core tests with filter `AuthenticationResults|AuthStatus|SpamClassifier`, 146 of 146 passed, so H5 broke no existing parser test there.
+- `_scratch\ap07c-selfcheck` (not in git, artificial data): all checks passed, including H1, cases 47 (Act and RecordOnly, from Inbox and Junk), 48, 49, 50 and 51
+  (Latin-1 bytes also through the reader, ASCII space and tab as positive control).
+
+**Not tested:**
+- **The H2 path with a real exception:** no artificial input makes `CreateInput` or `Classify` throw, because the reader already filters such addresses. The branch is
+  read and compiled only; a test needs a fake or a crafted fixture.
+- `MailKitFolderProvisioner`, incl. the new order of SUBSCRIBE: never run.
+- The probe in all three modes, incl. the checks of H6 and the counts of H7.
+- The other tests. **Tests that still expect the Screener from G7 will fail until the tester has adapted them to H1.**
+- Whether the top `Received` survives a MOVE: still open, `Act` stays off until case 33 shows it.
+
+### Question to the planner (fix.3)
+- **F4** `AuthenticationResultsParser.cs:252`, `:276`, `DomainNames.Normalize`: should `Trim` there also be limited to ASCII, in line with H5? Not done: outside the order, and
+  it touches the domain rules of the classifier. Risk is low: the positions belong to the provider's own text.
 
 ## Note for the next patch script
 The shell tool collapsed `\\` to `\` inside a heredoc: `'\\'` broke one Python script and `\\r` became a real CR in
