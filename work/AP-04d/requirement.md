@@ -23,7 +23,8 @@ Branch `feat/ap-04d-reading-theme` from `main` (690c062), parallel to AP-04b. Me
 | 2 | Plain text, light | Document as today |
 | 3 | HTML without colours, dark | Dark style |
 | 4 | HTML with `style="color:#000"`, dark | Light sheet, colours kept |
-| 5 | Each D4 trigger alone: `background-color`, `background-image`, `<style>` rule, `bgcolor`, `<font color>`, `<img>`, dark | Light sheet |
+| 5 | Each D4 trigger alone: `background-color`, `background-image`, `bgcolor`, `<font color>`, `<img>`, dark | Light sheet |
+| 5a | `<style>p{color:red}</style><p>x</p>`, dark | Dark style: the sanitizer removes `<style>`, so the rule is gone and our colours apply |
 | 6 | Word in text: "color: red" as plain visible text in HTML without colours, dark | Dark style: only real declarations count |
 | 7 | Upper case and spaces: `STYLE="COLOR : red"`, dark | Light sheet |
 | 8 | HTML with colours, light | As today |
@@ -35,3 +36,9 @@ Branch `feat/ap-04d-reading-theme` from `main` (690c062), parallel to AP-04b. Me
 
 ## Done when
 S3 green on the branch merged with `main`, reviewer APPROVE, security-reviewer without Critical/High, documenter done, case 13 by Dennis, CPM by Dennis.
+
+## Decisions after the first build (planner, 2026-11-01)
+- A `<style>` rule is not a trigger in practice: the sanitized HTML never holds `<style>`, and D2 and D4 decide on the sanitized HTML. Looking at the raw CSS before the parser would mean reading hostile input outside the parser budget, and would turn most Word and Outlook mails light. Accepted: case 5a.
+- `<body bgcolor>` and `<body style>` never reach the sanitized HTML either, so they do not count.
+- The D4 check runs before the URL rules, so a blocked `background-image` or a removed `<img>` still counts as own colours. This errs towards light and stops the page jumping to light on "Bilder laden". Accepted.
+- Scroll position after a theme change: it may jump to the top for mails without own colours, because the page is navigated anew. Accepted: a theme change is rare and scripts stay off.
