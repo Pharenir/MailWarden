@@ -422,7 +422,7 @@ public sealed class ReadingPaneViewModelTests
         MailMessage first = harness.ReadModel.AddMessage(inbox, "newsletter_one");
         MailMessage second = harness.ReadModel.AddMessage(inbox, "newsletter_two");
         string bigBody = string.Concat(Enumerable.Repeat("<p>filler paragraph first_marker</p>", 60_000));
-        harness.ReadModel.SetContent(first.Id, TestContent.Html("newsletter_one", bigBody + RemoteImageHtml));
+        harness.ReadModel.SetContent(first.Id, TestContent.Html("newsletter_one", RemoteImageHtml + bigBody));
         harness.ReadModel.SetContent(second.Id, TestContent.Html("newsletter_two", "<p>second_marker</p><img src=\"https://tracker.test/c.gif\">"));
         ReadingPaneViewModel reading = harness.Shell.Reading;
         await reading.ShowAsync(first);
@@ -449,7 +449,7 @@ public sealed class ReadingPaneViewModelTests
         (ShellHarness harness, MailFolder inbox) = NewHarness();
         MailMessage message = harness.ReadModel.AddMessage(inbox);
         string bigBody = string.Concat(Enumerable.Repeat("<p>filler paragraph first_marker</p>", 60_000));
-        harness.ReadModel.SetContent(message.Id, TestContent.Html("newsletter", bigBody + RemoteImageHtml));
+        harness.ReadModel.SetContent(message.Id, TestContent.Html("newsletter", RemoteImageHtml + bigBody));
         ReadingPaneViewModel reading = harness.Shell.Reading;
         await reading.ShowAsync(message);
 
@@ -471,7 +471,7 @@ public sealed class ReadingPaneViewModelTests
         (ShellHarness harness, MailFolder inbox) = NewHarness();
         MailMessage message = harness.ReadModel.AddMessage(inbox);
         string bigBody = string.Concat(Enumerable.Repeat("<p>filler paragraph first_marker</p>", 60_000));
-        harness.ReadModel.SetContent(message.Id, TestContent.Html("newsletter", bigBody + RemoteImageHtml));
+        harness.ReadModel.SetContent(message.Id, TestContent.Html("newsletter", RemoteImageHtml + bigBody));
         ReadingPaneViewModel reading = harness.Shell.Reading;
         await reading.ShowAsync(message);
 
