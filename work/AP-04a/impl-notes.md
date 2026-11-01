@@ -167,6 +167,7 @@ completely, its `title` does not survive. Same K15 message again: no reload.
 
 ### K6: measurements
 Debug build of the Infrastructure DLL, 1 MB stack, one machine; `secprobe` of the security review (copied to `_scratch\secprobe`).
+**Not a guarantee:** review.2 and secure.2 found bypasses of these numbers; current numbers in section fix.3.
 
 | Input | secure.1 | Now |
 |---|---|---|
@@ -210,7 +211,10 @@ MIME and headers: `parts 100000` 1,574 ms, `subject 5000` 111 ms; headers `comme
 | `HtmlNestingLimiter.MaxTagsInAttributeValues` | at most 1,024 `<x` in kept quoted values of the whole document, the tag beyond is dropped | a quote inside `script` could otherwise hide real tags from the scan as an attribute value |
 
 Consequence: a mail with an unbalanced quote in a `<x …` inside a `script`, more than 1,024 of them, or over the budget loses the affected
-tag with what the scan read as its attributes. Comments are skipped correctly, so quotes in them do not count.
+tag with what the scan read as its attributes.
+
+**Correction:** "Comments are skipped correctly" stood here. review.2 and secure.2 disproved it: `<style><!--</style>` makes the scan
+see a comment where the parser sees raw text, and all following tags were unseen (32 s and more). Fixed by L1, see section fix.3.
 
 ### Deviations and open points
 - **K8:** no `Tag`: the entries are `ComboBoxItem` with `Content`, and `SelectedIndex` maps to a private array. A boxed enum of the Presentation assembly in `Tag` would have to cross the WinRT boundary; I could not test that without a GUI start.
@@ -221,3 +225,69 @@ tag with what the scan read as its attributes. Comments are skipped correctly, s
 - **K6:** the rebuild no longer runs on the UI thread, so `DocumentHtml` changes later than `Execute`: tests must wait for it. `CanLoadRemoteImages` is false at once.
 
 **Hints for the tester:** `listSize` is now an unknown key. `form` keeps its text. `DecideNavigation(string)` stays. Case 64 can observe the result only by waiting, there is no awaitable member.
+
+## fix.3 (L1–L11)
+All implemented, base `c2e3603`. Builds of `MailWarden.App` and `MailWarden.Presentation` with `-warnaserror`: 0 errors, 0 warnings.
+**No test was run**, and the GUI was not started. "Probe" means a self-check under `_scratch\`, no proof. Records got their new members
+with default values, so existing callers keep compiling.
+
+| L | State | Checked by probe | Only built or read |
+|---|---|---|---|
+| L1 | done: raw-text elements removed up to the first matching end tag, without one the rest of the input; `xmp`, `plaintext`, `listing` lose only the tag; every `<` in attribute values counts; comment with more than 20,000 `<` is scanned | time table below; 34 wrappers of `secprobe4 safety` all ok; controls of `l3-probe` | |
+| L2 | done, plus a limit I added, see below; exactly 64 stay, the 65th goes | `<b>` × 64 not reduced, × 65 reduced; bomb below | |
+| L3 | done | `l3-probe` with a blocked builder and a manual clock: waits at 4.9 s, plain text and notice at 5.1 s; same mail and other mail during the run: 1 build, plain text; late result ignored; next mail builds again | with the real builder, because no real input reaches 5 s any more |
+| L4 | done: `WasReduced`, `ContentNotice`, `HasContentNotice`; removing raw-text elements does not count | normal newsletter null; over budget set; image budget true, not hit false | text above the document |
+| L5 | done: `HasOpaqueParts`, walks also into attached messages; a generic part of a container type counts, delivery reports do not | depth 5 false; depth 40 true and not listed; harmless top + depth 40 true; rfc822 depth 40 true; DSN false | |
+| L6 | done: `MailContent.Senders`, `MailSender`, `SenderLine(IReadOnlyList<MailSender>)`, `ShortenAddress` | all cases below | |
+| L7 | done | | `DeleteAllCookies`, `CloseReadingView` paths |
+| L8 | done; `::/64` is rejected as a whole, which contains `::/96` and `::ffff:0:0/96` | `secprobe4 lan`: 63 blocked, allowed only `public.example.test`, `8.8.8.8`, `[2001:4860:4860::8888]` and `127.0.0.1.nip.io` | |
+| L9 | done | `secprobe4 mailto` | `Launcher` |
+| L10 | done: `MaxHeight` 160, comment moved. Case 45 with `mailto:` belongs to the manual test list (documenter) | | |
+| L11 | done, only built: `_scratch\limiter-probe`, copied to the main checkout | | never started, as ordered |
+
+### Measurements
+`DOTNET_GCHeapHardLimit=2 GB`, Debug build, 1.5 MB stack, one machine. Baseline of the process without crafted input: about 60 MB.
+
+| Input (`secprobe4 time`, `secprobe5`) | Before (review.2, secure.2) | Now | Peak |
+|---|---|---|---|
+| `scriptCommentDiv` 100,000 | | 250 ms | 88 MB |
+| `styleCommentDiv` 100,000 | 32 s | 247 ms | 87 MB |
+| `titleCommentDiv` 100,000 | | 255 ms | 87 MB |
+| `textareaCommentDiv` 100,000 | | 257 ms | 88 MB |
+| `scriptDataSrcDiv` 100,000 | | 246 ms | 87 MB |
+| `styleDataSrcDiv` 100,000 | | 246 ms | 88 MB |
+| `scriptCommentAttrs` 100,000 | over 45 s | 186 ms | 62 MB |
+| `scriptCommentStyle` 100,000 | | 168 ms | 62 MB |
+| `scriptCommentSiblings` 100,000 | | 329 ms | 92 MB |
+| `attrs` 100,000 | | 188 ms | 62 MB |
+| `styleUnknown` 100,000 | | 171 ms | 62 MB |
+| `formatBomb` 1000 18000 | over 5 GB | **1,422 ms** | **193 MB** |
+| `formatBombEsc` 1000 18000 | | 1,099 ms | 140 MB |
+| `titleValueAttrs` 100,000 | over 60 s | 186 ms | |
+| `titleValueStyle` 100,000 | | 168 ms | |
+| `styleValueAttrs` 100,000 | | 183 ms | |
+| `noRawControlAttrs` 100,000 | | 201 ms | |
+
+All under 2 s. `secprobe`: `spanDiv` 1,679 ms, `aDiv` 1,292 ms, `bDiv` 1,284 ms (slowest of all). Own attempts near the limits: 20,000 unknown siblings 2.0 s, 256 attributes
+up to the budget 1.6 s, the rest below. Fuzz 930,000 inputs without exception or suspicious output; 40,000 parallel runs identical. Regression of the fix.2 probes: unchanged results.
+
+### Beyond L2
+L2 alone did not reach the target: 64 open elements copied into 18,000 blocks still gave 5.7 s and 1 GB. Therefore `MaxCopiedFormattingElements`: each kept start tag adds the
+number of open formatting elements to an estimate; above 100,000 every further start tag is dropped (`WasReduced`). That is the difference between 1 GB and 193 MB. A mail in 5 unclosed
+`font` tags reaches it after 20,000 tags, which is also the budget for all tags.
+
+### L3: interface for the tests
+- `ShellViewModel(readModel, controller, dispatcher, settings, log, timeProvider, Func<MailContent, bool, ReadingDocument>? documentBuilder = null)`: null means `ReadingDocumentBuilder.Build`. The `bool` is `allowRemoteImages`.
+- `ReadingPaneViewModel.BuildTimeLimit` is a public static `TimeSpan`, 5 s. The wait is `Task.Delay(limit, timeProvider, token)`, so it needs `CreateTimer` of the given `TimeProvider`; a provider overriding only `GetUtcNow` waits for real.
+- `ShowAsync` completes when the document or the plain text is shown. With a blocked builder it stays pending until the clock passes the limit.
+- Fallback document: `ReadingDocumentBuilder.BuildFromPlainText(MailContent)` (public).
+- Plain text while another build runs comes at once, without waiting; `ContentNotice` is then set.
+- `ReadingPaneViewModel.ContentNotice`, `HasContentNotice`. Texts: `UiText.ContentReduced`, `ContentShownAsText`, `ContentHasOpaqueParts`, `MoreSenders(int)`.
+
+### Deviations and open points
+- **Rapid clicking (question to the planner):** while any build runs, the next mail shows the plain text, as L3 says, and stays so until it is selected again. Builds normally take milliseconds, but a normal mail can then get the notice when mails are clicked quickly. Option: when the running build ends and the current mail is showing plain text only because of it, build that mail. Not built, because L3 and case 72 say no second build; it would only apply to a different mail.
+- **L6:** without parsed `Senders` (content not from a parsed message, e.g. a fake) `From` is treated as one address. With a name beside it the address gets at most 60 characters, and the name the rest of the 100, so the name is usually cut earlier than at 100. "+N weitere" comes on top of the limit. The row in the list uses `ShortenAddress` as well when there is no name.
+- **L1:** text inside `<script>` without an end tag is gone with the rest of the mail, as the parser would read it. A stray `<` inside a scanned comment gets encoded; it stays a comment.
+- **L4:** comments dropped over the budget and flattening below depth 256 also set `WasReduced`. Attributes of end tags and `xmp`-like tags do not.
+- **L8:** `127.0.0.1.nip.io` stays allowed: a public name resolving to a private address is accepted by the planner.
+- **L11:** `LimiterProbe.csproj` refers to the worktree by its fixed path, also in the copy; if the worktree is gone, change the path in that file. It opens the database with `Mode=ReadOnly` and only needs table `messages` and column `eml_path`.
