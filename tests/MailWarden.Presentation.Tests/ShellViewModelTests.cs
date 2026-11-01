@@ -344,6 +344,7 @@ public sealed class ShellViewModelTests
         var shell = new ShellViewModel(
             readModel,
             new FakeMailboxController(),
+            new FakeMailboxActions(readModel),
             new FakeUiDispatcher(),
             new UiSettingsFile(path),
             log,
@@ -367,9 +368,11 @@ public sealed class ShellViewModelTests
         using var temp = new TempDirectory();
         string path = Path.Combine(temp.RootPath, UiSettingsFile.FileName);
         await File.WriteAllTextAsync(path, "{broken");
+        var readModelForActions = new FakeMailboxReadModel();
         var shell = new ShellViewModel(
-            new FakeMailboxReadModel(),
+            readModelForActions,
             new FakeMailboxController(),
+            new FakeMailboxActions(readModelForActions),
             new FakeUiDispatcher(),
             new UiSettingsFile(path),
             new FakeCriticalLog(),
@@ -391,7 +394,7 @@ public sealed class ShellViewModelTests
         string[] methods = [.. typeof(IMailboxReadModel).GetMethods().Select(method => method.Name).OrderBy(name => name, StringComparer.Ordinal)];
 
         Assert.Equal(
-            new[] { "CountUnreadAsync", "GetFolderRoleAsync", "ListAccountsAsync", "ListFoldersAsync", "ListMessagesAsync", "ReadContentAsync" },
+            new[] { "CountUnreadAsync", "GetFolderRoleAsync", "ListAccountsAsync", "ListFoldersAsync", "ListMessagesAsync", "ReadContentAsync", "SearchAsync" },
             methods);
         Assert.Empty(typeof(IMailboxReadModel).GetProperties());
         Assert.Empty(typeof(IMailboxReadModel).GetEvents());
@@ -413,13 +416,16 @@ public sealed class ShellViewModelTests
         string[] forbidden = ["Delete", "Move", "Mark", "Flag", "Archive", "Seen", "Empty", "Send", "Save"];
         Type[] types = [typeof(ShellViewModel), typeof(NavigationViewModel), typeof(MessageListViewModel), typeof(ReadingPaneViewModel)];
 
-        foreach (Type type in types)
-        {
-            foreach (MethodInfo method in type.GetMethods(BindingFlags.Public | BindingFlags.Instance | BindingFlags.DeclaredOnly).Where(method => !method.IsSpecialName))
-            {
-                Assert.DoesNotContain(forbidden, word => method.Name.Contains(word, StringComparison.OrdinalIgnoreCase));
-            }
-        }
+        string[] offenders =
+        [
+            .. types.SelectMany(type => type
+                .GetMethods(BindingFlags.Public | BindingFlags.Instance | BindingFlags.DeclaredOnly)
+                .Where(method => !method.IsSpecialName)
+                .Where(method => method.Name != nameof(ShellViewModel.SaveWindowBounds)) // AP-04b D4: window settings, not mail
+                .Where(method => forbidden.Any(word => method.Name.Contains(word, StringComparison.OrdinalIgnoreCase)))
+                .Select(method => $"{type.Name}.{method.Name}")),
+        ];
+        Assert.Empty(offenders);
     }
 
     // Case 41: a full reading session records no controller call and leaves every message unread.

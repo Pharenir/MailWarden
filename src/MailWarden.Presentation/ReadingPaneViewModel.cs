@@ -61,6 +61,7 @@ public sealed class ReadingPaneViewModel : ObservableObject
     private CancellationTokenSource? showCancellation;
     private bool isClosed;
     private string? contentNotice;
+    private string? hoverLinkText;
 
     // The newest build. It cannot be stopped once it runs, so it may outlive the message it was started for.
     private Task<ReadingDocument>? runningBuild;
@@ -178,6 +179,27 @@ public sealed class ReadingPaneViewModel : ObservableObject
 
     /// <summary>True when <see cref="ContentNotice"/> has a text.</summary>
     public bool HasContentNotice => contentNotice is not null;
+
+    /// <summary>
+    /// Target of the link under the mouse, as the browser reports it. The text comes from the mail, so the setter cleans and
+    /// shortens it, at most 501 characters; empty or nothing left means no link. An absolute http or https target beyond the limit
+    /// starts with its real host, because the cut could hide it. The next message clears it.
+    /// </summary>
+    public string? HoverLinkText
+    {
+        get => hoverLinkText;
+        set
+        {
+            string shortened = MailDisplayText.LinkTarget(value ?? string.Empty);
+            if (SetProperty(ref hoverLinkText, shortened.Length == 0 ? null : shortened))
+            {
+                OnPropertyChanged(nameof(HasHoverLink));
+            }
+        }
+    }
+
+    /// <summary>True when <see cref="HoverLinkText"/> has a text.</summary>
+    public bool HasHoverLink => hoverLinkText is not null;
 
     /// <summary>Number of images blocked in the current document: remote ones and, in Junk and Quarantine, embedded ones.</summary>
     public int BlockedRemoteResourceCount
@@ -455,6 +477,7 @@ public sealed class ReadingPaneViewModel : ObservableObject
         currentContent = null;
         DocumentHtml = null;
         ContentNotice = null;
+        HoverLinkText = null;
         BlockedRemoteResourceCount = 0;
         AreRemoteImagesAllowed = false;
         Subject = message is null ? string.Empty : MailDisplayText.Subject(message.Subject);

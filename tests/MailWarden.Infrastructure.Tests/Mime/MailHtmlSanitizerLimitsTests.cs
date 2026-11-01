@@ -195,13 +195,13 @@ public sealed class MailHtmlSanitizerLimitsTests
     {
         await Task.Yield();
         const string html =
-            "<p title=\"keep_title\" style=\"color: red\" data-a=\"1\" data-b=\"2\" data-c=\"3\" data-d=\"4\" data-e=\"5\" data-f=\"6\" data-g=\"7\" data-h=\"8\">control_marker</p>";
+            "<p class=\"keep_class\" style=\"color: red\" data-a=\"1\" data-b=\"2\" data-c=\"3\" data-d=\"4\" data-e=\"5\" data-f=\"6\" data-g=\"7\" data-h=\"8\">control_marker</p>";
 
         SanitizedHtml result = Sanitize(html);
 
         IElement? paragraph = Parse(result).QuerySelector("p");
         Assert.NotNull(paragraph);
-        Assert.Equal("keep_title", paragraph.GetAttribute("title"));
+        Assert.Equal("keep_class", paragraph.GetAttribute("class"));
         string style = paragraph.GetAttribute("style") ?? string.Empty;
         Assert.True(
             style.Contains("red", StringComparison.OrdinalIgnoreCase) || Regex.IsMatch(style, @"rgba?\(\s*255\s*,\s*0\s*,\s*0", RegexOptions.CultureInvariant),
@@ -215,12 +215,12 @@ public sealed class MailHtmlSanitizerLimitsTests
     {
         await Task.Yield();
         static string Tag(int attributeCount) =>
-            "<p title=\"keep_title\"" + string.Concat(Enumerable.Range(1, attributeCount - 1).Select(index => $" data-a{index}=\"x\"")) + ">text_marker</p>";
+            "<p class=\"keep_class\"" + string.Concat(Enumerable.Range(1, attributeCount - 1).Select(index => $" data-a{index}=\"x\"")) + ">text_marker</p>";
 
         SanitizedHtml atLimit = Sanitize(Tag(256));
         SanitizedHtml overLimit = Sanitize(Tag(257));
 
-        Assert.Equal("keep_title", Parse(atLimit).QuerySelector("p")?.GetAttribute("title"));
+        Assert.Equal("keep_class", Parse(atLimit).QuerySelector("p")?.GetAttribute("class"));
         IElement? over = Parse(overLimit).QuerySelector("p");
         Assert.True(over is null || over.Attributes.Length <= 256);
         Assert.True(over is null || over.GetAttribute("title") is null, "tag with 257 attributes must be dropped");

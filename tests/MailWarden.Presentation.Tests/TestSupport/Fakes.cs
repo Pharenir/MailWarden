@@ -336,7 +336,8 @@ internal sealed class FakeMailboxReadModel : IMailboxReadModel
         string fromAddress = "sender_a@example.test",
         string preview = "sample_preview",
         bool hasAttachments = false,
-        string? emlPath = "eml/sample.eml")
+        string? emlPath = "eml/sample.eml",
+        string? messageId = null)
     {
         lock (_gate)
         {
@@ -346,7 +347,7 @@ internal sealed class FakeMailboxReadModel : IMailboxReadModel
                 folder.AccountId,
                 folder.Id,
                 _nextUid++,
-                null,
+                messageId,
                 subject,
                 fromAddress,
                 fromName,
@@ -369,6 +370,41 @@ internal sealed class FakeMailboxReadModel : IMailboxReadModel
         }
     }
 
+    /// <summary>Server truth after a command: replaces the flags of a stored message.</summary>
+    public void SetFlags(long messageId, MessageFlags flags)
+    {
+        lock (_gate)
+        {
+            int index = _messages.FindIndex(message => message.Id == messageId);
+            if (index >= 0)
+            {
+                _messages[index] = _messages[index] with { Flags = flags };
+            }
+        }
+    }
+
+    /// <summary>Server truth after a move: the message now lives in <paramref name="target"/> (same id, new UID).</summary>
+    public void MoveMessage(long messageId, MailFolder target)
+    {
+        lock (_gate)
+        {
+            int index = _messages.FindIndex(message => message.Id == messageId);
+            if (index >= 0)
+            {
+                _messages[index] = _messages[index] with { FolderId = target.Id, AccountId = target.AccountId, Uid = _nextUid++ };
+            }
+        }
+    }
+
+    /// <summary>Current stored copy of a message (null when gone).</summary>
+    public MailMessage? Find(long messageId)
+    {
+        lock (_gate)
+        {
+            return _messages.FirstOrDefault(message => message.Id == messageId);
+        }
+    }
+
     public void SetContent(long messageId, MailContent? content)
     {
         lock (_gate)
@@ -388,8 +424,23 @@ internal sealed class FakeMailboxReadModel : IMailboxReadModel
         }
     }
 
-    public Task<FolderRole?> GetFolderRoleAsync(long folderId, CancellationToken ct = default)
+    /// <summary>Awaited by <see cref="GetFolderRoleAsync"/> before it answers (blocks a view model inside an action).</summary>
+    public Func<Task>? RoleGate { get; set; }
+
+    /// <summary>Number of times <see cref="RoleGate"/> was entered.</summary>
+    public int RoleGateEntered => Volatile.Read(ref _roleGateEntered);
+
+    private int _roleGateEntered;
+
+    public async Task<FolderRole?> GetFolderRoleAsync(long folderId, CancellationToken ct = default)
     {
+        Func<Task>? roleGate = RoleGate;
+        if (roleGate is not null)
+        {
+            Interlocked.Increment(ref _roleGateEntered);
+            await roleGate();
+        }
+
         if (FolderRoleFailure is not null)
         {
             throw FolderRoleFailure;
@@ -399,12 +450,12 @@ internal sealed class FakeMailboxReadModel : IMailboxReadModel
         {
             if (_roleOverrides.TryGetValue(folderId, out FolderRole? overridden))
             {
-                return Task.FromResult(overridden);
+                return overridden;
             }
 
             // Known folders report the role they were added with (Inbox in most tests); unknown folders report null.
             MailFolder? folder = _folders.FirstOrDefault(candidate => candidate.Id == folderId);
-            return Task.FromResult<FolderRole?>(folder?.Role);
+            return folder?.Role;
         }
     }
 
@@ -472,6 +523,62 @@ internal sealed class FakeMailboxReadModel : IMailboxReadModel
         return message.EmlPath is null ? null : TestContent.Plain(message.Subject, $"body of {message.Subject}");
     }
 
+    /// <summary>Awaited before <see cref="SearchAsync"/> answers; arguments are the text and the 1-based call number.</summary>
+    public Func<string, int, Task>? SearchGate { get; set; }
+
+    /// <summary>When set, <see cref="SearchAsync"/> throws it (stands for an invalid FTS expression).</summary>
+    public Exception? SearchFailure { get; set; }
+
+    /// <summary>Texts passed to <see cref="SearchAsync"/>.</summary>
+    public IReadOnlyList<(string Text, int Limit)> SearchCalls
+    {
+        get
+        {
+            lock (_gate)
+            {
+                return [.. _searchCalls];
+            }
+        }
+    }
+
+    private readonly List<(string Text, int Limit)> _searchCalls = [];
+
+    /// <summary>Case-insensitive substring search over subject, sender and preview, newest first, honouring the limit.</summary>
+    public async Task<IReadOnlyList<MailMessage>> SearchAsync(string text, int limit, CancellationToken ct = default)
+    {
+        int number;
+        lock (_gate)
+        {
+            _searchCalls.Add((text, limit));
+            number = _searchCalls.Count;
+        }
+
+        Func<string, int, Task>? gate = SearchGate;
+        if (gate is not null)
+        {
+            await gate(text, number);
+        }
+
+        if (SearchFailure is not null)
+        {
+            throw SearchFailure;
+        }
+
+        lock (_gate)
+        {
+            return
+            [
+                .. _messages
+                    .Where(message => message.Subject.Contains(text, StringComparison.OrdinalIgnoreCase)
+                        || message.FromName.Contains(text, StringComparison.OrdinalIgnoreCase)
+                        || message.TextPreview.Contains(text, StringComparison.OrdinalIgnoreCase))
+                    .OrderByDescending(message => message.Date)
+                    .ThenByDescending(message => message.Id)
+                    .Take(limit),
+            ];
+        }
+    }
+
     // Callers hold _gate.
     private IEnumerable<MailMessage> Matching(MessageQuery query)
     {
@@ -492,6 +599,12 @@ internal sealed class FakeMailboxReadModel : IMailboxReadModel
             {
                 result = result.Where(message => message.AccountId == accountId);
             }
+        }
+
+        if (query.ExcludedMessageIds is { Count: > 0 } excluded)
+        {
+            HashSet<long> excludedSet = [.. excluded];
+            result = result.Where(message => !excludedSet.Contains(message.Id));
         }
 
         return result.OrderByDescending(message => message.Date).ThenByDescending(message => message.Id).ToList();

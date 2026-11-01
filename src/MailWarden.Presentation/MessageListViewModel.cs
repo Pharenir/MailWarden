@@ -8,9 +8,10 @@ using MailWarden.Infrastructure.Logging;
 namespace MailWarden.Presentation;
 
 /// <summary>
-/// One row of the message list; all texts are cleaned for display.
+/// One row of the message list; all texts are cleaned for display. The flags can change in place, so that a row shows the
+/// wanted state at once and the selection of the list stays.
 /// </summary>
-public sealed class MessageRowViewModel
+public sealed class MessageRowViewModel : ObservableObject
 {
     internal MessageRowViewModel(MailMessage message, string accountLabel, DateTimeOffset now, TimeZoneInfo localZone)
     {
@@ -26,7 +27,7 @@ public sealed class MessageRowViewModel
     }
 
     /// <summary>The message of the row.</summary>
-    public MailMessage Message { get; }
+    public MailMessage Message { get; private set; }
 
     /// <summary>Shortened FromName, else shortened FromAddress.</summary>
     public string Sender { get; }
@@ -52,6 +53,19 @@ public sealed class MessageRowViewModel
     /// <summary>True when the message has attachments.</summary>
     public bool HasAttachments => Message.HasAttachments;
 
+    /// <summary>Shows other flags; nothing else of a row depends on them.</summary>
+    /// <param name="flags">The flags to show.</param>
+    internal void ShowFlags(MessageFlags flags)
+    {
+        if (Message.Flags != flags)
+        {
+            Message = Message with { Flags = flags };
+            OnPropertyChanged(nameof(Message));
+            OnPropertyChanged(nameof(IsUnread));
+            OnPropertyChanged(nameof(IsFlagged));
+        }
+    }
+
     private static string FormatDate(DateTimeOffset date, DateTimeOffset now, TimeZoneInfo localZone)
     {
         DateTimeOffset localDate = TimeZoneInfo.ConvertTime(date, localZone);
@@ -64,8 +78,10 @@ public sealed class MessageRowViewModel
 }
 
 /// <summary>
-/// The message list of the selected view, paged and newest first. Continuations of the awaits stay on the caller's
-/// context (the UI thread), which owns <see cref="Items"/>. Of overlapping loads only the newest changes the list.
+/// The message list of the selected view or of a search, paged and newest first. Continuations of the awaits stay on the
+/// caller's context (the UI thread), which owns <see cref="Items"/>. Of overlapping loads only the newest changes the list.
+/// Rows of a pending move or delete stay out of it, rows of a pending flag change show the wanted flags (see
+/// <see cref="PendingMailState"/>).
 /// </summary>
 public sealed class MessageListViewModel : ObservableObject
 {
@@ -76,34 +92,54 @@ public sealed class MessageListViewModel : ObservableObject
     private readonly ICriticalLog log;
     private readonly ShellBanner banner;
     private readonly TimeProvider timeProvider;
+    private readonly PendingMailState pendingMail;
     private MessageRowViewModel? selectedRow;
+    private IReadOnlyList<MessageRowViewModel> selectedRows = [];
     private MailView? currentView;
+    private string? searchText;
     private bool hasMore;
     private bool isLoading;
     private int loadGeneration;
     private CancellationTokenSource? loadCancellation;
     private bool isClosed;
 
+    // Stored rows before the end of the list that are not in Items, because they are hidden: the next page starts behind them.
+    private int hiddenRowsRead;
+
     internal MessageListViewModel(
         IMailboxReadModel readModel,
         ICriticalLog log,
         ShellBanner banner,
-        TimeProvider timeProvider)
+        TimeProvider timeProvider,
+        PendingMailState pendingMail)
     {
         this.readModel = readModel;
         this.log = log;
         this.banner = banner;
         this.timeProvider = timeProvider;
+        this.pendingMail = pendingMail;
     }
 
     /// <summary>The loaded rows.</summary>
     public ObservableCollection<MessageRowViewModel> Items { get; } = [];
 
-    /// <summary>The selected row; null when none.</summary>
+    /// <summary>The row the reading pane shows: the selected one when exactly one is selected, otherwise null.</summary>
     public MessageRowViewModel? SelectedRow
     {
         get => selectedRow;
-        set => SetProperty(ref selectedRow, value);
+        set => ApplySelection(value is null ? [] : [value]);
+    }
+
+    /// <summary>The selected rows; actions work on them.</summary>
+    /// <exception cref="ArgumentNullException">The value is null.</exception>
+    public IReadOnlyList<MessageRowViewModel> SelectedRows
+    {
+        get => selectedRows;
+        set
+        {
+            ArgumentNullException.ThrowIfNull(value);
+            ApplySelection(value);
+        }
     }
 
     /// <summary>True when the last page was full.</summary>
@@ -120,10 +156,13 @@ public sealed class MessageListViewModel : ObservableObject
         private set => SetProperty(ref isLoading, value);
     }
 
-    /// <summary>The view the list shows or is loading.</summary>
+    /// <summary>The view the list shows or is loading, also the one behind a search.</summary>
     internal MailView? CurrentView => currentView;
 
-    /// <summary>Shows the first page of a view; the selection is cleared at once.</summary>
+    /// <summary>True while the list shows search results.</summary>
+    internal bool IsShowingSearch => searchText is not null;
+
+    /// <summary>Shows the first page of a view; the selection is cleared at once and a search ends.</summary>
     /// <param name="view">View to show.</param>
     /// <param name="ct">Cancellation token.</param>
     /// <returns>A task that completes when this load ended or a newer one replaced it.</returns>
@@ -138,23 +177,15 @@ public sealed class MessageListViewModel : ObservableObject
         }
 
         currentView = view;
-        SelectedRow = null;
-        Items.Clear();
-        HasMore = false;
+        searchText = null;
+        ClearList();
         await RunLoadAsync(
             "MessageListViewModel.LoadAsync",
             async token =>
             {
-                (List<MessageRowViewModel> rows, bool isPageFull) = await ReadRowsAsync(view, PageSize, 0, token);
-                return () =>
-                {
-                    foreach (MessageRowViewModel row in rows)
-                    {
-                        Items.Add(row);
-                    }
-
-                    HasMore = isPageFull;
-                };
+                await pendingMail.RefreshAsync(token);
+                RowRead read = await ReadViewAsync(view, PageSize, 0, token);
+                return () => ShowFirstPage(read);
             },
             ct);
     }
@@ -165,27 +196,29 @@ public sealed class MessageListViewModel : ObservableObject
     /// <exception cref="OperationCanceledException"><paramref name="ct"/> was cancelled.</exception>
     public async Task LoadMoreAsync(CancellationToken ct = default)
     {
-        if (isClosed || currentView is not MailView view || !HasMore || IsLoading)
+        if (isClosed || currentView is not MailView view || IsShowingSearch || !HasMore || IsLoading)
         {
             return;
         }
 
-        int offset = Items.Count;
+        int offset = Items.Count + hiddenRowsRead;
         await RunLoadAsync(
             "MessageListViewModel.LoadMoreAsync",
             async token =>
             {
-                (List<MessageRowViewModel> rows, bool isPageFull) = await ReadRowsAsync(view, PageSize, offset, token);
+                RowRead read = await ReadViewAsync(view, PageSize, offset, token);
                 return () =>
                 {
                     // New mail moves the rows down during paging, so a page can repeat rows that are already shown.
+                    List<MessageRowViewModel> rows = BuildVisibleRows(read, out int hiddenCount);
                     var knownIds = Items.Select(row => row.Message.Id).ToHashSet();
                     foreach (MessageRowViewModel row in rows.Where(row => knownIds.Add(row.Message.Id)))
                     {
                         Items.Add(row);
                     }
 
-                    HasMore = isPageFull;
+                    hiddenRowsRead += hiddenCount;
+                    HasMore = read.IsPageFull;
                 };
             },
             ct);
@@ -193,14 +226,17 @@ public sealed class MessageListViewModel : ObservableObject
 
     /// <summary>
     /// Loads as many rows as are currently shown (at least one page) and updates the list in place, so that the scroll
-    /// position stays. The selection stays by message id when the row still exists and is cleared otherwise.
+    /// position stays. The selection stays by message id for the rows that still exist. Also runs the search again when the
+    /// list shows one.
     /// </summary>
     /// <param name="ct">Cancellation token.</param>
     /// <returns>A task that completes when the list is updated.</returns>
     /// <exception cref="OperationCanceledException"><paramref name="ct"/> was cancelled.</exception>
     public async Task ReloadAsync(CancellationToken ct = default)
     {
-        if (isClosed || currentView is not MailView view)
+        MailView? view = currentView;
+        string? search = searchText;
+        if (isClosed || (view is null && search is null))
         {
             return;
         }
@@ -210,16 +246,106 @@ public sealed class MessageListViewModel : ObservableObject
             "MessageListViewModel.ReloadAsync",
             async token =>
             {
-                (List<MessageRowViewModel> rows, bool isPageFull) = await ReadRowsAsync(view, limit, 0, token);
+                await pendingMail.RefreshAsync(token);
+                RowRead read = search is not null
+                    ? await ReadSearchAsync(search, token)
+                    : await ReadViewAsync(view!, limit, 0, token);
                 return () =>
                 {
-                    long? selectedId = SelectedRow?.Message.Id;
+                    List<MessageRowViewModel> rows = BuildVisibleRows(read, out int hiddenCount);
+                    var selectedIds = selectedRows.Select(row => row.Message.Id).ToHashSet();
                     MergeRows(rows);
-                    HasMore = isPageFull;
-                    SelectedRow = selectedId is null ? null : rows.FirstOrDefault(row => row.Message.Id == selectedId);
+                    hiddenRowsRead = hiddenCount;
+                    HasMore = read.IsPageFull;
+                    ApplySelection(rows.Where(row => selectedIds.Contains(row.Message.Id)).ToList());
                 };
             },
             ct);
+    }
+
+    /// <summary>Shows the results of a search in place of the view; the selection is cleared at once.</summary>
+    /// <param name="text">Search text.</param>
+    /// <param name="ct">Cancellation token.</param>
+    /// <returns>A task that completes when this load ended or a newer one replaced it.</returns>
+    internal async Task ShowSearchAsync(string text, CancellationToken ct)
+    {
+        if (isClosed)
+        {
+            return;
+        }
+
+        searchText = text;
+        ClearList();
+        await RunLoadAsync(
+            "MessageListViewModel.ShowSearchAsync",
+            async token =>
+            {
+                await pendingMail.RefreshAsync(token);
+                RowRead read = await ReadSearchAsync(text, token);
+                return () => ShowFirstPage(read);
+            },
+            ct);
+    }
+
+    /// <summary>Ends a search and shows the view behind it again.</summary>
+    /// <param name="ct">Cancellation token.</param>
+    /// <returns>A task that completes when this load ended or a newer one replaced it.</returns>
+    internal async Task ReturnToViewAsync(CancellationToken ct)
+    {
+        if (currentView is MailView view)
+        {
+            await LoadAsync(view, ct);
+            return;
+        }
+
+        searchText = null;
+        loadGeneration++;
+        CancelPreviousLoad();
+        ClearList();
+    }
+
+    /// <summary>
+    /// Takes rows out of the list at once. When a selected row goes, the next row takes over the selection (as in Outlook),
+    /// or the last one when nothing follows.
+    /// </summary>
+    /// <param name="messageIds">Messages whose rows go.</param>
+    internal void RemoveRows(IReadOnlySet<long> messageIds)
+    {
+        if (isClosed)
+        {
+            return;
+        }
+
+        // The selection first, so that the reading pane never passes through "nothing selected".
+        List<MessageRowViewModel> remainingSelection = selectedRows.Where(row => !messageIds.Contains(row.Message.Id)).ToList();
+        if (remainingSelection.Count != selectedRows.Count)
+        {
+            if (remainingSelection.Count == 0 && FindRowAfterRemoval(messageIds) is MessageRowViewModel nextRow)
+            {
+                remainingSelection.Add(nextRow);
+            }
+
+            ApplySelection(remainingSelection);
+        }
+
+        for (int index = Items.Count - 1; index >= 0; index--)
+        {
+            if (messageIds.Contains(Items[index].Message.Id))
+            {
+                Items.RemoveAt(index);
+                hiddenRowsRead++;
+            }
+        }
+    }
+
+    /// <summary>Shows the wanted flags on the current rows of these messages; a reload can have replaced the row of a selection.</summary>
+    /// <param name="messageIds">Messages whose flags are wanted differently.</param>
+    internal void ShowWantedFlags(IReadOnlySet<long> messageIds)
+    {
+        foreach (MessageRowViewModel row in Items.Where(row => messageIds.Contains(row.Message.Id)))
+        {
+            row.ShowFlags(pendingMail.ShownFlags(row.Message));
+        }
     }
 
     /// <summary>Ends the running load without a further read or log line; later calls do nothing.</summary>
@@ -233,6 +359,67 @@ public sealed class MessageListViewModel : ObservableObject
     private static bool ShowsSameContent(MessageRowViewModel left, MessageRowViewModel right)
     {
         return left.Message == right.Message && left.AccountLabel == right.AccountLabel && left.DateText == right.DateText;
+    }
+
+    private static bool DiffersOnlyInFlags(MessageRowViewModel left, MessageRowViewModel right)
+    {
+        return left.Message with { Flags = right.Message.Flags } == right.Message
+            && left.AccountLabel == right.AccountLabel
+            && left.DateText == right.DateText;
+    }
+
+    // One event per real change: the row objects decide, their order does not.
+    private void ApplySelection(IReadOnlyList<MessageRowViewModel> rows)
+    {
+        if (!new HashSet<MessageRowViewModel>(selectedRows).SetEquals(rows))
+        {
+            selectedRows = rows.ToList();
+            OnPropertyChanged(nameof(SelectedRows));
+        }
+
+        SetProperty(ref selectedRow, rows.Count == 1 ? rows[0] : null, nameof(SelectedRow));
+    }
+
+    private void ClearList()
+    {
+        ApplySelection([]);
+        Items.Clear();
+        HasMore = false;
+        hiddenRowsRead = 0;
+    }
+
+    private void ShowFirstPage(RowRead read)
+    {
+        List<MessageRowViewModel> rows = BuildVisibleRows(read, out int hiddenCount);
+        foreach (MessageRowViewModel row in rows)
+        {
+            Items.Add(row);
+        }
+
+        hiddenRowsRead = hiddenCount;
+        HasMore = read.IsPageFull;
+    }
+
+    // The next row behind the first selected row that goes, otherwise the last one before it.
+    private MessageRowViewModel? FindRowAfterRemoval(IReadOnlySet<long> messageIds)
+    {
+        var selectedIds = selectedRows.Select(row => row.Message.Id).ToHashSet();
+        int firstIndex = -1;
+        for (int index = 0; index < Items.Count && firstIndex < 0; index++)
+        {
+            if (selectedIds.Contains(Items[index].Message.Id))
+            {
+                firstIndex = index;
+            }
+        }
+
+        if (firstIndex < 0)
+        {
+            return null;
+        }
+
+        return Items.Skip(firstIndex).FirstOrDefault(row => !messageIds.Contains(row.Message.Id))
+            ?? Items.Take(firstIndex).LastOrDefault(row => !messageIds.Contains(row.Message.Id));
     }
 
     // The newest call wins: an older result, failure or cancellation changes nothing. The read runs under the generation
@@ -287,28 +474,77 @@ public sealed class MessageListViewModel : ObservableObject
         }
     }
 
-    private async Task<(List<MessageRowViewModel> Rows, bool IsPageFull)> ReadRowsAsync(
-        MailView view,
-        int limit,
-        int offset,
-        CancellationToken ct)
+    // Reads on behind hidden rows until the page has enough visible ones, so that a big pending delete does not leave an
+    // empty list that cannot scroll to the next page. More than limit + hidden rows can never be needed.
+    private async Task<RowRead> ReadViewAsync(MailView view, int limit, int offset, CancellationToken ct)
     {
-        IReadOnlyList<Account> accounts = await readModel.ListAccountsAsync(ct);
-        Dictionary<Guid, string> accountLabels = accounts.ToDictionary(account => account.Id, NavigationViewModel.AccountLabel);
-        ct.ThrowIfCancellationRequested();
-        IReadOnlyList<MailMessage> messages = await readModel.ListMessagesAsync(view.ToQuery(limit, offset), ct);
-        DateTimeOffset now = timeProvider.GetUtcNow();
-        List<MessageRowViewModel> rows = messages
-            .Select(message => new MessageRowViewModel(
-                message,
-                accountLabels.GetValueOrDefault(message.AccountId, string.Empty),
-                now,
-                timeProvider.LocalTimeZone))
-            .ToList();
-        return (rows, messages.Count == limit);
+        Dictionary<Guid, string> accountLabels = await ReadAccountLabelsAsync(ct);
+        var messages = new List<MailMessage>();
+        int visibleCount = 0;
+        bool isPageFull;
+        do
+        {
+            ct.ThrowIfCancellationRequested();
+            IReadOnlyList<MailMessage> page = await readModel.ListMessagesAsync(view.ToQuery(limit, offset + messages.Count), ct);
+            messages.AddRange(page);
+            visibleCount += page.Count(message => !pendingMail.IsHidden(message.Id));
+            isPageFull = page.Count == limit;
+        }
+        while (isPageFull && visibleCount < limit && messages.Count < limit + pendingMail.HiddenCount);
+
+        return new RowRead(messages, accountLabels, isPageFull);
     }
 
-    // Brings Items to the order of newRows with as few collection changes as possible; unchanged rows keep their object.
+    // A text the search cannot use is no failure: it simply finds nothing.
+    private async Task<RowRead> ReadSearchAsync(string text, CancellationToken ct)
+    {
+        Dictionary<Guid, string> accountLabels = await ReadAccountLabelsAsync(ct);
+        ct.ThrowIfCancellationRequested();
+        IReadOnlyList<MailMessage> messages;
+        try
+        {
+            messages = await readModel.SearchAsync(text, SearchViewModel.ResultLimit, ct);
+        }
+        catch (ArgumentException)
+        {
+            messages = [];
+        }
+
+        return new RowRead(messages, accountLabels, IsPageFull: false);
+    }
+
+    private async Task<Dictionary<Guid, string>> ReadAccountLabelsAsync(CancellationToken ct)
+    {
+        IReadOnlyList<Account> accounts = await readModel.ListAccountsAsync(ct);
+        return accounts.ToDictionary(account => account.Id, NavigationViewModel.AccountLabel);
+    }
+
+    // At the moment the result is applied: an action can have hidden a row or changed its flags during the read.
+    private List<MessageRowViewModel> BuildVisibleRows(RowRead read, out int hiddenCount)
+    {
+        DateTimeOffset now = timeProvider.GetUtcNow();
+        var rows = new List<MessageRowViewModel>(read.Messages.Count);
+        hiddenCount = 0;
+        foreach (MailMessage message in read.Messages.DistinctBy(message => message.Id))
+        {
+            if (pendingMail.IsHidden(message.Id))
+            {
+                hiddenCount++;
+                continue;
+            }
+
+            rows.Add(new MessageRowViewModel(
+                message with { Flags = pendingMail.ShownFlags(message) },
+                read.AccountLabels.GetValueOrDefault(message.AccountId, string.Empty),
+                now,
+                timeProvider.LocalTimeZone));
+        }
+
+        return rows;
+    }
+
+    // Brings Items to the order of newRows with as few collection changes as possible; unchanged rows keep their object, also
+    // when only their flags are new.
     private void MergeRows(List<MessageRowViewModel> newRows)
     {
         var newIds = newRows.Select(row => row.Message.Id).ToHashSet();
@@ -339,6 +575,11 @@ public sealed class MessageListViewModel : ObservableObject
             {
                 newRows[index] = Items[index];
             }
+            else if (DiffersOnlyInFlags(Items[index], newRow))
+            {
+                Items[index].ShowFlags(newRow.Message.Flags);
+                newRows[index] = Items[index];
+            }
             else
             {
                 Items[index] = newRow;
@@ -358,4 +599,10 @@ public sealed class MessageListViewModel : ObservableObject
 
         return -1;
     }
+
+    /// <summary>What a load has read; the rows are built when it is applied.</summary>
+    /// <param name="Messages">Stored messages, hidden ones included.</param>
+    /// <param name="AccountLabels">Label per account.</param>
+    /// <param name="IsPageFull">True when the last page read was full.</param>
+    private sealed record RowRead(IReadOnlyList<MailMessage> Messages, Dictionary<Guid, string> AccountLabels, bool IsPageFull);
 }

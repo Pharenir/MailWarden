@@ -148,7 +148,7 @@ public sealed class CommandExecutorTests
     {
         await using CommandHarness harness = await CommandHarness.CreateAsync();
         SeededFolder junk = await harness.SeedFolderAsync("Junk", FolderRole.Junk, messageCount: 3);
-        await harness.Queue.EnqueueEmptyFolderAsync(junk.Folder.Id);
+        await harness.EnqueueEmptyConfirmedAsync(junk.Folder.Id);
         uint late = junk.Server.AddMessage(SyncTestEml.Plain("late_arrival", "body"));
 
         CommandRunReport report = await harness.ExecuteAsync();

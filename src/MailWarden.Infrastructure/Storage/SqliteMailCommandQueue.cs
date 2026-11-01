@@ -124,27 +124,56 @@ public sealed class SqliteMailCommandQueue(SqliteDatabase database, TimeProvider
     }
 
     /// <inheritdoc />
-    public async Task<MailCommand?> EnqueueEmptyFolderAsync(long folderId, CancellationToken ct = default)
+    public async Task<MailCommand?> EnqueueEmptyFolderAsync(
+        long folderId,
+        uint confirmedUidValidity,
+        IReadOnlyCollection<uint> confirmedUids,
+        CancellationToken ct = default)
     {
-        MailFolder source = await RequireSyncedFolderAsync(folderId, ct).ConfigureAwait(false);
-        if (source.Role is not (FolderRole.Trash or FolderRole.Junk))
+        ArgumentNullException.ThrowIfNull(confirmedUids);
+        var confirmed = new HashSet<uint>(confirmedUids);
+        try
         {
-            throw new ArgumentException("Only a Trash or Junk folder can be emptied.", nameof(folderId));
-        }
+            // BEGIN IMMEDIATE takes the write lock before the first read, so the sync on its own connection waits until the commit.
+            // The stores below use this same connection, and its CreateCommand joins the open transaction by itself. Leaving this
+            // block without the commit rolls back.
+            await using SqliteTransaction transaction = database.Connection.BeginTransaction(deferred: false);
 
-        // Snapshot of the local UIDs: messages that arrive later are never part of this command.
-        IReadOnlyDictionary<uint, MessageFlags> localMessages = await messageStore
-            .GetUidFlagsAsync(source.Id, ct)
-            .ConfigureAwait(false);
-        if (localMessages.Count == 0)
+            MailFolder source = await RequireSyncedFolderAsync(folderId, ct).ConfigureAwait(false);
+            if (source.Role is not (FolderRole.Trash or FolderRole.Junk))
+            {
+                throw new ArgumentException("Only a Trash or Junk folder can be emptied.", nameof(folderId));
+            }
+
+            if (source.UidValidity != confirmedUidValidity)
+            {
+                throw new EmptyFolderChangedException();
+            }
+
+            IReadOnlyDictionary<uint, MessageFlags> localMessages = await messageStore
+                .GetUidFlagsAsync(source.Id, ct)
+                .ConfigureAwait(false);
+            if (localMessages.Count == 0)
+            {
+                return null;
+            }
+
+            if (!confirmed.IsSupersetOf(localMessages.Keys))
+            {
+                throw new EmptyFolderChangedException();
+            }
+
+            // Q2 (planner): one command with all local UIDs, without the per-command limit (MailKit sends UID ranges).
+            List<uint> normalizedUids = NormalizeUids(localMessages.Keys.ToList(), enforceLimit: false);
+            MailCommand command = await InsertAsync(source, MailCommandKind.DeletePermanently, normalizedUids, null, MessageFlags.None, MessageFlags.None, ct)
+                .ConfigureAwait(false);
+            await transaction.CommitAsync(ct).ConfigureAwait(false);
+            return command;
+        }
+        catch (SqliteException exception)
         {
-            return null;
+            throw SqliteValues.Wrap("Storing the command that empties the folder", exception);
         }
-
-        // Q2 (planner): one command with all local UIDs, without the per-command limit (MailKit sends UID ranges).
-        List<uint> normalizedUids = NormalizeUids(localMessages.Keys.ToList(), enforceLimit: false);
-        return await InsertAsync(source, MailCommandKind.DeletePermanently, normalizedUids, null, MessageFlags.None, MessageFlags.None, ct)
-            .ConfigureAwait(false);
     }
 
     /// <inheritdoc />

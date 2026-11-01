@@ -343,6 +343,33 @@ public sealed class SqliteMessageStore(SqliteDatabase database) : IMessageStore
         }
     }
 
+    /// <summary>Loads UID and database id of all messages of one folder.</summary>
+    /// <param name="folderId">Folder id.</param>
+    /// <param name="ct">Cancellation token.</param>
+    /// <returns>UID → <see cref="MailMessage.Id"/>; empty for an unknown folder.</returns>
+    public async Task<IReadOnlyDictionary<uint, long>> GetUidIdsAsync(long folderId, CancellationToken ct = default)
+    {
+        try
+        {
+            await using var command = database.Connection.CreateCommand();
+            command.CommandText = "SELECT uid, id FROM messages WHERE folder_id = $folder_id;";
+            command.Parameters.AddWithValue("$folder_id", folderId);
+
+            var idsByUid = new Dictionary<uint, long>();
+            await using var reader = await command.ExecuteReaderAsync(ct).ConfigureAwait(false);
+            while (await reader.ReadAsync(ct).ConfigureAwait(false))
+            {
+                idsByUid.Add(SqliteValues.ReadUInt32(reader, 0), reader.GetInt64(1));
+            }
+
+            return idsByUid;
+        }
+        catch (SqliteException exception)
+        {
+            throw SqliteValues.Wrap("Loading message ids", exception);
+        }
+    }
+
     /// <inheritdoc />
     public async Task UpdateFlagsAsync(
         long folderId,
@@ -392,6 +419,7 @@ public sealed class SqliteMessageStore(SqliteDatabase database) : IMessageStore
     {
         string joinClause = string.Empty;
         string whereClause = " WHERE 1 = 1";
+        string accountColumn = "m.account_id";
         if (query.FolderId is long folderId)
         {
             whereClause += " AND m.folder_id = $folder_id";
@@ -402,12 +430,26 @@ public sealed class SqliteMessageStore(SqliteDatabase database) : IMessageStore
             joinClause = " JOIN folders AS f ON f.id = m.folder_id";
             whereClause += " AND f.role = $role";
             command.Parameters.AddWithValue("$role", (int)role);
+
+            // The same rows, by the composite foreign key of messages. Through the folder the planner starts at the few folders of the
+            // account; through the message it scans the whole table, even for an empty view. A very big folder pays for this: it is read
+            // through its index, and its list is sorted instead of walking the date index (numbers in work\AP-04b\impl-notes.md).
+            accountColumn = "f.account_id";
         }
 
         if (query.AccountId is Guid accountId)
         {
-            whereClause += " AND m.account_id = $account_id";
+            whereClause += $" AND {accountColumn} = $account_id";
             command.Parameters.AddWithValue("$account_id", SqliteValues.FromGuid(accountId));
+        }
+
+        // One parameter, however many ids: an empty folder can hide thousands.
+        if (query.ExcludedMessageIds is { Count: > 0 } excludedIds)
+        {
+            whereClause += " AND m.id NOT IN (SELECT value FROM json_each($excluded_ids))";
+            command.Parameters.AddWithValue(
+                "$excluded_ids",
+                "[" + string.Join(',', excludedIds.Select(id => id.ToString(CultureInfo.InvariantCulture))) + "]");
         }
 
         return joinClause + whereClause;

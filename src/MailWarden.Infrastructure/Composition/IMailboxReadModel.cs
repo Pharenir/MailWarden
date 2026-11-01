@@ -5,8 +5,8 @@ using MailWarden.Infrastructure.Mime;
 namespace MailWarden.Infrastructure.Composition;
 
 /// <summary>
-/// What the user interface reads. It has no write member on purpose: AP-04a never changes anything. Access to the one
-/// database connection behind it is serialised, and no call blocks the caller's thread for the query.
+/// What the user interface reads. It has no write member on purpose: changes go through <see cref="IMailboxActions"/>.
+/// Access to the one database connection behind it is serialised, and no call blocks the caller's thread for the query.
 /// </summary>
 public interface IMailboxReadModel
 {
@@ -38,6 +38,17 @@ public interface IMailboxReadModel
     /// <param name="ct">Cancellation token.</param>
     /// <returns>The number of unread messages.</returns>
     Task<int> CountUnreadAsync(MessageQuery query, CancellationToken ct = default);
+
+    /// <summary>
+    /// Local full-text search over subject, sender and indexed body text; every word must match, search syntax characters
+    /// are treated as text.
+    /// </summary>
+    /// <param name="text">Search words.</param>
+    /// <param name="limit">Maximum number of results, greater than 0.</param>
+    /// <param name="ct">Cancellation token.</param>
+    /// <returns>Matching messages newest first.</returns>
+    /// <exception cref="ArgumentException"><paramref name="text"/> holds nothing but whitespace and control characters.</exception>
+    Task<IReadOnlyList<MailMessage>> SearchAsync(string text, int limit, CancellationToken ct = default);
 
     /// <summary>
     /// Reads the content of a message. The EML is read completely into memory, so no reader stays open while the sync

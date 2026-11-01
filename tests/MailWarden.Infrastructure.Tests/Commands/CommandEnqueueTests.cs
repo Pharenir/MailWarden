@@ -172,7 +172,7 @@ public sealed class CommandEnqueueTests
         await AssertRejectedAsync(fixture, () => fixture.Queue.EnqueueMoveAsync(unknownFolderId, 1000, [1], fixture.Archive.Id));
         await AssertRejectedAsync(fixture, () => fixture.Queue.EnqueueMoveToTrashAsync(unknownFolderId, 1000, [1]));
         await AssertRejectedAsync(fixture, () => fixture.Queue.EnqueueDeletePermanentlyAsync(unknownFolderId, 1000, [1]));
-        await AssertRejectedAsync(fixture, () => fixture.Queue.EnqueueEmptyFolderAsync(unknownFolderId));
+        await AssertRejectedAsync(fixture, () => fixture.EnqueueEmptyConfirmedAsync(unknownFolderId));
     }
 
     [Fact(Timeout = TestTimeouts.PerTestMilliseconds)]
@@ -186,7 +186,7 @@ public sealed class CommandEnqueueTests
         await AssertRejectedAsync(fixture, () => fixture.Queue.EnqueueMoveAsync(unsynced.Id, unsynced.UidValidity, [1], fixture.Archive.Id));
         await AssertRejectedAsync(fixture, () => fixture.Queue.EnqueueMoveToTrashAsync(unsynced.Id, unsynced.UidValidity, [1]));
         await AssertRejectedAsync(fixture, () => fixture.Queue.EnqueueDeletePermanentlyAsync(unsynced.Id, unsynced.UidValidity, [1]));
-        await AssertRejectedAsync(fixture, () => fixture.Queue.EnqueueEmptyFolderAsync(unsynced.Id));
+        await AssertRejectedAsync(fixture, () => fixture.EnqueueEmptyConfirmedAsync(unsynced.Id));
     }
 
     // Case 2 – flags
@@ -288,7 +288,7 @@ public sealed class CommandEnqueueTests
         MailFolder folder = await fixture.Storage.AddFolderAsync(fixture.Account.Id, role, $"empty_{role}");
         await fixture.Storage.AddMessageAsync(folder, 1);
 
-        await AssertRejectedAsync(fixture, () => fixture.Queue.EnqueueEmptyFolderAsync(folder.Id));
+        await AssertRejectedAsync(fixture, () => fixture.EnqueueEmptyConfirmedAsync(folder.Id));
     }
 
     // Case 3
@@ -304,7 +304,7 @@ public sealed class CommandEnqueueTests
             await fixture.Storage.AddMessageAsync(folder, uid);
         }
 
-        MailCommand? command = await fixture.Queue.EnqueueEmptyFolderAsync(folder.Id);
+        MailCommand? command = await fixture.EnqueueEmptyConfirmedAsync(folder.Id);
         await fixture.Storage.AddMessageAsync(folder, 9);
 
         Assert.NotNull(command);
@@ -320,7 +320,7 @@ public sealed class CommandEnqueueTests
     {
         await using CommandQueueFixture fixture = await CommandQueueFixture.CreateAsync();
 
-        MailCommand? command = await fixture.Queue.EnqueueEmptyFolderAsync(fixture.Junk.Id);
+        MailCommand? command = await fixture.EnqueueEmptyConfirmedAsync(fixture.Junk.Id);
 
         Assert.Null(command);
         Assert.Equal(0, await fixture.CommandRowCountAsync());
@@ -455,7 +455,7 @@ public sealed class CommandEnqueueTests
             await fixture.Storage.AddMessageAsync(fixture.Trash, uid);
         }
 
-        MailCommand? command = await fixture.Queue.EnqueueEmptyFolderAsync(fixture.Trash.Id);
+        MailCommand? command = await fixture.EnqueueEmptyConfirmedAsync(fixture.Trash.Id);
 
         Assert.NotNull(command);
         Assert.Equal(Enumerable.Range(1, 1500).Select(value => (uint)value), command.Uids);
