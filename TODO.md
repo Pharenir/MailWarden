@@ -70,6 +70,14 @@ Original-Headern (Outlook.com); 1.870 ohne Header (vermutlich IMAP-/Gmail-Ordner
 Testzähler: 0/4 seit letztem S3 (zuletzt 2026-10-31: S3 auf `main` @ `3f74af0` nach Merge von AP-03d,
 964/964 – Core.Tests 360, Infrastructure.Tests 604; Bericht `work\S3-main-2026-10-31-f.md`)
 
+## Session 4 (2026-11-01)
+- Entscheidungen Dennis: AP-04a und AP-07c **parallel**; HTML-Bereinigung mit Paket HtmlSanitizer; Liste und Lesebereich
+  umschaltbar nebeneinander/untereinander, Navigation immer links.
+- Planer-Entscheidung AP-07c (von Dennis noch zu bestätigen): Standard nur protokollieren, Altbestand nie automatisch,
+  Handeln ruht bei leerem Adressbuch (`work\AP-07c\requirement.md`). Folge: AP-06 (mindestens Sammeln aus Gesendet) ist
+  Voraussetzung, damit der Filter wirklich verschiebt.
+- Reihenfolge danach: AP-04a und AP-07c mergen, D8 von AP-07c (Verdrahtung in `MailWardenRuntime`), dann AP-04b / AP-06.
+
 ## Stand 2026-10-31 (Session 2, Ende)
 **CPM erledigt:** `chore/app-icon`, AP-01, AP-07a, AP-02a per `--no-ff` nach `main` gemergt, Build grün
 (`-warnaserror`), S3 542/542 grün, `main` @ `e45b892` gepusht. Konflikte wie erwartet: beide `requirement.md` →

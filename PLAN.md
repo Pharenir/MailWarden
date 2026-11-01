@@ -80,9 +80,9 @@ Später: Naive Bayes aus Dennis’ Entscheidungen, Domain-Alter per RDAP.
 |---|---|---|
 | AP-00 | **Spike Anmeldung:** MS-App-Registrierung (Kostenprüfung), MSAL-Login + MailKit-IMAP gegen hotmail.de; Google-Cloud-Projekt, OAuth-Login + IMAP gegen Gmail. Konsolenprogramm in `_scratch\`. | Go/No-Go, `docs\auth-setup.md` mit Schritt-für-Schritt-Anleitung |
 | AP-01 | Solution-Skelett (inkl. startfähiger WinUI-3-Leer-App als Tooling-Check), Core-Modell (Account, Folder, Message, Contact), SQLite-Schema + Migration, EML-Store, FTS5 | Build grün, Storage-Tests |
-| AP-02 | Kontenverwaltung + Zugangsdaten (DPAPI), Token-Cache, Provider-Profile. **AP-02a** ohne UI (Credential-Store, OAuth MS/Google, Provider-Profile, Ordnerrollen, Konto-Service, Verbindungstest); **AP-02b** = Konten-UI mit AP-04 | Konto anlegen/löschen/testen |
+| AP-02 | Kontenverwaltung + Zugangsdaten (DPAPI), Token-Cache, Provider-Profile. **AP-02a** ohne UI (Credential-Store, OAuth MS/Google, Provider-Profile, Ordnerrollen, Konto-Service, Verbindungstest); **AP-02b** = Konten-UI mit AP-04b | Konto anlegen/löschen/testen |
 | AP-03 | Sync-Engine: Ordnerliste, inkrementeller Sync (UIDVALIDITY, UIDNEXT, Flags), IDLE für Posteingang, Junk-Ordner immer mitsynchronisieren, Befehlswarteschlange (Move/Delete/Flag) mit Wiederholung. **AP-03a** = Transport + Abgleich Server → lokal (Ordner, Mails, Flags, Löschungen, UIDVALIDITY, Schema v2); **AP-03b** = Abgleich robust und schnell (Blöcke, Fortschritt, Wiederverbindung im Lauf, Gmail Important); **AP-03c** = Befehlswarteschlange lokal → Server; **AP-03d** = Hintergrunddienst (Zeitplan, IDLE) | Mails aller Konten lokal, Änderungen beidseitig |
-| AP-04 | WinUI-3-Oberfläche: Gruppenansichten Posteingang/Gesendet/Postausgang/Screener/Junk/Quarantäne über alle Konten, dieselben Ansichten je Konto, Ordnerbaum, Lesebereich (WebView2, bereinigt), Light/Dark/System | Lesen aller Konten in einer Ansicht |
+| AP-04 | WinUI-3-Oberfläche: Gruppenansichten Posteingang/Gesendet/Postausgang/Screener/Junk/Quarantäne über alle Konten, dieselben Ansichten je Konto, Ordnerbaum, Lesebereich (WebView2, bereinigt), Light/Dark/System. **AP-04a** = nur lesen (Laufzeit, Ansichten, Liste, Lesebereich, umschaltbare Aufteilung); **AP-04b** = Konten-UI (AP-02b), Aktionen, Suche, Anhänge | Lesen aller Konten in einer Ansicht |
 | AP-05 | Verfassen/Antworten/Weiterleiten, SMTP-Versand je Konto, Anhänge, Signatur je Konto, Gesendet-Ordner | Senden von allen Konten |
 
 ### Phase 2 – Der eigentliche Grund
@@ -204,6 +204,39 @@ Vollständiger Schnittstellenvertrag: `work\AP-03c\requirement.md`.
 | 6 | Echte Konten: 10 min Dienstlauf ohne Fehler, Testmail löst sofort einen Abgleich aus, sauberes Beenden | ✅ Werkzeug `_scratch\service-probe` (git-ignoriert, im Worktree), Nutzung: `work\AP-03d\serviceprobe-usage.md`; Komposition mit eigener SQLite-Verbindung je Konto und Ablauf, siehe `work\AP-03d\impl-notes.md` O1 | ✅ Fall 19 (Planner, 2026-10-31, 15 min, alle drei Konten): Start ohne Fehler; zweite Instanz „in Benutzung“; Testmail von Dennis → IDLE-Meldung 19:19:53, Abgleich 19:19:55–56 (Posteingang +1); IDLE nach 9 min bei allen Konten erneuert; Beenden in 0,1 s, Sperre freigegeben |
 
 Vollständiger Schnittstellenvertrag: `work\AP-03d\requirement.md`.
+
+### AP-04a Oberfläche, nur lesen
+Parallel zu AP-07c (Dennis 2026-11-01). HTML-Bereinigung mit HtmlSanitizer (Freigabe Dennis 2026-11-01). AP-04b folgt:
+Konten-UI (AP-02b), Aktionen, Suche, Anhänge.
+| # | Sollverhalten | Umgesetzt | Getestet |
+|---|---|---|---|
+| 1 | App startet Laufzeit und Hintergrunddienst; Sperre vor dem Öffnen der DB; Fehler beim Start (ungültiger Datenordner, „in Benutzung“) zeigen ein Fenster statt stillem Ende | | |
+| 2 | Gruppenansichten Posteingang/Gesendet/Postausgang/Screener/Junk/Quarantäne über alle Konten, dieselben je Konto, übrige Ordner als Baum, Ungelesen-Zähler | | |
+| 3 | Mail-Liste neueste zuerst, seitenweise, Konto in jeder Zeile; neue Mails erscheinen nach dem Abgleich ohne Benutzeraktion | | |
+| 4 | Liste und Lesebereich umschaltbar nebeneinander/untereinander, Navigation immer links; Wahl und Größen bleiben erhalten | | |
+| 5 | Lesebereich: HTML bereinigt, kein Skript, externe Inhalte blockiert bis „Bilder laden“ je Mail; Links öffnen nur im Standardbrowser | | |
+| 6 | Fremdtexte ohne Steuer-/Bidi-Zeichen; Logs enthalten nur Typnamen und feste Texte | | |
+| 7 | Keine Änderung am Server durch die Oberfläche (auch Lesen setzt kein `\Seen`) | | |
+| 8 | Hell/Dunkel/System umschaltbar; Mail-Inhalt immer auf hellem Grund | | |
+
+Vollständiger Schnittstellenvertrag: `work\AP-04a\requirement.md`.
+
+### AP-07c Anbindung des Klassifizierers
+Sicherheitsregeln (Planer 2026-11-01): Standard nur protokollieren; Altbestand wird nie automatisch einsortiert; Handeln
+ruht, solange das Adressbuch leer ist (→ AP-06); je Mail nur eine Entscheidung; Aufbewahrung Standard 0 = nie löschen.
+| # | Sollverhalten | Umgesetzt | Getestet |
+|---|---|---|---|
+| 1 | Nach dem Abgleich werden nur neu eingetroffene Mails aus Posteingang und Junk klassifiziert; erster Lauf setzt nur die Marke | | |
+| 2 | Jede Entscheidung wird mit Stufe, Punkten und allen Begründungen gespeichert, auch beim bloßen Protokollieren | | |
+| 3 | Modus `Act`: Verschieben über die Warteschlange nach Tabelle (Posteingang → Screener/Junk/Quarantäne; Junk → Posteingang nur für `TrustedContact`) | | |
+| 4 | Fehlende Ordner `Screener`/`Quarantine` werden angelegt; schlägt das fehl, bleibt die Mail liegen, nichts geht verloren | | |
+| 5 | Eine von Hand zurückgeholte Mail wird nicht erneut entschieden | | |
+| 6 | Aufbewahrung Quarantäne: nur von der App verschobene Mails, Uhr ist der Entscheidungszeitpunkt; 0 = nie | | |
+| 7 | Schema v5 migriert ältere Datenbanken ohne Datenverlust | | |
+| 8 | Echte Daten: Bestand auf einer Kopie plausibel; am Server nur nach Freigabe mit Testmails von Dennis | | |
+
+Vollständiger Schnittstellenvertrag: `work\AP-07c\requirement.md`. Verdrahtung in die Laufzeit (D8) erst, wenn AP-04a
+und AP-07c auf `main` liegen.
 
 ### AP-07b Kalibrierung + Einstellungsdatei
 | # | Sollverhalten | Umgesetzt | Getestet |
