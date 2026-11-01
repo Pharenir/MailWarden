@@ -1,4 +1,4 @@
-STEP-RESULT: done (fix.2: U1-U9 done, see section "fix.2"; implement.1 with the coordinator's precisions of 2026-11-01)
+STEP-RESULT: done (fix.3: V1-V4 done, see section "fix.3"; fix.2: U1-U9; implement.1 with the coordinator's precisions of 2026-11-01)
 
 # AP-04b - Implementation notes (Builder, implement.1)
 
@@ -124,11 +124,33 @@ Items 3 and 10 of "Deviations and decisions" and the question on `CountForEmptyA
 - Banner on a partial rejection: the text of the exception. A fake has to throw its own text; only the real `MailboxActions` produces `PartlyDoneText`, the shell only for the mixed Del.
 
 ### Remaining limits
-- U3: between the UID check and the snapshot of the queue a mail can still arrive: microseconds, on another connection. Closing it needs a transaction in the queue, which belongs to the queue's contract.
+- U3: replaced by V1, see section "fix.3".
 - U5: a target above 65,519 characters cannot be parsed by `Uri`, so it has no host in front.
-- U5: `Uri.Host` can hold Unicode (IDN); the decision names `Uri.Host`. `IdnHost` would show punycode, in case the security review wants that.
+- U5: the host in front is `Uri.IdnHost` (punycode), not `Uri.Host` as the decision says (commit `6bb0491`): a Unicode host cannot pass as another one.
 
 ### Getting a result
 **Tested (self-check, no proof; `_scratch\ap04bprobe`, artificial data):** U2, U3, U4 on the real queue; cases 23, 24 (both variants), 26, 28, 29, 30, 31 on fakes. All passed.
 Build: `MailWarden.Presentation` and `MailWarden.App` with `-warnaserror`: 0 errors, 0 warnings. `tests\` not built: `PreviewEmptyAsync` breaks their fakes until the tester adapts them.
 **Untested, only Dennis can see it:** U8 (holding Del), U9 (window on a monitor with another scale, focus after a delete), U5 at runtime (case 32), and case 27 in the banner of the running app. **Not run:** S1-S3.
+
+## fix.3 (V1-V4, coordinator 2026-11-01)
+| # | Where | What |
+|---|---|---|
+| V1 | `MailboxActions.EmptyFolderAsync` | Also refused when the local count is above `confirmed.Count`. After enqueuing, before the trigger: `Uids[^1] > HighestUid` or `Uids.Count > Count` discards the command and refuses with the same text. Fewer stays allowed. |
+| V2 | `MailboxActions.EnqueuePerFolderAsync` | Any failure after stored commands except cancellation, `ObjectDisposedException`, `OutOfMemoryException` gives `PartlyDoneText`; the type name goes to the log, not for a `MailActionException`. |
+| V3 | `ShellViewModel.StartRemovalOnSelection` | `rowSelectedByRunningRemoval` holds for delete, permanent delete, move; read, unread, flag use `StartOnSelection`. |
+| V4 | `ShellViewModel.RemoveRowsAsync` | `try` directly behind `BeginRemoval`, `EndAction` in `finally` (a no-op when `EnqueueAsync` has ended it). `ActionRowsRemoved` does not fire after `Dispose`. |
+
+### Beyond the wording, please check
+1. **New optional constructor parameter** `MailboxActions(database, triggerAccount, timeProvider, ICriticalLog? log = null)`: V2 needs a log, and the class had none. Calls with three arguments stay valid; the runtime passes its log. Without a log nothing is written.
+2. **V2 also for the mixed Del in the shell** (`DeleteTrashRowsAfterMoveAsync`): its first step is stored there, so the same rule applies.
+3. **The discard in V1 runs with `CancellationToken.None`:** a cancelled caller must not leave the command behind.
+
+### Remaining limits
+- V1: a cycle already running can list the command between its insert and its discard. No trigger comes from here, and the window is the time of one `DELETE`; closing it needs a transaction in the queue.
+- V4 covers `BeginRemoval` only. `ChangeFlagAsync` has the same order around `BeginFlagChange`, not changed: V4 does not name it, and a failure there can only come from a subscriber of a row. In-flight flags would stay until the next action.
+
+### Getting a result
+**Tested (self-check, no proof; `_scratch\ap04bprobe`, artificial data):** V1 before enqueuing (a lower UID arrives, count above the confirmed one; fewer goes ahead), V2 with an SQLite trigger that fails the second group (`PartlyDoneText`, type name in the log), V3, V4 (no event after `Dispose`). All passed.
+**Untested:** the check of V1 after enqueuing, because it is only reachable in a race with the sync and the queue has no seam for it; read only.
+Build: `MailWarden.Presentation` and `MailWarden.App` with `-warnaserror`, see the report. **Not run:** S1-S3.
