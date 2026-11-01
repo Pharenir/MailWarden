@@ -156,3 +156,28 @@ Binding; they change D1, D2, D6.
 | 30 | Search started and ended in the Trash | `CanEmptyFolder` follows |
 | 31 | `Dispose` during an await in delete | nothing stored |
 | 32 | Manual, Dennis (replaces part of 22): link with a text other than its target shows the true target in the tooltip **and** the status bar | both visible, bar off only after this |
+
+## Decisions fix.4 (planner, 2026-11-01, after verify.3 PASS 2336/2336, review.3 APPROVE with S1-S3)
+This is round 4 of 4; anything left afterwards goes to Dennis.
+
+Decided in fix.3 (recorded here because they were only in `impl-notes.md`): V1 no empty after new mail; V2 partly-done report on a storage failure, type name only in the log; V3 read and flag go to the follow row, delete, permanent delete and move skip it; V4 no `ActionRowsRemoved` after `Dispose`, `EndAction` in `finally`. Actions run one after the other in keystroke order, so read on the follow row waits for the running delete (accepted, not a defect).
+
+Why this round: "Ordner leeren" is the only irreversible path of this AP. review.3 S1 (a failing discard leaves an unconfirmed command) and S2 (count and highest UID do not identify what was confirmed) can each expunge a mail the user never counted.
+
+- W1: "Ordner leeren" deletes only what was confirmed. `EmptyFolderPreview` carries `UidValidity` and the set of UIDs, plus the count for the dialog.
+- W2: Check and insert are one write transaction in `SqliteMailCommandQueue`: same UIDVALIDITY, and the local UIDs are a subset of the confirmed ones, read inside the transaction. On a mismatch nothing is stored and the caller gets the existing "mail arrived" refusal. Any failure rolls back and stores nothing.
+- W3: The second check and the `DiscardAsync` call in `MailboxActions.EmptyFolderAsync` go away; the transaction replaces them. `DiscardAsync` itself stays for its other callers.
+- W4: The shell compares previews by content (UIDVALIDITY and UID set), not by record equality. Same preview after a refusal: stop with the error as today. Different preview: ask again, up to `MaxEmptyConfirmations`.
+- W5: review.3 S3: one helper for the partial-failure rule in `MailboxActions` and `ShellViewModel`.
+- W6: `PartlyDoneText` no longer says "abgelehnt", because a storage failure refuses nothing.
+
+### Additional test cases (fix.4)
+| # | Situation | Expected |
+|---|---|---|
+| W-a | Confirmed {10, 20}, local {15, 20} (same count, same highest UID) | Refused, no command stored |
+| W-b | UIDVALIDITY changed, local UIDs a subset of the confirmed ones | Refused, no command stored |
+| W-c | Local UIDs a proper subset of the confirmed ones | Command holds exactly the local UIDs |
+| W-d | Nothing local any more | No command, no failure |
+| W-e | Insert fails (SQLite trigger) | Nothing stored, error reaches the caller |
+| W-f | Refused, new preview differs | Dialog asks again with the new count |
+| W-g | Refused, new preview equal in content | Stops with the error, no further question |
