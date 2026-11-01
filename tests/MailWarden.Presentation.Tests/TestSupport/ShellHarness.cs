@@ -8,7 +8,7 @@ internal sealed class ShellHarness
 {
     public static readonly DateTimeOffset FixedNow = new(2026, 10, 31, 12, 0, 0, TimeSpan.Zero);
 
-    public ShellHarness(UiSettings? initialSettings = null, TimeProvider? clock = null, Func<MailContent, bool, bool, ReadingDocument>? documentBuilder = null)
+    public ShellHarness(UiSettings? initialSettings = null, TimeProvider? clock = null, Func<MailContent, bool, bool, ReadingTheme, ReadingDocument>? documentBuilder = null)
     {
         ReadModel = new FakeMailboxReadModel();
         Controller = new FakeMailboxController();
