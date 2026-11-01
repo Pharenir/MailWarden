@@ -463,3 +463,90 @@ Test cases 1–41 use fakes for the read model, controller, dispatcher and setti
 - The `HtmlSanitizer` reference has no `PrivateAssets`, so its AngleSharp dependency flows to the test projects.
 - Tests check only that `StatusText` is non-empty, differs by state and contains no exception text, and that the
   empty-accounts banner contains "AuthProbe". The exact German wording stays free.
+
+## Decisions fix.2 (planner, 2026-11-01, after verify.1 PASS 1349/1349, review.1 BLOCK, secure.1 1 High)
+Binding; they change D1, D3, D4, D9, D10. Planner checks: the queue of the probe-data copy is empty (review P1), so a first
+start executes nothing on the server.
+
+### Must fix
+- **K1 (review B1).** The info bar must close again when `Banner` becomes null. `x:Bind` function bindings are not called
+  for null (`MainWindow.g.cs:1644-1651`), so set `IsOpen` and `Message` in code-behind from `PropertyChanged`, once also in
+  the constructor because a settings load error sets `Banner` before that.
+- **K2 (secure H1).** A mail with about 1,000 nested parts overflows the stack: the process ends without any catch, and
+  again after each start. Use `MimeParserDefaults.Create()` (`Infrastructure\Mime`, already on this branch) at **every**
+  parse in this repo: `SyncEngine` and `MailContentReader`, with `MimeMessage.LoadAsync(options, stream, persistent, ct)`.
+  Search for other `MimeMessage.Load` and `MimeParser` uses.
+- **K3 (review S1).** A replaced selected row must not clear the reading pane or the image approval: compare by message
+  id, not by object (`MainWindow.xaml.cs:229-235`).
+- **K4 (review S2, S3).** Closing the window:
+  - `ShellViewModel.Dispose` cancels running loads and ends the reload loop.
+  - The read model closes through its gate before the runtime disposes the connections.
+  - `OnLaunched` checks `isShuttingDown` before `Service.StartAsync` and in its `catch`.
+  - `ReleaseAfterFailedStartAsync` calls `CloseReadingView` and `Close` inside its `try`.
+  - `MailWebViewHost` has an `isClosed` flag, so a late `ShowAsync` causes no critical log line.
+- **K5 (secure M1).** `MailHtmlSanitizer` keeps a budget per document for inserted inline images: 34,000,000 characters of
+  data URI in total. Over the budget the image is removed. `IsAllowedDataImage` runs once per inline image. An
+  `OutOfMemoryException` in the reading pane ends in `Error`, never in `Loading`.
+- **K6 (secure M2).** `HtmlNestingLimiter` also limits run time: a start tag with more than 256 attributes is dropped, a
+  `style` value over 64 KB is dropped (`data:` in `src` excepted), and tag text has a total budget. Target: the worst inputs
+  of the security probes (100,000 attributes or `style` declarations) finish in under 2 s; measure again and state the
+  numbers. `LoadRemoteImagesCommand` builds off the UI thread with the same generation guard as `ShowAsync`.
+- **K7 (secure M3).**
+  - New in `SafeDisplayText`: `public static string Shorten(string text, int maxCharacters)` cleans, collapses runs of
+    whitespace to one space, trims, cuts without splitting a surrogate pair and appends "…" when cut.
+  - View models use it: sender 100, subject 500, To and Cc 2,000, preview 200.
+  - At most 50 attachment names, then one entry "und N weitere" from `UiText`.
+  - XAML: `MaxLines` on subject and from lines, the header area has a `MaxHeight` with a `ScrollViewer`, so the WebView2
+    stays reachable.
+
+### Should fix
+- **K8 (review S4).** Theme selection without `DisplayMemberPath` on a private record: `ComboBoxItem` with `Content` and
+  `Tag`, or an `ItemTemplate` with `x:Bind` on a public type.
+- **K9 (review S5, P4, changes D9).** Each layout keeps its own list size. `UiSettings(Layout, Theme, NavigationWidth,
+  ListWidth, ListHeight)`, defaults `SideBySide`, `System`, 280, 420, 320; keys `listWidth` and `listHeight` replace
+  `listSize` (same range 150–2000; `listSize` is now an unknown key). `ShellViewModel.ListWidth` and `ListHeight` replace
+  `ListSize`. When applying, the code-behind limits the list so that the reading pane keeps at least 200 px.
+- **K10 (builder question 1, changes D3).** `form` loses only the tag and its content stays; `input`, `button`, `select`,
+  `textarea` stay removed. Otherwise a mail wrapped in a form appears empty.
+- **K11 (builder question 2, secure N1, changes D4).** New overload
+  `DecideNavigation(string uri, bool isUserInitiated)`: when not initiated by the user, `OpenExternally` becomes `Block`;
+  `Allow` and `Block` are unchanged. `OnNavigationStarting` and `OnNewWindowRequested` use it. Case 45 confirms that a real
+  click reports `true`.
+- **K12 (secure N2).** New `WebContentPolicy.SanitizeMailto(string uri)`: keeps only the parameters `to`, `cc`, `bcc`,
+  `subject`, `body`; names compared case-insensitively. `Launcher` gets the result.
+- **K13 (secure N3).** `AllowRequest` also rejects `localhost`, loopback and private or link-local IP literals (IPv4 and
+  IPv6), even with approval. The document gets `<meta name="referrer" content="no-referrer">`; the CSP text stays exactly
+  the same. Changing the message calls `CookieManager.DeleteAllCookies()` on the WebView2.
+- **K14 (secure N4, changes D1).** `Clean` also turns U+2028 and U+2029 into a space and removes U+00AD, U+200B,
+  U+2060–U+2064, U+206A–U+206F, U+FEFF and U+E0000–U+E007F. U+200C and U+200D stay (scripts and emoji sequences). Write the
+  characters as `\u` escapes in the source, not as invisible literals (review S7).
+- **K15 (review P2).** A transition to `WaitingAfterError` or `NeedsSignIn` also reloads, so stored results of an
+  interrupted pass become visible. Coalescing as before.
+- **K16 (review S6).** Remove the duplicates:
+  - `AtomicFile` in `Infrastructure.Storage` (temp file + move, delete of the temp file best effort), used by
+    `UiSettingsFile`; `FileEmlStore` and `DpapiCredentialStore` stay for now.
+  - One subject rule; one status dictionary; one public constant for the log level in `Infrastructure.Logging`.
+
+NITs of review.1: builder's choice, except `HorizontalContentAlignment=Stretch` for list items and the `heldLock` note in
+the `StartAsync` summary. Builder question 3 (image with `attachment` and Content-ID): stays as it is.
+
+### Additional test cases (fix.2)
+| # | Case | Expected |
+|---|---|---|
+| 49 | Generated EML with 1,023 nested `multipart/mixed`, and with nested `message/rfc822`: `MailContentReader` and a sync pass with `FakeMailServer` | no process end, the message is stored and readable |
+| 50 | `MimeParserDefaults.Create()` | depth 32; a new instance each call |
+| 51 | One 1 MB inline image referenced 300 times | document at most about 34,000,000 characters of data URI; references beyond the budget removed; no exception |
+| 52 | One start tag with 100,000 attributes; 100,000 `style` declarations; positive control: a tag with 10 attributes | finishes within the test timeout; result safe; the control keeps its allowed attributes |
+| 53 | `Shorten`: whitespace runs, exactly at the limit, one over, surrogate at the cut, null | per K7 |
+| 54 | Row and reading pane with a 365 KB subject, a sender name with many spaces, 100,000 attachments | limits per K7; "und N weitere" |
+| 55 | UiSettings with `listWidth`, `listHeight`; old key `listSize`; range; round trip; `ShellViewModel` saves each | per K9; `listSize` → exception naming the key |
+| 56 | `form` with text and an input | form tag and input gone, text stays |
+| 57 | `DecideNavigation(uri, isUserInitiated)` for the document, http, mailto, javascript with true and false | per K11 |
+| 58 | `SanitizeMailto`: `attach`, `ATTACH`, `to`, `subject` with encoding, no parameters, not a mailto | per K12 |
+| 59 | `AllowRequest` with approval: `localhost`, `127.0.0.1`, `10.x`, `172.16.x`, `192.168.x`, `169.254.x`, `[::1]`, `[fe80::1]`; positive control: public host | false; true |
+| 60 | Document contains the referrer meta; CSP exact as before | per K13 |
+| 61 | `Clean` with U+2028, U+00AD, U+200B, U+FEFF, tag characters; emoji with U+200D stays | per K14 |
+| 62 | Status transition to `WaitingAfterError` and `NeedsSignIn` | one reload each, coalesced |
+| 63 | `Dispose` during a slow reload | no further read-model call after the running one, no critical log line |
+| 64 | `LoadRemoteImagesCommand` on a slow rebuild, then the next message | the old result does not overwrite the new message |
+| 65 | `OutOfMemoryException` from the reader | state `Error`, log line with the type name |
