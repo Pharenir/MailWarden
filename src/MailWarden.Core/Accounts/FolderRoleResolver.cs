@@ -10,9 +10,13 @@ namespace MailWarden.Core.Accounts;
 /// </summary>
 public static class FolderRoleResolver
 {
+    /// <summary>Full name of the top-level folder the app creates for unknown but plausible senders.</summary>
+    public const string ScreenerName = "Screener";
+
+    /// <summary>Full name of the top-level folder the app creates for certain spam.</summary>
+    public const string QuarantineName = "Quarantine";
+
     private const string InboxName = "INBOX";
-    private const string ScreenerName = "Screener";
-    private const string QuarantineName = "Quarantine";
     private const string MicrosoftArchiveName = "Archive";
     private const string MicrosoftSyncIssuesName = "Synchronisierungsprobleme";
 
