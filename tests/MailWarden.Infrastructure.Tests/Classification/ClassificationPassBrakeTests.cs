@@ -66,7 +66,7 @@ public sealed class ClassificationPassBrakeTests
             Assert.Equal(ClassificationOutcome.BrakeHeld, entry.Outcome);
             Assert.Equal(ClassificationAction.MoveToQuarantine, entry.PlannedAction);
             Assert.Equal(SpamTier.CertainSpam, entry.Tier);
-            Assert.Equal(ClassificationMode.Act, entry.Mode);
+            Assert.Equal(ClassificationMode.Act, entry.EffectiveMode);
         }
 
         Assert.Equal(mails.Max(mail => mail.Uid), (await harness.MarkerAsync(harness.Inbox))!.ClassifiedUpToUid);
@@ -157,7 +157,7 @@ public sealed class ClassificationPassBrakeTests
             Assert.Equal(ClassificationAction.MoveToInbox, entry.PlannedAction);
         }
 
-        Assert.Equal(24u, (await harness.MarkerAsync(harness.Junk))!.ClassifiedUpToUid);
+        Assert.Equal(24u, (await harness.MarkerAsync(harness.Junk!))!.ClassifiedUpToUid);
     }
 
     // Case 9, reverse: Inbox above the limit is held while Junk within it moves.
