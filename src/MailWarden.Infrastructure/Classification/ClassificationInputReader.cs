@@ -35,8 +35,9 @@ public static partial class ClassificationInputReader
 
     /// <summary>
     /// Parses the EML. Never throws for unparsable bytes: <see cref="ClassificationMessage.Parsed"/> is false then, also for
-    /// bytes in which no header was found. Input is null when no single usable From address with '@' and a domain exists (no
-    /// From header, more than one From header, more than one address, an empty group, or an address without a domain).
+    /// bytes in which no header was found. TopReceived is read before the input is built, so a failure there does not lose
+    /// it. Input is null when no single usable From address with '@' and a domain exists (no From header, more than one From
+    /// header, more than one address, an empty group, or an address without a domain) or when building the input failed.
     /// In the input, FromName is the display name ("" when absent), ReplyToAddress the first Reply-To address (null when
     /// absent), BodyText at most 200,000 characters of <see cref="MimeBodyText.Extract"/>, and LinkHosts the lower-cased hosts
     /// of http/https links from <c>&lt;a href&gt;</c> of the HTML body or, without an HTML body, from URLs in the text;
@@ -62,17 +63,61 @@ public static partial class ClassificationInputReader
                 return NoMessage();
             }
 
-            return new ClassificationMessage(true, GetTopReceived(message), CreateInput(message));
+            string? topReceived = GetTopReceived(message.Headers);
+            return new ClassificationMessage(true, topReceived, TryCreateInput(message));
         }
-        catch (Exception exception) when (exception is not (IOException or OperationCanceledException
-            or ObjectDisposedException or OutOfMemoryException))
+        catch (Exception exception) when (IsUnparsableContent(exception))
         {
-            // Mainly the FormatException of the MIME parser; the message is sender content, so it is not kept.
             return NoMessage();
         }
     }
 
+    /// <summary>
+    /// Reads only the header block and returns the same value as <see cref="ClassificationMessage.TopReceived"/> of
+    /// <see cref="ReadMessageAsync"/>: enough for the message key, without parsing the body.
+    /// </summary>
+    /// <param name="eml">Raw message, read from its current position; not disposed.</param>
+    /// <param name="ct">Cancellation token.</param>
+    /// <returns>The raw value of the top-most Received header; null when there is none or the bytes are no headers.</returns>
+    /// <exception cref="ArgumentNullException"><paramref name="eml"/> is null.</exception>
+    /// <exception cref="IOException">Reading the stream failed.</exception>
+    /// <exception cref="OperationCanceledException">The operation was cancelled.</exception>
+    public static async Task<string?> ReadTopReceivedAsync(Stream eml, CancellationToken ct = default)
+    {
+        ArgumentNullException.ThrowIfNull(eml);
+
+        try
+        {
+            HeaderList headers = await HeaderList.LoadAsync(eml, ct).ConfigureAwait(false);
+            return GetTopReceived(headers);
+        }
+        catch (Exception exception) when (IsUnparsableContent(exception))
+        {
+            return null;
+        }
+    }
+
     private static ClassificationMessage NoMessage() => new(false, null, null);
+
+    // Mainly the FormatException of the MIME parser. The exception is sender content, so nothing of it is kept. Failures of
+    // the stream and cancellation are not about the content.
+    private static bool IsUnparsableContent(Exception exception)
+    {
+        return exception is not (IOException or OperationCanceledException or ObjectDisposedException or OutOfMemoryException);
+    }
+
+    // The message parsed, so a failure here is caused by its content; the pass routes it like a message without a sender.
+    private static ClassificationInput? TryCreateInput(MimeMessage message)
+    {
+        try
+        {
+            return CreateInput(message);
+        }
+        catch (Exception exception) when (exception is not (OperationCanceledException or OutOfMemoryException))
+        {
+            return null;
+        }
+    }
 
     private static ClassificationInput? CreateInput(MimeMessage message)
     {
@@ -94,9 +139,10 @@ public static partial class ClassificationInputReader
     // Latin-1 maps every byte to one character, so nothing is decoded or lost. Unfolding only removes line breaks.
     private static string GetRawValue(Header header) => Header.Unfold(Encoding.Latin1.GetString(header.RawValue));
 
-    private static string? GetTopReceived(MimeMessage message)
+    // The one way to the value that goes into the message key, for the pass and for the retention.
+    private static string? GetTopReceived(HeaderList headers)
     {
-        Header? topReceived = message.Headers.FirstOrDefault(header => header.Id == HeaderId.Received);
+        Header? topReceived = headers.FirstOrDefault(header => header.Id == HeaderId.Received);
         if (topReceived is null)
         {
             return null;

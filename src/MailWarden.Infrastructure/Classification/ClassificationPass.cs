@@ -28,8 +28,8 @@ namespace MailWarden.Infrastructure.Classification;
 /// </para>
 /// <para>
 /// A message whose EML is missing or no message at all gets the final outcome <see cref="ClassificationOutcome.ReadFailed"/>
-/// and stays where it is. A readable message without one usable From address is caused by the sender and is routed with
-/// <see cref="ClassificationRouting.RouteWithoutSender"/>, without a tier.
+/// and stays where it is. A readable message without one usable From address, or one whose input or classification fails,
+/// is caused by the sender and is routed with <see cref="ClassificationRouting.RouteWithoutSender"/>, without a tier.
 /// </para>
 /// <para>
 /// No report or exception of this class contains subject, body or address text. Reason texts go to the local decision
@@ -38,7 +38,7 @@ namespace MailWarden.Infrastructure.Classification;
 /// </remarks>
 public sealed class ClassificationPass
 {
-    // Fixed text, no message data: stands in the Override column of a decision without a tier.
+    // Fixed text, no message data: stands in the Override column of a decision about a readable message without a tier.
     private const string NoUsableSenderReason = "Message has no single usable sender";
 
     private readonly IAccountStore accounts;
@@ -176,7 +176,8 @@ public sealed class ClassificationPass
         };
     }
 
-    // Every failure means "no decision possible"; exception messages can quote message data and are not kept.
+    // A failure on a message that parsed is caused by its content. Exception messages can quote message data and are not
+    // kept.
     private static ClassificationResult? TryClassify(SpamClassifier classifier, ClassificationInput input)
     {
         try
@@ -273,8 +274,8 @@ public sealed class ClassificationPass
             .ConfigureAwait(false);
     }
 
-    // The only way from a stored message to its EML content, used for the key of the pass and of the retention. Null when
-    // the message has no EML or the file cannot be read; the top-most Received header is unknown then.
+    // The way from a stored message to its EML content for the pass. Null when the message has no EML or the file cannot be
+    // read; the top-most Received header is unknown then.
     private async Task<ClassificationMessage?> TryReadContentAsync(MailMessage message, CancellationToken ct)
     {
         if (message.EmlPath is null)
@@ -299,6 +300,26 @@ public sealed class ClassificationPass
         }
     }
 
+    // The way to the key for the retention: same value as in TryReadContentAsync, from the header block only, because the
+    // retention looks at every quarantine mail in every pass. Not readable means its key is unknown.
+    private async Task<(bool IsReadable, string? TopReceived)> TryReadTopReceivedAsync(MailMessage message, CancellationToken ct)
+    {
+        if (message.EmlPath is null)
+        {
+            return (false, null);
+        }
+
+        try
+        {
+            await using Stream eml = await emlStore.OpenReadAsync(message.EmlPath, ct).ConfigureAwait(false);
+            return (true, await ClassificationInputReader.ReadTopReceivedAsync(eml, ct).ConfigureAwait(false));
+        }
+        catch (Exception exception) when (exception is not (OperationCanceledException or OutOfMemoryException))
+        {
+            return (false, null);
+        }
+    }
+
     // Tier and routing of one message. The outcome Enqueued is provisional: EnqueueMovesAsync replaces it when the queue
     // rejects.
     private ClassificationLogEntry Decide(
@@ -311,24 +332,17 @@ public sealed class ClassificationPass
     {
         target = null;
 
-        ClassificationResult? result = null;
-        bool hasDecision = content is { Parsed: true };
-        if (content?.Input is ClassificationInput input)
-        {
-            result = TryClassify(state.Classifier, input);
-            hasDecision = result is not null;
-        }
-
-        if (!hasDecision)
+        if (content is not { Parsed: true })
         {
             state.ReadFailed++;
             return CreateEntry(folder, message, messageKey, state, ClassificationOutcome.ReadFailed, ClassificationAction.None, null, null);
         }
 
+        ClassificationResult? result = content.Input is null ? null : TryClassify(state.Classifier, content.Input);
         ClassificationAction action;
         if (result is null)
         {
-            // Readable, but no single usable sender.
+            // Readable, but no single usable sender, or the input or the classifier failed.
             action = ClassificationRouting.RouteWithoutSender(folder.Role);
         }
         else
@@ -449,14 +463,14 @@ public sealed class ClassificationPass
                     continue;
                 }
 
-                ClassificationMessage? content = await TryReadContentAsync(message, ct).ConfigureAwait(false);
-                if (content is not { Parsed: true })
+                (bool isReadable, string? topReceived) = await TryReadTopReceivedAsync(message, ct).ConfigureAwait(false);
+                if (!isReadable)
                 {
                     continue;
                 }
 
                 ClassificationLogEntry? entry = await log
-                    .GetAsync(state.AccountId, MessageKey.For(message, content.TopReceived), ct)
+                    .GetAsync(state.AccountId, MessageKey.For(message, topReceived), ct)
                     .ConfigureAwait(false);
                 if (entry is { Outcome: ClassificationOutcome.Enqueued, PlannedAction: ClassificationAction.MoveToQuarantine }
                     && entry.ClassifiedAt.AddDays(policy.QuarantineRetentionDays) <= now)

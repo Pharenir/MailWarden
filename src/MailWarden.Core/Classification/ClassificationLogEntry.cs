@@ -14,11 +14,11 @@ namespace MailWarden.Core.Classification;
 /// <param name="PlannedAction">Action of the routing table; <see cref="ClassificationAction.None"/> for
 /// <see cref="ClassificationOutcome.ReadFailed"/>.</param>
 /// <param name="Tier">Decided tier; null for <see cref="ClassificationOutcome.ReadFailed"/> and for a readable message
-/// without one usable sender.</param>
+/// without one usable sender or that could not be evaluated.</param>
 /// <param name="Score">Sum of the points; 0 without a tier.</param>
 /// <param name="AuthStatus">Authentication state of the decision, null without a tier.</param>
-/// <param name="Override">Reason text when an allow/block/contact rule decided or the message has no single usable sender,
-/// else null.</param>
+/// <param name="Override">Reason text when an allow/block/contact rule decided, or a fixed text for a readable message
+/// without a tier, else null.</param>
 /// <param name="Signals">All findings; empty without a tier.</param>
 public sealed record ClassificationLogEntry(
     Guid AccountId,
