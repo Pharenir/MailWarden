@@ -296,7 +296,7 @@ J1 withdraws the exception part of H2. J4 belongs to D8 and is not built. `Mime\
 - **Override is null for `EvaluationFailed`:** J1 names no fixed text, and the existing text "Message has no single usable sender" would be wrong here.
 - **`EvaluationFailed` is final**, as a consequence of decision 4: the key is in the log, so after a fixed bug the mail stays where it is and counts as `SkippedKnown` (case 53). A later
   check of such mail would belong to AP-08.
-- **Stack check on the mails above the limit:** `SyncEngine` and `MailContentReader` still parse with the defaults until AP-04a is merged, as J6 says. `SyncEngine` runs before this pass, so the
+- **Other parsers:** `SyncEngine` and `MailContentReader` still parse with the defaults until AP-04a is merged, as J6 says. `SyncEngine` runs before this pass, so the
   overflow stays possible there until then.
 
 ### Tested / not tested (fix.4)
