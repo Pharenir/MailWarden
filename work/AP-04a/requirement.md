@@ -712,3 +712,39 @@ and Dennis tests the app.**
 | 93 | `<p><b title="x…">` + K × `</p><p>x` with value 1 MB × 1,000 and 100 KB × 2,000 | text fallback, `WasReduced` true, allocation guard as in case 68 |
 | 94 | Positive control: normal newsletter with repeated attributes | markup kept, `WasReduced` false |
 | 95 | The build runs on a thread of its own: a fake builder records `Thread.CurrentThread` | not a pool thread; `IsBackground` true |
+
+## Decisions fix.6 (2026-11-01, Dennis's findings from his first manual test; small round, no security round)
+Binding; they change D3, D8, D10.
+
+- **P1 (tree numbers).** The right-aligned unread numbers sit under the tree's scrollbar. Each tree row keeps room on the right so
+  that the scrollbar never covers the number (at least 16 px), in all themes.
+- **P2 (account nodes).** Account nodes in the tree are clearly visible: bold and 2-3 pt larger than the other rows.
+  `NavigationItem` gets `public bool IsAccountNode { get; }`, true only for the node of an account (not for its children and not for
+  tree parents).
+- **P3 (images in Junk and Quarantine).** Mails in a folder with role Junk or Quarantine do not show embedded images until
+  approved either: a broken image decoder is the one code path that an opened mail could reach without a click.
+  - `MailHtmlSanitizer.Sanitize` and `ReadingDocumentBuilder.Build` get a last optional parameter `bool allowEmbeddedImages = true`.
+    With false, `cid:` and `data:` images (`img src` and CSS `url()`) are removed and counted in `BlockedRemoteResourceCount`. The CSP
+    then has `img-src 'none'` unless `allowRemoteImages` is true; with both true it stays exactly as in D3.
+  - The approval through `LoadRemoteImagesCommand` allows both kinds of images for this one message. Elsewhere it allows remote
+    images as before.
+  - `IMailboxReadModel` gets `Task<FolderRole?> GetFolderRoleAsync(long folderId, CancellationToken ct = default)`.
+    `ReadingPaneViewModel` decides by the role of the message's folder, not by the selected view, so it also holds in group views. An
+    unknown folder (null) counts as Junk. A failure of this read ends in `Error` like any other read failure.
+  - The `documentBuilder` seam of `ShellViewModel` becomes `Func<MailContent, bool, bool, ReadingDocument>?`:
+    (content, allowRemoteImages, allowEmbeddedImages). A running rebuild with different values counts as another mail, as in M3.
+  - Plain-text documents are unaffected.
+- **Not now:** marking as read on selection is a switch in AP-04b, default off. A warning before opening attachments from Junk or
+  Quarantine belongs to AP-04b as well.
+
+### Additional test cases (fix.6)
+| # | Case | Expected |
+|---|---|---|
+| 96 | `IsAccountNode` for an account node, its role views, its folders, a tree parent, a group item | true only for the account node |
+| 97 | Sanitize with `allowEmbeddedImages: false`: `cid:` known, `data:` png, CSS `url(data:)`, https | all removed and counted; no `data:` image left; positive control with the default keeps the `cid:` and `data:` images |
+| 98 | Build with `allowEmbeddedImages: false`, `allowRemoteImages: false` / both true / default | CSP `img-src 'none'` / D3 with `http: https:` / D3 unchanged |
+| 99 | Mail in Junk, in Quarantine, in an unknown folder | no embedded image in the document, count includes them, `CanLoadRemoteImages` true |
+| 100 | Same mail in the Inbox and in a group view of the Inbox; mail in Junk shown through the group view Junk | Inbox: embedded images shown at once, count only remote; Junk: blocked |
+| 101 | `LoadRemoteImagesCommand` on a Junk mail, then the next mail, then the same mail again | both kinds shown for this mail; approval reset afterwards |
+| 102 | `GetFolderRoleAsync` throws (marker text) | state `Error`, marker in no text or log |
+| 103 | Read model: `GetFolderRoleAsync` for a known folder, an unknown one | role, null |
