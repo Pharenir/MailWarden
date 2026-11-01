@@ -42,12 +42,12 @@ public sealed class ReadingDocumentBuilderTests
     {
         await Task.Yield();
 
-        ReadingDocument document = ReadingDocumentBuilder.Build(ContentWith("<p id=\"body_p\">body_marker</p>"), allowRemoteImages: false);
+        ReadingDocument document = ReadingDocumentBuilder.Build(ContentWith("<p>body_marker</p>"), allowRemoteImages: false);
         IHtmlDocument parsed = Parse(document);
 
         Assert.Equal(CspBlocked, Assert.Single(CspValues(parsed)));
         Assert.Contains("body_marker", parsed.Body!.TextContent, StringComparison.Ordinal);
-        Assert.NotNull(parsed.Body.QuerySelector("#body_p"));
+        Assert.NotNull(parsed.Body.QuerySelector("p"));
     }
 
     // Case 16

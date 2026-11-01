@@ -175,15 +175,20 @@ public sealed class ReadingPaneViewModelTests
         Assert.Equal("good_subject", harness.Shell.Reading.Subject);
     }
 
-    // Case 36: cancellation is not an error and is not logged.
+    // Case 36 (planner decision): the caller's cancellation propagates; the state does not become Error, nothing is logged.
     [Fact(Timeout = TestTimeouts.PerTestMilliseconds)]
-    public async Task Cancellation_is_neither_an_error_state_nor_a_log_entry()
+    public async Task Cancellation_of_the_callers_token_propagates_and_is_neither_an_error_state_nor_a_log_entry()
     {
         (ShellHarness harness, MailFolder inbox) = NewHarness();
         MailMessage message = harness.ReadModel.AddMessage(inbox);
-        harness.ReadModel.ReadBehavior = (_, _) => throw new OperationCanceledException();
+        using var cancellation = new CancellationTokenSource();
+        harness.ReadModel.ReadBehavior = (_, _) =>
+        {
+            cancellation.Cancel();
+            throw new OperationCanceledException(cancellation.Token);
+        };
 
-        await Record.ExceptionAsync(() => harness.Shell.Reading.ShowAsync(message));
+        await Assert.ThrowsAnyAsync<OperationCanceledException>(() => harness.Shell.Reading.ShowAsync(message, cancellation.Token));
 
         Assert.NotEqual(ReadingState.Error, harness.Shell.Reading.State);
         Assert.Empty(harness.Log.Entries);
