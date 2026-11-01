@@ -113,8 +113,9 @@ public sealed class ReadingPaneBuildGuardTests
         await Wait.NegativeWindowAsync();
 
         Assert.Equal(new[] { "mail_a" }, builder.Calls.ToArray());
-        Assert.Equal(ReadingState.Ready, reading.State);
-        Assert.Contains("mail_a_html_marker", reading.DocumentHtml, StringComparison.Ordinal);
+        string diagnostic = $"state={reading.State} subject={reading.Subject} notice={reading.ContentNotice} doc={reading.DocumentHtml?[Math.Max(0, (reading.DocumentHtml?.Length ?? 0) - 400)..]}";
+        Assert.True(reading.State == ReadingState.Ready, diagnostic);
+        Assert.True(reading.DocumentHtml?.Contains("mail_a_html_marker", StringComparison.Ordinal) == true, diagnostic);
         Assert.DoesNotContain("mail_a_plain_marker", reading.DocumentHtml, StringComparison.Ordinal);
         Assert.Null(reading.ContentNotice);
         Assert.False(reading.HasContentNotice);
@@ -298,8 +299,9 @@ public sealed class ReadingPaneBuildGuardTests
         await Wait.NegativeWindowAsync();
 
         Assert.Equal(new[] { "mail_a" }, builder.Calls.ToArray());
-        Assert.Equal(ReadingState.Ready, reading.State);
-        Assert.Contains("mail_a_html_marker", reading.DocumentHtml, StringComparison.Ordinal);
+        string diagnostic = $"state={reading.State} subject={reading.Subject} notice={reading.ContentNotice} doc={reading.DocumentHtml?[Math.Max(0, (reading.DocumentHtml?.Length ?? 0) - 400)..]}";
+        Assert.True(reading.State == ReadingState.Ready, diagnostic);
+        Assert.True(reading.DocumentHtml?.Contains("mail_a_html_marker", StringComparison.Ordinal) == true, diagnostic);
     }
 
     // Case 72 (planner, L3): at most one build at a time, whatever is selected.
