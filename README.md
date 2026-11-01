@@ -68,7 +68,11 @@ the command queue (see "Command queue"). Opening a message does not mark it as r
 - **Layout:** "Ansicht wechseln" puts the list and the reading pane side by side or the list above the reading
   pane. The parts can be resized with the splitters. Layout, sizes, theme, window and the switch above are kept in
   `ui-settings.json` in the data folder.
-- **Design:** System, Hell or Dunkel changes the app. Mail content is always shown on a light background.
+- **Design:** System, Hell or Dunkel changes the app, and the reading pane follows while the app runs. In the dark
+  theme, plain text mails and mails without colours of their own turn dark. A mail with colours of its own or with
+  images stays a light sheet under a dimming veil (about a quarter darker); its colours are not changed. In the light
+  theme every mail looks as before. Known limit: if the filter removed the dark background of a mail but kept its
+  light text, the text can be light on the light sheet.
 - **Info bar:** shows notices, for example when the settings file is invalid (the defaults apply), a list cannot be
   loaded, an action failed or was only partly done, or the spam filter has a problem (see "Spam filter").
 
