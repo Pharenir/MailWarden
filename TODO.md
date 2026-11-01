@@ -1,17 +1,19 @@
 # TODO – MailWarden
 
 ## Offen
-- [ ] **Dennis: manuelle Tests nach `work\manual-tests.md`** (AP-01 Fall 30, AP-02a Fälle 28–30, AP-03a Fall 28,
-  Begründungstexte AP-07a/b) – ersetzt die Einzelpunkte unten; „fertig“ erst danach
+- [ ] **Dennis: manuelle Tests nach `work\manual-tests.md`** (AP-02a Fälle 28–30, AP-03a Fall 28,
+  Begründungstexte AP-07a/b, AP-04a Fälle 42–48 = Teil 6) – ersetzt die Einzelpunkte unten; „fertig“ erst danach
+- [ ] Wunsch Dennis 2026-11-01: je Ordner eine Grenze für Archivierung und eine eigene für Löschung einstellbar (gehört zu AP-08/AP-09; offen beim Planen: Grenze nach Alter, Anzahl oder Größe; Löschen nur über die Warteschlange, Standard aus)
+- [ ] Wunsch Dennis 2026-11-01 (AP-04b): beim Auswählen als gelesen markieren per Schalter in den Einstellungen, Standard aus; läuft als Befehl über die Warteschlange
 - [ ] AP-13: `.ico` aus `assets\mailwarden-512.png` erzeugen (Exe-Icon, Installer)
 - [ ] AP-13: WindowsAppSDK-Metapaket zieht ~38 MB KI-Komponenten (onnxruntime/DirectML) → nur benötigte Teilpakete? (Paketentscheidung Dennis)
-- [ ] AP-04: ungültiges `MAILWARDEN_DATA_DIR` beendet die App beim Start stumm → Logger + Meldungsfenster
-- [ ] AP-03/AP-04: EML überschreiben scheitert bei offenem Leser → Lesebereich lädt EML in den Speicher, Befehlswarteschlange wiederholt
+- [x] AP-04: ungültiges `MAILWARDEN_DATA_DIR` beendet die App beim Start stumm → Logger + Meldungsfenster (AP-04a: Fehlerfenster + Log; am Fenster Fall 47 offen)
+- [x] AP-03/AP-04: EML überschreiben scheitert bei offenem Leser → Lesebereich lädt EML in den Speicher (AP-04a, `IMailboxReadModel.ReadContentAsync`); Wiederholen in der Befehlswarteschlange unverändert
 
 ### Vertagt aus AP-02a (A18, secure.1/2, review.2)
 - [ ] Gemeinsamer Atomic-Write-Helfer für `FileEmlStore`/`DpapiCredentialStore` (berührt AP-01-Code)
 - [ ] `DataPaths.CredentialsDirectory` / `AuthConfigPath` (AP-02b/AP-04)
-- [ ] AP-04 Composition Root: genau **eine** `DpapiCredentialStore`-Instanz je Ordner, beide Token-Provider teilen sie;
+- [x] AP-04 Composition Root (AP-04a, `MailWardenRuntime`): genau **eine** `DpapiCredentialStore`-Instanz je Ordner, beide Token-Provider teilen sie;
   ein `MicrosoftTokenProvider` je Store
 - [ ] Logging-Regel (AP-02b/AP-04): bei `AuthenticationFailedException` nur Provider, Reason, ProviderErrorCode, Message,
   Typ der inneren Ausnahme – nie `ToString()` (innere Meldungen enthalten Servertexte bzw. Dateipfade mit Benutzername)
@@ -69,6 +71,41 @@ Original-Headern (Outlook.com); 1.870 ohne Header (vermutlich IMAP-/Gmail-Ordner
 ## Testzähler
 Testzähler: 0/4 seit letztem S3 (zuletzt 2026-10-31: S3 auf `main` @ `3f74af0` nach Merge von AP-03d,
 964/964 – Core.Tests 360, Infrastructure.Tests 604; Bericht `work\S3-main-2026-10-31-f.md`)
+
+## Session 4 (2026-11-01)
+- Entscheidungen Dennis: AP-04a und AP-07c **parallel**; HTML-Bereinigung mit Paket HtmlSanitizer; Liste und Lesebereich
+  umschaltbar nebeneinander/untereinander, Navigation immer links.
+- Planer-Entscheidung AP-07c (von Dennis 2026-11-01 vorerst bestätigt): Standard nur protokollieren, Altbestand nie automatisch,
+  Handeln ruht bei leerem Adressbuch (`work\AP-07c\requirement.md`). Folge: AP-06 (mindestens Sammeln aus Gesendet) ist
+  Voraussetzung, damit der Filter wirklich verschiebt.
+- Reihenfolge danach: AP-04a und AP-07c mergen, D8 von AP-07c (Verdrahtung in `MailWardenRuntime`), dann AP-04b / AP-06.
+
+- [ ] Wunsch aus dem Test 2026-11-01: AP-04b warnt vor dem Öffnen von Anhängen aus Junk und Quarantäne
+- [ ] AP-05: MailWarden als Standard-Mailprogramm anmeldbar machen (`mailto:`), bis dahin öffnet das eingestellte Programm
+- [ ] AP-07c (D8): beim Verschieben prüfen, ob Id und `EmlPath` gleich bleiben; sonst zeigt die offene Mail bis zur nächsten Auswahl die alte Bilder-Regel (review.6)
+- [ ] CSS `url(data:)` zählt als blockiert, bleibt aber auch nach der Freigabe entfernt; der Button verspricht dort etwas mehr (review.6)
+
+- [ ] Wunsch Dennis 2026-11-01 (AP-04b): Linkziel als Tooltip an der Maus statt unten links (`StatusBarTextChanged`, eigene Anzeige); Fremdtext bereinigen
+- [ ] Outlook.com zeigt Ordner mit `/` im Namen nicht über IMAP (Hinweismail von Microsoft 2026-11-01): Die App und der Vergleich `sync-check` sehen sie nicht. In `docs\auth-setup.md` festhalten; Dennis benennt den betroffenen Ordner um
+
+- [ ] Wunsch Dennis 2026-11-01 (nach D8 und AP-06): Bilder bei vertrauenswürdigen Mails direkt laden. Vorschlag des Planers: nach der Filter-Entscheidung `TrustedContact`, nicht nach dem Ordner, weil auch Altbestand, von Hand verschobene und nicht auswertbare Mails im Posteingang liegen; mit Dennis festlegen
+
+### Vertagt aus AP-04a
+Stand: S3 1732/1732, review.6 APPROVE (fix.6: Zahlen im Baum, Kontonamen, eingebettete Bilder in Junk/Quarantäne); davor S3 1700/1700, review.5 APPROVE, Sicherheitsbefunde aus secure.4 in fix.5 behoben; eine weitere Sicherheitsprüfung
+gibt es nach Entscheidung von Dennis nicht. Alles unterhalb „Hoch“ steht hier.
+- [ ] **Fälle 42–48 offen** (manuell Dennis, `work\manual-tests.md` Teil 6): die Oberfläche wurde noch nie ausgeführt
+- [ ] N3-Schätzung zählt die Kodierung nicht mit: eine 1-MB-Mail kann 336 Mio. Zeichen ergeben (review S12, Medium).
+  Vorschlag: kodierte Zeichen mit ihrer Ausgabelänge zählen
+- [ ] AP-07c: Klassifizierer-Signal für Inhalte unterhalb der MIME-Tiefe 32 (`HasOpaqueParts`, secure N1)
+- [ ] Restrisiko nach „Bilder laden“: ein öffentlicher Name, der auf eine private Adresse auflöst, und Weiterleitungen
+  (ungeprüft)
+- [ ] Inline-Bilder ab ca. 24,3 MB verlieren das letzte Bild
+- [ ] Parser-Budget-Abbruch trifft Word/Outlook-Mails ab ca. 12.000 gestylten Tags (976 KB): alle Links und Bilder der Mail
+  fehlen, der Hinweis erscheint
+- [ ] Ein hängender Aufbau des Lesedokuments kostet jede weitere Mail bis zu 5 s (nur ein Aufbau zugleich)
+- [ ] Mögliche spätere Härtung: HTML-Aufbereitung in einem eigenen Hilfsprozess (Dennis hat die Extrarunde fix.5
+  vorgezogen)
+- [ ] Zu erledigen in AP-04b: Konten-UI, Aktionen, Suche, Anhänge öffnen/speichern
 
 ## Stand 2026-10-31 (Session 2, Ende)
 **CPM erledigt:** `chore/app-icon`, AP-01, AP-07a, AP-02a per `--no-ff` nach `main` gemergt, Build grün
@@ -161,13 +198,13 @@ Fall 30 (AuthProbe abbrechen) bleibt vorerst offen (Dennis 2026-10-31).
   `_scratch\service-probe` retten, Probes (`sync-probe`, `command-probe`, `shiftdel-probe`) auf `DataFolderLock` umstellen.
 
 ### Vertagt aus AP-03d (für AP-04)
-- [ ] SQLite: je Ablauf (Konto-Zyklus, IDLE-Watcher, UI) eine eigene `SqliteDatabase`-Verbindung; Komposition der Probe
+- [x] (AP-04a, `RuntimeConnections`/`AccountPipelines`, Fall 27) SQLite: je Ablauf (Konto-Zyklus, IDLE-Watcher, UI) eine eigene `SqliteDatabase`-Verbindung; Komposition der Probe
   in eine Produktionsklasse überführen; Test „zwei Konten schreiben parallel“ (SQLITE_BUSY) (review O1)
-- [ ] Sperre (`DataFolderLock`) vor `InitializeAsync` nehmen (O2)
-- [ ] Ausnahmen aus `StatusChanged`-Handlern als kritisch protokollieren (G3)
-- [ ] „Aktualisieren“ im Fehlerzustand ruft `RetryAccount`; UI filtert `CurrentStatus` gegen die Kontoliste;
+- [x] Sperre (`DataFolderLock`) vor `InitializeAsync` nehmen (O2) (AP-04a, Fälle 24–26)
+- [ ] Ausnahmen aus `StatusChanged`-Handlern als kritisch protokollieren (G3) – AP-04a: Handler der Oberfläche erledigt (Fall 38), im Dienst selbst offen
+- [x] (AP-04a, Fälle 38/39; offen bleibt nur der Backoff-Teil) „Aktualisieren“ im Fehlerzustand ruft `RetryAccount`; UI filtert `CurrentStatus` gegen die Kontoliste;
   `RetryAccount` verkürzt das Watcher-Backoff nicht (IDLE bis 30 min aus, Polling fängt ab) – ggf. ändern (review.2 NIT 1)
-- [ ] Security-Prüfung für AP-04 (gemeinsame Token-Caches, Logging, Enqueue aus der UI) – Empfehlung Reviewer
+- [x] Security-Prüfung für AP-04 (gemeinsame Token-Caches, Logging, Enqueue aus der UI) – für AP-04a erfolgt (secure.1–4); Enqueue aus der UI folgt mit AP-04b
 
 ### Vertagt aus AP-03c
 - [ ] AP-03d: benannter Mutex je Datenordner um `ExecutePendingAsync` (secure N3; App/Dienst/Probe parallel)
@@ -206,7 +243,7 @@ AP-03 neu geteilt: AP-03b = Abgleich robust/schnell, **AP-03c** = Befehlswartesc
   normaler Ordner abgeglichen (Duplikate) → per Profil ausblenden wie All Mail
 - [ ] AP-03b: Mail, die jedes Mal `ImapProtocolException` auslöst, blockiert weiter das Konto (MailKit trennt) → mit Reconnect lösen
 - [ ] AP-04: Logging-Regel `SyncReport` – nur Typ, Rolle, Ordner-ID; nie `Error`-Text oder Ordnername (secure N1)
-- [ ] UI-AP: Steuer-/Bidi-Zeichen (RTLO) in Betreff/Absendername/Ordnernamen beim Anzeigen entschärfen
+- [x] UI-AP: Steuer-/Bidi-Zeichen (RTLO) in Betreff/Absendername/Ordnernamen beim Anzeigen entschärfen (AP-04a, `SafeDisplayText`, Fall 1)
 
 ### Vertagt aus AP-07b
 - [ ] Eine Regel für alle Dateilader (AuthConfiguration, ClassifierSettingsFile, FileEmlStore): IO-Fehler mit

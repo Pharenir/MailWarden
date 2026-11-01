@@ -80,9 +80,9 @@ Später: Naive Bayes aus Dennis’ Entscheidungen, Domain-Alter per RDAP.
 |---|---|---|
 | AP-00 | **Spike Anmeldung:** MS-App-Registrierung (Kostenprüfung), MSAL-Login + MailKit-IMAP gegen hotmail.de; Google-Cloud-Projekt, OAuth-Login + IMAP gegen Gmail. Konsolenprogramm in `_scratch\`. | Go/No-Go, `docs\auth-setup.md` mit Schritt-für-Schritt-Anleitung |
 | AP-01 | Solution-Skelett (inkl. startfähiger WinUI-3-Leer-App als Tooling-Check), Core-Modell (Account, Folder, Message, Contact), SQLite-Schema + Migration, EML-Store, FTS5 | Build grün, Storage-Tests |
-| AP-02 | Kontenverwaltung + Zugangsdaten (DPAPI), Token-Cache, Provider-Profile. **AP-02a** ohne UI (Credential-Store, OAuth MS/Google, Provider-Profile, Ordnerrollen, Konto-Service, Verbindungstest); **AP-02b** = Konten-UI mit AP-04 | Konto anlegen/löschen/testen |
+| AP-02 | Kontenverwaltung + Zugangsdaten (DPAPI), Token-Cache, Provider-Profile. **AP-02a** ohne UI (Credential-Store, OAuth MS/Google, Provider-Profile, Ordnerrollen, Konto-Service, Verbindungstest); **AP-02b** = Konten-UI mit AP-04b | Konto anlegen/löschen/testen |
 | AP-03 | Sync-Engine: Ordnerliste, inkrementeller Sync (UIDVALIDITY, UIDNEXT, Flags), IDLE für Posteingang, Junk-Ordner immer mitsynchronisieren, Befehlswarteschlange (Move/Delete/Flag) mit Wiederholung. **AP-03a** = Transport + Abgleich Server → lokal (Ordner, Mails, Flags, Löschungen, UIDVALIDITY, Schema v2); **AP-03b** = Abgleich robust und schnell (Blöcke, Fortschritt, Wiederverbindung im Lauf, Gmail Important); **AP-03c** = Befehlswarteschlange lokal → Server; **AP-03d** = Hintergrunddienst (Zeitplan, IDLE) | Mails aller Konten lokal, Änderungen beidseitig |
-| AP-04 | WinUI-3-Oberfläche: Gruppenansichten Posteingang/Gesendet/Postausgang/Screener/Junk/Quarantäne über alle Konten, dieselben Ansichten je Konto, Ordnerbaum, Lesebereich (WebView2, bereinigt), Light/Dark/System | Lesen aller Konten in einer Ansicht |
+| AP-04 | WinUI-3-Oberfläche: Gruppenansichten Posteingang/Gesendet/Postausgang/Screener/Junk/Quarantäne über alle Konten, dieselben Ansichten je Konto, Ordnerbaum, Lesebereich (WebView2, bereinigt), Light/Dark/System. **AP-04a** = nur lesen (Laufzeit, Ansichten, Liste, Lesebereich, umschaltbare Aufteilung); **AP-04b** = Konten-UI (AP-02b), Aktionen, Suche, Anhänge | Lesen aller Konten in einer Ansicht |
 | AP-05 | Verfassen/Antworten/Weiterleiten, SMTP-Versand je Konto, Anhänge, Signatur je Konto, Gesendet-Ordner | Senden von allen Konten |
 
 ### Phase 2 – Der eigentliche Grund
@@ -134,7 +134,7 @@ Spalten *Umgesetzt* / *Getestet* geführt. Vorab festgelegt:
 | 5 | Ältere Schema-Version → Migration läuft; unbekannte höhere Version → `SchemaVersionException` vor jedem Schreibzugriff (fail fast) | `SqliteDatabase` (Migration 0→1; v2 existiert noch nicht) | `SqliteDatabaseTests` (2, 3) – Migration aus echter Altversion erst mit v2 testbar |
 | 6 | `ListAsync(MessageQuery)` liefert Mails nach Ordner-Rolle über alle Konten oder gefiltert auf ein Konto, neueste zuerst, mit Limit/Offset – Grundlage der Gruppenansichten | `SqliteMessageStore.ListAsync`, Ausdrucksindizes (D4) | `SqliteMessageStoreTests` (12–16, 15a) |
 | 7 | Fremdschlüssel: Mail für unbekannten Ordner → `StorageException`; Konto löschen entfernt Ordner und Mails (Cascade) | Schema v1 + `MessageSearchIndex` | `SqliteAccountStoreTests`, `SqliteFolderStoreTests` (11, 22, 23, D16) |
-| 8 | WinUI-3-Leer-App baut mit `dotnet build` ohne Visual Studio und startet unpackaged (Fenster „MailWarden“, folgt dem Windows-Farbschema) | `src\MailWarden.App` (baut) | manuell Dennis – offen |
+| 8 | WinUI-3-Leer-App baut mit `dotnet build` ohne Visual Studio und startet unpackaged (Fenster „MailWarden“, folgt dem Windows-Farbschema) | `src\MailWarden.App` (baut) | ✔ Dennis 2026-11-01: startet, Ordner `data\` entsteht, Hell/Dunkel folgt Windows |
 
 Vollständiger Schnittstellenvertrag: `work\AP-01\requirement.md`.
 
@@ -204,6 +204,44 @@ Vollständiger Schnittstellenvertrag: `work\AP-03c\requirement.md`.
 | 6 | Echte Konten: 10 min Dienstlauf ohne Fehler, Testmail löst sofort einen Abgleich aus, sauberes Beenden | ✅ Werkzeug `_scratch\service-probe` (git-ignoriert, im Worktree), Nutzung: `work\AP-03d\serviceprobe-usage.md`; Komposition mit eigener SQLite-Verbindung je Konto und Ablauf, siehe `work\AP-03d\impl-notes.md` O1 | ✅ Fall 19 (Planner, 2026-10-31, 15 min, alle drei Konten): Start ohne Fehler; zweite Instanz „in Benutzung“; Testmail von Dennis → IDLE-Meldung 19:19:53, Abgleich 19:19:55–56 (Posteingang +1); IDLE nach 9 min bei allen Konten erneuert; Beenden in 0,1 s, Sperre freigegeben |
 
 Vollständiger Schnittstellenvertrag: `work\AP-03d\requirement.md`.
+
+### AP-04a Oberfläche, nur lesen
+Parallel zu AP-07c (Dennis 2026-11-01). HTML-Bereinigung mit HtmlSanitizer (Freigabe Dennis 2026-11-01). AP-04b folgt:
+Konten-UI (AP-02b), Aktionen, Suche, Anhänge.
+
+Stand: fix.6 aus dem ersten Test von Dennis: verify.6 S3 **1732/1732** (Core 430, Infrastructure 958, Presentation 344), review.6 APPROVE. Dennis 2026-11-01: App startet, Links und `mailto:` öffnen das Standardprogramm, Abgleich bringt neue Mails, kein Gelesen-Befund im Webmail. Zweiter Durchgang: Linkziel sichtbar, neue Mail erscheint schnell, zweite Instanz mit Hinweis blockiert, fix.6 passt (Zahlen, Kontonamen, Bildsperre in Junk). Davor: verify.5 S3 1700/1700, review.5 APPROVE; die Sicherheitsbefunde
+aus secure.4 sind in fix.5 behoben, eine weitere Sicherheitsprüfung gibt es nach Entscheidung Dennis nicht. Fälle 1–41 und
+die Zusatzfälle 49–95 sind automatisiert. **Die Oberfläche selbst (Fenster, XAML, WebView2-Control) wurde nie ausgeführt**:
+was nur der manuelle Test belegt, steht als „manuell Dennis – offen“ (Fälle 42–48, `work\manual-tests.md` Teil 6).
+| # | Sollverhalten | Umgesetzt | Getestet |
+|---|---|---|---|
+| 1 | App startet Laufzeit und Hintergrunddienst; Sperre vor dem Öffnen der DB; Fehler beim Start (ungültiger Datenordner, „in Benutzung“) zeigen ein Fenster statt stillem Ende | ✅ `Infrastructure\Composition\MailWardenRuntime.cs` (Sperre vor `InitializeAsync`), `AccountPipelines.cs`, `RuntimeConnections.cs` (eine Verbindung je Ablauf), `MailboxService` mit `heldLock`, `App\App.xaml.cs` (Fehlerfenster, Beenden schließt die Laufzeit) | ✅ Fälle 24–28 (Sperre, Öffnen/Schließen, `heldLock`, parallele Schreiber, kritisches Log). Ungetestet: **Fenster bei Startfehler, Start und Beenden mit echten Daten – manuell Dennis – offen** (Fälle 42, 47) |
+| 2 | Gruppenansichten Posteingang/Gesendet/Postausgang/Screener/Junk/Quarantäne über alle Konten, dieselben je Konto, übrige Ordner als Baum, Ungelesen-Zähler | ✅ `Presentation\MailView.cs`, `FolderTree.cs`, `NavigationViewModel.cs`, `IMessageStore.CountUnreadAsync`; `App\MainWindow.xaml` | ✅ Fälle 20–22, 29, 30. Ungetestet: **Baum, Vorauswahl „Posteingang“ und Zähler im echten Fenster – manuell Dennis – offen** (Fall 42) |
+| 3 | Mail-Liste neueste zuerst, seitenweise, Konto in jeder Zeile; neue Mails erscheinen nach dem Abgleich ohne Benutzeraktion | ✅ `Presentation\MessageListViewModel.cs`, `ShellViewModel.cs` (Statusbeobachtung, Aktualisieren) | ✅ Fälle 31–34, 38, 39. Ungetestet: **Nachladen beim Scrollen und neue Mail im laufenden Betrieb – manuell Dennis – offen** (Fall 46) |
+| 4 | Liste und Lesebereich umschaltbar nebeneinander/untereinander, Navigation immer links; Wahl und Größen bleiben erhalten | ✅ `Presentation\UiSettings.cs`, `UiSettingsFile.cs` (`ui-settings.json`), `App\PaneSplitter.cs`, `MainWindow.xaml` | ✅ Fälle 23, 40 (Datei, Speichern, Fehler). Ungetestet: **Umschalten, Splitter, Größen nach Neustart – manuell Dennis – offen** (Fall 43) |
+| 5 | Lesebereich: HTML bereinigt, kein Skript, externe Inhalte blockiert bis „Bilder laden“ je Mail; Links öffnen nur im Standardbrowser | ✅ `Infrastructure\Mime\MailContentReader.cs`, `MailHtmlSanitizer.cs`, `HtmlNestingLimiter.cs`, `ReadingDocumentBuilder.cs`; `Presentation\WebContentPolicy.cs`, `ReadingPaneViewModel.cs` (Hinweis `ContentNotice`); `App\MailWebViewHost.cs`. Schutz gegen präparierte Mails (Grenzen, Parser-Budget, Aufbau im eigenen Thread), Restpunkte in `TODO.md` | ✅ Fälle 2–19, 36, 37 und Zusatzfälle 49–95. Ungetestet: **WebView2-Verdrahtung im WinUI-Control (nur per Probe mit dem WinForms-Control belegt), „Bilder laden“, Klick auf Links, Hinweis bei gekürzten Mails, `mailto:` – manuell Dennis – offen** (Fall 45) |
+| 6 | Fremdtexte ohne Steuer-/Bidi-Zeichen; Logs enthalten nur Typnamen und feste Texte | ✅ `Core\Text\SafeDisplayText.cs`, `Presentation\MailDisplayText.cs`, `Infrastructure\Logging\CriticalFileLog.cs` | ✅ Fälle 1, 7, 22, 28, 36, 38 (Markertext erscheint nie in Anzeige oder Log) |
+| 7 | Keine Änderung am Server durch die Oberfläche (auch Lesen setzt kein `\Seen`) | ✅ `IMailboxReadModel` (nur Lesemember), `IMailboxController` (nur Trigger/Retry) | ✅ Fall 41 (Reflexion, aufgezeichnete Aufrufe, Lesen setzt kein `\Seen`). Ungetestet: **Webmail nach dem Lesen unverändert – manuell Dennis – offen** (Fall 48) |
+| 8 | Hell/Dunkel/System umschaltbar; Mail-Inhalt immer auf hellem Grund | ✅ `Presentation\UiSettings.cs` (`AppTheme`), `MainWindow.xaml` (`RequestedTheme`), `ReadingDocumentBuilder` (heller Grund) | ✅ Fall 40 (Wechsel, Speichern). Ungetestet: **Aussehen beider Designs – manuell Dennis – offen** (Fall 44) |
+
+Vollständiger Schnittstellenvertrag: `work\AP-04a\requirement.md`.
+
+### AP-07c Anbindung des Klassifizierers
+Sicherheitsregeln (Planer 2026-11-01): Standard nur protokollieren; Altbestand wird nie automatisch einsortiert; Handeln
+ruht, solange das Adressbuch leer ist (→ AP-06); je Mail nur eine Entscheidung; Aufbewahrung Standard 0 = nie löschen.
+| # | Sollverhalten | Umgesetzt | Getestet |
+|---|---|---|---|
+| 1 | Nach dem Abgleich werden nur neu eingetroffene Mails aus Posteingang und Junk klassifiziert; erster Lauf setzt nur die Marke | | |
+| 2 | Jede Entscheidung wird mit Stufe, Punkten und allen Begründungen gespeichert, auch beim bloßen Protokollieren | | |
+| 3 | Modus `Act`: Verschieben über die Warteschlange nach Tabelle (Posteingang → Screener/Junk/Quarantäne; Junk → Posteingang nur für `TrustedContact`) | | |
+| 4 | Fehlende Ordner `Screener`/`Quarantine` werden angelegt; schlägt das fehl, bleibt die Mail liegen, nichts geht verloren | | |
+| 5 | Eine von Hand zurückgeholte Mail wird nicht erneut entschieden | | |
+| 6 | Aufbewahrung Quarantäne: nur von der App verschobene Mails, Uhr ist der Entscheidungszeitpunkt; 0 = nie | | |
+| 7 | Schema v5 migriert ältere Datenbanken ohne Datenverlust | | |
+| 8 | Echte Daten: Bestand auf einer Kopie plausibel; am Server nur nach Freigabe mit Testmails von Dennis | | |
+
+Vollständiger Schnittstellenvertrag: `work\AP-07c\requirement.md`. Verdrahtung in die Laufzeit (D8) erst, wenn AP-04a
+und AP-07c auf `main` liegen.
 
 ### AP-07b Kalibrierung + Einstellungsdatei
 | # | Sollverhalten | Umgesetzt | Getestet |

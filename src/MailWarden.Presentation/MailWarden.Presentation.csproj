@@ -1,0 +1,13 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <!-- View models and UI policies without any WinUI reference, so they can be tested without a window. -->
+  <PropertyGroup>
+    <TargetFramework>net9.0-windows</TargetFramework>
+    <RootNamespace>MailWarden.Presentation</RootNamespace>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\MailWarden.Infrastructure\MailWarden.Infrastructure.csproj" />
+  </ItemGroup>
+
+</Project>

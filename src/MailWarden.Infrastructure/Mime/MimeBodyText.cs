@@ -58,6 +58,16 @@ public static class MimeBodyText
         return htmlWriter.ToText();
     }
 
+    /// <summary>The text of an HTML string, as <see cref="Extract"/> gets it from an HTML body. Linear in the length of the HTML.</summary>
+    /// <param name="html">HTML.</param>
+    /// <returns>The collapsed and trimmed text.</returns>
+    internal static string ExtractFromHtml(string html)
+    {
+        var writer = new CollapsingWriter(int.MaxValue);
+        AppendHtmlText(html, writer);
+        return writer.ToText();
+    }
+
     /// <summary>
     /// Cuts an already collapsed text to <paramref name="maxChars"/> the same way <see cref="Extract"/> does, so a
     /// shorter preview can be derived from one long extraction.
