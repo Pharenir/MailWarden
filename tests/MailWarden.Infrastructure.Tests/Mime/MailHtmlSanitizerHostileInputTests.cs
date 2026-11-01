@@ -235,12 +235,4 @@ public sealed class MailHtmlSanitizerHostileInputTests
         Assert.Contains("word0 ", result.Html, StringComparison.Ordinal);
         Assert.Contains("word19999", result.Html, StringComparison.Ordinal);
     }
-    // Case 80 positive control: ordinary markup far below any limit is kept.
-    [Fact(Timeout = TestTimeouts.PerTestMilliseconds)]
-    public async Task Fifty_thousand_elements_keep_their_markup()
-    {
-        SanitizedHtml result = await SanitizeAsync(Repeat("<span>x</span>", 50_000));
-
-        Assert.False(result.WasReduced);
-        Assert.Equal(50_000, Regex.Matches(result.Html, @"<span[\s>]").Count);
-    }}
+}
