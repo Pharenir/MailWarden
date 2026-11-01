@@ -151,6 +151,8 @@ internal sealed class FakeMailboxController : IMailboxController
 
     public event EventHandler<AccountSyncStatus>? StatusChanged;
 
+    public event EventHandler<ClassificationPassSummary>? ClassificationPassCompleted;
+
     public IReadOnlyList<AccountSyncStatus> CurrentStatus { get; set; } = [];
 
     public IReadOnlyList<(string Kind, Guid AccountId)> Calls
@@ -191,6 +193,12 @@ internal sealed class FakeMailboxController : IMailboxController
 
         StatusChanged?.Invoke(this, status);
     }
+
+    /// <summary>Raises the classification event on the calling thread.</summary>
+    public void RaiseClassification(ClassificationPassSummary summary) => ClassificationPassCompleted?.Invoke(this, summary);
+
+    /// <summary>Raises the classification event on a thread-pool thread, as the cycle of the real runtime does.</summary>
+    public Task RaiseClassificationOnPoolAsync(ClassificationPassSummary summary) => Task.Run(() => RaiseClassification(summary));
 
     /// <summary>Raises the event on a thread-pool thread, as the real service does.</summary>
     public Task RaiseOnPoolAsync(AccountSyncStatus status) => Task.Run(() => Raise(status));
