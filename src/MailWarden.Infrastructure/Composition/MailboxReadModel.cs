@@ -36,6 +36,13 @@ internal sealed class MailboxReadModel : IMailboxReadModel
         return RunSerialisedAsync(innerToken => folders.ListAsync(accountId, innerToken), ct);
     }
 
+    public Task<FolderRole?> GetFolderRoleAsync(long folderId, CancellationToken ct = default)
+    {
+        return RunSerialisedAsync(
+            async innerToken => (await folders.GetAsync(folderId, innerToken).ConfigureAwait(false))?.Role,
+            ct);
+    }
+
     public Task<IReadOnlyList<MailMessage>> ListMessagesAsync(MessageQuery query, CancellationToken ct = default)
     {
         return RunSerialisedAsync(innerToken => messages.ListAsync(query, innerToken), ct);

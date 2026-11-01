@@ -46,7 +46,8 @@ public sealed class ShellViewModel : ObservableObject, IDisposable
     /// <param name="log">Critical log.</param>
     /// <param name="timeProvider">Clock of the date texts and of the time limit of the document build.</param>
     /// <param name="documentBuilder">
-    /// Builds the reading document from content and image approval; null means <see cref="ReadingDocumentBuilder.Build"/>.
+    /// Builds the reading document from content, approval of remote images and approval of embedded images; null means
+    /// <see cref="ReadingDocumentBuilder.Build"/>.
     /// </param>
     /// <exception cref="ArgumentNullException">A parameter is null.</exception>
     public ShellViewModel(
@@ -56,7 +57,7 @@ public sealed class ShellViewModel : ObservableObject, IDisposable
         IUiSettingsStore settings,
         ICriticalLog log,
         TimeProvider timeProvider,
-        Func<MailContent, bool, ReadingDocument>? documentBuilder = null)
+        Func<MailContent, bool, bool, ReadingDocument>? documentBuilder = null)
     {
         ArgumentNullException.ThrowIfNull(readModel);
         ArgumentNullException.ThrowIfNull(timeProvider);

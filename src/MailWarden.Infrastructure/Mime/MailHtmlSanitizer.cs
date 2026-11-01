@@ -124,16 +124,23 @@ public static partial class MailHtmlSanitizer
     /// Cleans the HTML on any input; malformed HTML never throws. Removed entirely: script, style, iframe, frame, object,
     /// embed, applet, input, button, select, textarea, link, meta, base, svg, math, video, audio, source, template; form
     /// loses only its tag. Remote images and remote style URLs stay only when <paramref name="allowRemoteImages"/> is
-    /// true; otherwise they are removed and counted. Inserted inline images use at most 34,000,000 characters per document;
+    /// true; otherwise they are removed and counted. With <paramref name="allowEmbeddedImages"/> false the same holds for
+    /// <c>cid:</c> and <c>data:</c> images, in <c>img src</c> and CSS <c>url()</c>, because a broken image decoder is the one
+    /// code path that an opened mail could reach without a click. Inserted inline images use at most 34,000,000 characters per document;
     /// images over this budget are removed. When parsing exceeds 256 MB of allocation or 3 s, or the output would exceed
     /// 64,000,000 characters, the result is the encoded text of the HTML without any markup.
     /// </summary>
     /// <param name="html">Raw HTML of a mail body.</param>
     /// <param name="inlineImages">Content-ID → data URI, the targets of <c>cid:</c> image sources.</param>
     /// <param name="allowRemoteImages">True when the user approved remote images for this message.</param>
-    /// <returns>The cleaned body content, the number of blocked remote resources and whether a limit reduced it.</returns>
+    /// <param name="allowEmbeddedImages">False for a mail in Junk or Quarantine that the user has not approved.</param>
+    /// <returns>The cleaned body content, the number of blocked resources and whether a limit reduced it.</returns>
     /// <exception cref="ArgumentNullException"><paramref name="html"/> or <paramref name="inlineImages"/> is null.</exception>
-    public static SanitizedHtml Sanitize(string html, IReadOnlyDictionary<string, string> inlineImages, bool allowRemoteImages)
+    public static SanitizedHtml Sanitize(
+        string html,
+        IReadOnlyDictionary<string, string> inlineImages,
+        bool allowRemoteImages,
+        bool allowEmbeddedImages = true)
     {
         ArgumentNullException.ThrowIfNull(html);
         ArgumentNullException.ThrowIfNull(inlineImages);
@@ -154,7 +161,8 @@ public static partial class MailHtmlSanitizer
         bool wasFlattened = PruneElements(body);
         PackageSanitizer.SanitizeDom(document, body);
         var inlineImageBudget = new InlineImageBudget();
-        int blockedCount = ApplyUrlRules(body, inlineImages, inlineImageBudget, allowRemoteImages);
+        var imageRules = new ImageRules(inlineImages, inlineImageBudget, allowRemoteImages, allowEmbeddedImages);
+        int blockedCount = ApplyUrlRules(body, imageRules);
         if (ExceedsOutputBudget(body))
         {
             return ToTextOnly(limited);
@@ -297,18 +305,14 @@ public static partial class MailHtmlSanitizer
     }
 
     // Final step on the elements the package left: decides about every URL that can still load or open something.
-    private static int ApplyUrlRules(
-        IElement body,
-        IReadOnlyDictionary<string, string> inlineImages,
-        InlineImageBudget inlineImageBudget,
-        bool allowRemoteImages)
+    private static int ApplyUrlRules(IElement body, ImageRules rules)
     {
         int blockedCount = 0;
         foreach (IElement element in body.QuerySelectorAll("*").ToArray())
         {
             if (element.LocalName == "img")
             {
-                blockedCount += ApplyImageRule(element, inlineImages, inlineImageBudget, allowRemoteImages);
+                blockedCount += ApplyImageRule(element, rules);
                 if (element.Parent is null)
                 {
                     continue;
@@ -328,7 +332,7 @@ public static partial class MailHtmlSanitizer
                 element.RemoveAttribute("href");
             }
 
-            blockedCount += ApplyStyleRules(element, allowRemoteImages);
+            blockedCount += ApplyStyleRules(element, rules);
         }
 
         return blockedCount;
@@ -343,12 +347,8 @@ public static partial class MailHtmlSanitizer
         }
     }
 
-    // Returns the number of blocked remote resources (0 or 1).
-    private static int ApplyImageRule(
-        IElement image,
-        IReadOnlyDictionary<string, string> inlineImages,
-        InlineImageBudget inlineImageBudget,
-        bool allowRemoteImages)
+    // Returns the number of blocked resources (0 or 1). A blocked image stays as an element without source, with its alt text.
+    private static int ApplyImageRule(IElement image, ImageRules rules)
     {
         string? source = image.GetAttribute("src");
         if (source is null)
@@ -359,7 +359,19 @@ public static partial class MailHtmlSanitizer
         switch (ReadScheme(source)?.ToLowerInvariant())
         {
             case "cid":
-                if (FindInlineImage(source, inlineImages) is string dataUri && inlineImageBudget.TryInsert(dataUri))
+                if (FindInlineImage(source, rules.InlineImages) is not string dataUri)
+                {
+                    image.Remove();
+                    return 0;
+                }
+
+                if (!rules.AllowEmbeddedImages)
+                {
+                    image.RemoveAttribute("src");
+                    return 1;
+                }
+
+                if (rules.Budget.TryInsert(dataUri))
                 {
                     image.SetAttribute("src", dataUri);
                 }
@@ -374,13 +386,20 @@ public static partial class MailHtmlSanitizer
                 if (!IsAllowedDataImage(source))
                 {
                     image.Remove();
+                    return 0;
+                }
+
+                if (!rules.AllowEmbeddedImages)
+                {
+                    image.RemoveAttribute("src");
+                    return 1;
                 }
 
                 return 0;
 
             case "http":
             case "https":
-                if (allowRemoteImages)
+                if (rules.AllowRemoteImages)
                 {
                     return 0;
                 }
@@ -409,8 +428,10 @@ public static partial class MailHtmlSanitizer
         return match.Success && DataImageTypes.Contains(match.Groups[1].Value);
     }
 
-    // Removes url() declarations and "position: fixed" from the inline style; returns the number of blocked remote URLs.
-    private static int ApplyStyleRules(IElement element, bool allowRemoteImages)
+    // Removes url() declarations and "position: fixed" from the inline style; returns the number of blocked URLs. Style URLs
+    // other than remote ones are always removed; while embedded images are blocked, those of cid: and data: count, so that
+    // the user sees that something is withheld.
+    private static int ApplyStyleRules(IElement element, ImageRules rules)
     {
         if (!element.HasAttribute("style"))
         {
@@ -442,11 +463,14 @@ public static partial class MailHtmlSanitizer
                 else
                 {
                     isAllowed = false;
+                    bool isEmbedded = string.Equals(scheme, "data", StringComparison.OrdinalIgnoreCase)
+                        || string.Equals(scheme, "cid", StringComparison.OrdinalIgnoreCase);
+                    blockedCount += isEmbedded && !rules.AllowEmbeddedImages ? 1 : 0;
                 }
             }
 
             // A value mixing a remote URL with another one is removed but still counted.
-            if (remoteUrlCount > 0 && !allowRemoteImages)
+            if (remoteUrlCount > 0 && !rules.AllowRemoteImages)
             {
                 blockedCount += remoteUrlCount;
                 isAllowed = false;
@@ -485,6 +509,17 @@ public static partial class MailHtmlSanitizer
         Match match = UrlScheme().Match(StripUrlWhitespace(url));
         return match.Success ? match.Groups[1].Value : null;
     }
+
+    /// <summary>What the final step may keep of the images of one document.</summary>
+    /// <param name="InlineImages">Content-ID → data URI.</param>
+    /// <param name="Budget">Budget for inserted inline images.</param>
+    /// <param name="AllowRemoteImages">True when remote images stay.</param>
+    /// <param name="AllowEmbeddedImages">True when <c>cid:</c> and <c>data:</c> images stay.</param>
+    private sealed record ImageRules(
+        IReadOnlyDictionary<string, string> InlineImages,
+        InlineImageBudget Budget,
+        bool AllowRemoteImages,
+        bool AllowEmbeddedImages);
 
     /// <summary>Ends the parser from inside its token callback.</summary>
     private sealed class ParserBudgetExceededException : Exception

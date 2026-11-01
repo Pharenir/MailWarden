@@ -45,7 +45,7 @@ public sealed class ReadingPaneViewModel : ObservableObject
     private readonly ICriticalLog log;
     private readonly TimeProvider timeProvider;
     private readonly RelayCommand loadRemoteImagesCommand;
-    private readonly Func<MailContent, bool, ReadingDocument> documentBuilder;
+    private readonly Func<MailContent, bool, bool, ReadingDocument> documentBuilder;
     private ReadingState state = ReadingState.Empty;
     private string subject = string.Empty;
     private string from = string.Empty;
@@ -65,13 +65,13 @@ public sealed class ReadingPaneViewModel : ObservableObject
     // The newest build. It cannot be stopped once it runs, so it may outlive the message it was started for.
     private Task<ReadingDocument>? runningBuild;
     private long runningBuildMessageId;
-    private bool runningBuildAllowsImages;
+    private ImageApproval runningBuildApproval;
 
     internal ReadingPaneViewModel(
         IMailboxReadModel readModel,
         ICriticalLog log,
         TimeProvider timeProvider,
-        Func<MailContent, bool, ReadingDocument> documentBuilder)
+        Func<MailContent, bool, bool, ReadingDocument> documentBuilder)
     {
         this.readModel = readModel;
         this.log = log;
@@ -212,8 +212,8 @@ public sealed class ReadingPaneViewModel : ObservableObject
         State == ReadingState.Ready && BlockedRemoteResourceCount > 0 && !AreRemoteImagesAllowed;
 
     /// <summary>
-    /// Rebuilds the document with remote images allowed, off the UI thread and without reading the EML again. The approval
-    /// holds only for the current message; a result that arrives after the next message is ignored.
+    /// Rebuilds the document with remote and embedded images allowed, off the UI thread and without reading the EML again.
+    /// The approval holds only for the current message; a result that arrives after the next message is ignored.
     /// </summary>
     public ICommand LoadRemoteImagesCommand => loadRemoteImagesCommand;
 
@@ -221,7 +221,9 @@ public sealed class ReadingPaneViewModel : ObservableObject
     internal MailMessage? CurrentMessage { get; private set; }
 
     /// <summary>
-    /// Shows a message, or the empty pane for null. A failure ends in <see cref="ReadingState.Error"/> with a fixed text and
+    /// Shows a message, or the empty pane for null. Embedded images of a message in a folder with role Junk or Quarantine, or
+    /// in an unknown folder, wait for the approval as well; the role of the message's folder decides, not the selected view.
+    /// A failure ends in <see cref="ReadingState.Error"/> with a fixed text and
     /// a critical log line with the type name. At most one document build runs at a time. While the build of another mail
     /// runs, the pane stays in <see cref="ReadingState.Loading"/> and waits for its end, at most
     /// <see cref="BuildTimeLimit"/> from this call; only the newest call survives the wait and then builds normally. The
@@ -268,7 +270,14 @@ public sealed class ReadingPaneViewModel : ObservableObject
                 return;
             }
 
-            BuiltDocument document = await BuildWithinLimitAsync(message.Id, content, allowRemoteImages: false, linkedCancellation.Token);
+            FolderRole? folderRole = await readModel.GetFolderRoleAsync(message.FolderId, linkedCancellation.Token);
+            if (generation != showGeneration)
+            {
+                return;
+            }
+
+            var approval = new ImageApproval(Remote: false, Embedded: folderRole is not (null or FolderRole.Junk or FolderRole.Quarantine));
+            BuiltDocument document = await BuildWithinLimitAsync(message.Id, content, approval, linkedCancellation.Token);
             if (generation != showGeneration)
             {
                 return;
@@ -341,17 +350,17 @@ public sealed class ReadingPaneViewModel : ObservableObject
 
     // Sanitizing a large mail takes noticeable time, so it leaves the UI thread (see StartBuild). The plain text is linear in
     // its length.
-    private async Task<BuiltDocument> BuildWithinLimitAsync(long messageId, MailContent content, bool allowRemoteImages, CancellationToken ct)
+    private async Task<BuiltDocument> BuildWithinLimitAsync(long messageId, MailContent content, ImageApproval approval, CancellationToken ct)
     {
         bool isOwnBuildRunning = runningBuild is { IsCompleted: false }
             && runningBuildMessageId == messageId
-            && runningBuildAllowsImages == allowRemoteImages;
+            && runningBuildApproval == approval;
         if (!isOwnBuildRunning && !await WaitForOtherBuildAsync(ct))
         {
             return new BuiltDocument(ReadingDocumentBuilder.BuildFromPlainText(content), IsPlainTextFallback: true);
         }
 
-        Task<ReadingDocument> build = isOwnBuildRunning ? runningBuild! : StartBuild(messageId, content, allowRemoteImages);
+        Task<ReadingDocument> build = isOwnBuildRunning ? runningBuild! : StartBuild(messageId, content, approval);
         using var limitCancellation = CancellationTokenSource.CreateLinkedTokenSource(ct);
         Task limit = Task.Delay(BuildTimeLimit, timeProvider, limitCancellation.Token);
         if (await Task.WhenAny(build, limit) == build)
@@ -367,7 +376,7 @@ public sealed class ReadingPaneViewModel : ObservableObject
 
     // On a thread of its own with a large stack, in the background so that it does not keep the process alive. Not cancelled
     // together with its caller: the same mail selected again keeps waiting for this task. It may go on without a reader.
-    private Task<ReadingDocument> StartBuild(long messageId, MailContent content, bool allowRemoteImages)
+    private Task<ReadingDocument> StartBuild(long messageId, MailContent content, ImageApproval approval)
     {
         var completion = new TaskCompletionSource<ReadingDocument>(TaskCreationOptions.RunContinuationsAsynchronously);
         var buildThread = new Thread(
@@ -375,7 +384,7 @@ public sealed class ReadingPaneViewModel : ObservableObject
             {
                 try
                 {
-                    completion.SetResult(documentBuilder(content, allowRemoteImages));
+                    completion.SetResult(documentBuilder(content, approval.Remote, approval.Embedded));
                 }
                 catch (Exception exception)
                 {
@@ -393,13 +402,13 @@ public sealed class ReadingPaneViewModel : ObservableObject
         Task<ReadingDocument> build = completion.Task;
         runningBuild = build;
         runningBuildMessageId = messageId;
-        runningBuildAllowsImages = allowRemoteImages;
+        runningBuildApproval = approval;
         ObserveFault(build);
         return build;
     }
 
     // True when a build may start now, false when the running build does not end within the limit. A newer call cancels this
-    // wait, so intermediate selections never build anything. A rebuild with another image approval counts as another mail.
+    // wait, so intermediate selections never build anything. A build with other image approvals counts as another mail.
     private async Task<bool> WaitForOtherBuildAsync(CancellationToken ct)
     {
         if (runningBuild is not { IsCompleted: false })
@@ -504,7 +513,7 @@ public sealed class ReadingPaneViewModel : ObservableObject
         AreRemoteImagesAllowed = true;
         try
         {
-            BuiltDocument document = await BuildWithinLimitAsync(messageId, content, allowRemoteImages: true, cancellation.Token);
+            BuiltDocument document = await BuildWithinLimitAsync(messageId, content, new ImageApproval(Remote: true, Embedded: true), cancellation.Token);
             if (generation == showGeneration)
             {
                 ShowDocument(document, content);
@@ -529,6 +538,11 @@ public sealed class ReadingPaneViewModel : ObservableObject
             }
         }
     }
+
+    /// <summary>Which images a document may show.</summary>
+    /// <param name="Remote">True when remote images stay.</param>
+    /// <param name="Embedded">True when <c>cid:</c> and <c>data:</c> images stay.</param>
+    private readonly record struct ImageApproval(bool Remote, bool Embedded);
 
     /// <summary>A document and how it came about.</summary>
     /// <param name="Document">The document.</param>

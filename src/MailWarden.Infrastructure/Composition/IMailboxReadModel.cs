@@ -21,6 +21,12 @@ public interface IMailboxReadModel
     /// <returns>The folders ordered by full name.</returns>
     Task<IReadOnlyList<MailFolder>> ListFoldersAsync(Guid accountId, CancellationToken ct = default);
 
+    /// <summary>Reads the role of a folder.</summary>
+    /// <param name="folderId">Folder id.</param>
+    /// <param name="ct">Cancellation token.</param>
+    /// <returns>The role; null for an unknown folder.</returns>
+    Task<FolderRole?> GetFolderRoleAsync(long folderId, CancellationToken ct = default);
+
     /// <summary>Lists messages for a view.</summary>
     /// <param name="query">Filter and paging.</param>
     /// <param name="ct">Cancellation token.</param>
