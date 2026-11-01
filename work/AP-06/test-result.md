@@ -52,3 +52,8 @@ Runtime about 16 s via the watchdog, no limit reached.
 First run: 1 failure, `ContactSenderDirectoryHardeningTests.Look_alike_senders_never_hit_allow_entries_but_still_hit_block_entries`
 with sender `sender_a@<U+1D41A>xample.test`. Class: test error (a). The sender held the mathematical letter `a`
 (U+1D41A) instead of `e` (U+1D41E), so the domain was `axample.test`, not a look-alike of `example.test`. Fixed to U+1D41E, product unchanged.
+
+## verify.3b (extra tests: foreign DMARC pass, DMARC without header.from, null remove)
+
+Result: PASS. Affected classes (`AllowListAndAlignmentTests`, `ContactBookTests`): 38 of 38. Then S3 green: Core 536, Infrastructure 1513,
+Presentation 356, total 2405 of 2405, about 15 s. Build `-warnaserror` clean. No failures.
