@@ -1,4 +1,4 @@
-STEP-RESULT: done (implement.1, including the coordinator's precisions and decisions of 2026-11-01)
+STEP-RESULT: done (fix.2: R1-R8 done, see section "fix.2")
 
 # AP-06 – Implementation notes (Builder, implement.1)
 
@@ -93,3 +93,34 @@ coordinator changes `_scratch\classification-probe\Program.cs` in the main folde
 - vCard 2.1 `ENCODING=QUOTED-PRINTABLE` is not decoded; such an `FN` is stored as its encoded text, cleaned. The address is unaffected.
 - As in the contract, the marker moves on past a mail that was only temporarily unreadable, and a mail that appears locally with a UID below the marker is not read.
 - The coordinator records the temporarily unreadable mails and vCard 2.1 quoted-printable in `TODO.md`; both stay as they are.
+
+## fix.2 (R1-R8 of `requirement.md`)
+| Rule | File | Change |
+|---|---|---|
+| R1 | `src\MailWarden.Core\Classification\SpamClassifier.cs` | allowed + `Authenticated`: `TrustedContact`, text "Sender is on the allow list and authenticated (...)"; allowed + `Unknown`: `LikelyLegit`, text "Sender is on the allow list but authentication could not be verified"; allowed + `Failed`: score tiers, no override, as before |
+| R2 | `src\MailWarden.Core\Classification\AuthStatusEvaluator.cs`, `DomainNames.cs` | DKIM and SPF through the new internal `DomainNames.AreSameOrParentAndChild`; the DMARC path keeps the organisational comparison |
+| R3 | `src\MailWarden.Infrastructure\Classification\ContactHarvester.cs` | `IsWrittenByUser`: exactly one From header with exactly one mailbox from the account addresses of all accounts; `Auto-Submitted` other than `no`; top Content-Type `multipart/report`. All count as `MailsSkipped` |
+| R4 | `src\MailWarden.Core\Classification\AddressRules.cs`, `ContactSenderDirectory.cs` | new `AddressRules.IsExactSender`; an allow entry only applies when it is true |
+| R5 | `AddressRules.cs`, `ContactSenderDirectory.cs`, `SqliteSenderListStore.cs` | `ToLookupForm` removes quotes around a fully quoted local part; new `AddressRules.NormalizeDomain` (trim, trailing dots, lower case, `IdnMapping.GetUnicode`) for senders and entries; `SetAsync` rejects `*`; plus and dot variants documented in the directory and in `ToLookupForm` |
+| R6 | `src\MailWarden.Infrastructure\Classification\ContactImportFile.cs` | row reader per physical start; an unterminated quote gives one `Rejected`, reading goes on with the next line |
+| R7 | `src\MailWarden.Infrastructure\Classification\ContactBook.cs` | `AddContactAsync` trims and checks with `AddressRules.IsWellFormedAddress`, otherwise `ArgumentException` |
+| R8 | `AddressRules.cs`, `src\MailWarden.Infrastructure\Background\MailboxService.cs` | `U+FFFD` as an escape; comments name the harvest |
+
+### Decisions where R1-R8 leave room
+- **R2, public suffix as parent:** `AreSameOrParentAndChild` does not accept a public suffix (single label or built-in list) as the parent. Without this `header.d=test` would authenticate `a@example.test`, which the old comparison did not. A suffix outside the built-in list counts as a parent (`header.d=com.pl` for `a@firma.com.pl`); signing there takes control of that suffix.
+- **R2, child of a shared domain:** a child passes as R2 demands, so From `a@shared.test` with `header.d=user.shared.test` is authenticated when `shared.test` hands out sub-domains to strangers and is not in the built-in list. Only relevant for a contact or allow entry directly on such a domain.
+- **R3, from whom:** the account addresses of all accounts count as own, not only the account of the folder. A mail without From, with two From headers or with two mailboxes in From is skipped. An `Auto-Submitted` value with a comment (`no (x)`) counts as not `no`, the safe side.
+- **R4, spelling hides no block entry:** a sender that is not exact skips only allow entries. An address entry Allowed plus a domain entry Blocked gives Blocked for `a@blocked.example.test.`, not `None`.
+- **R4 with R5:** "normalised" in R4 is `DomainNames.Normalize` (trim, trailing dots, lower case), before the Punycode step. So both `a@xn--...` and the U-form with lower-case letters can be allowed. A U-form with an upper-case non-ASCII letter (`a@MÜLLER.test`) cannot be allowed, because R4 only forgives ASCII case; Blocked still matches it.
+- **R4 with R5, quoted senders:** a quoted local part is not well-formed, so `"friend"@x.test` matches a block entry but never an allow entry. Case 24 is met for block entries; against an allow entry the result is `None`.
+- **R5:** empty quotes (`""@x.test`) stay as they are, so the domain entries still see a local part. A domain that `IdnMapping` refuses stays in its lower-case form, for sender and entry alike. `*` is rejected for address and domain entries.
+- **R6, what counts as unterminated:** a text that ends inside quotes, or a closing quote that is not followed by a separator or line end (spaces and tabs before them are allowed). A quote that happens to close properly on a later line stays a legal multi-line field, because RFC 4180 allows it, so that row is one entry over several lines. Before fix.2 `"a"b` was read as `ab`; now its line is `Rejected`.
+- **R7:** a null address also gives `ArgumentException`, not `ArgumentNullException`, because it is the same rule.
+
+### What turns red by design
+R1 and R2 change expectations of AP-07a; R3 needs a From with an account address in every harvest fixture; case 19 runs again. `PLAN.md` #6 not changed, the requirement gives it to the documenter.
+
+### Tested / not tested (fix.2)
+- Build: `dotnet build MailWarden.sln -warnaserror`: 0 warnings, 0 errors, test projects compiled but not run. `tests\` not read and not changed. `_scratch\contact-probe` needed no change; R3 shows up in its `mails skipped` count. It was built, not started.
+- Own control, no proof: `_scratch\contact-selfcheck` (not in the repo, artificial data, prints labels and counts only), green, with cases 20-26 and the coordinator's precisions (one-label and listed parent, sibling, two or unusable From). IDN behaviour observed on this machine only.
+- Not exercised: the pass and the cycle at runtime with R1, the migration from v1 with data, case 19 (planner runs it again). No tester run. Tests of AP-07a about R1 and R2 are expected to be red.
