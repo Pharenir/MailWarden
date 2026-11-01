@@ -383,7 +383,8 @@ public sealed class ClassificationPassDecisionTests
         Assert.False(report.ActSuspendedNoContacts);
         IReadOnlyList<MailCommand> commands = await harness.CommandsAsync();
         Assert.Equal(4, commands.Count);
-        Assert.Contains(report.MovesEnqueued, new[] { commands.Count, CommandAssert.AllUids(commands).Length });
+        Assert.Equal(5, report.MovesEnqueued);
+        Assert.Equal(5, CommandAssert.AllUids(commands).Length);
         Assert.Equal(2, TierCount(report, SpamTier.TrustedContact));
         Assert.Equal(2, TierCount(report, SpamTier.LikelyLegit));
         Assert.Equal(1, TierCount(report, SpamTier.LikelySpam));
