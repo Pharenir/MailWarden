@@ -1,32 +1,28 @@
-# AP-07c - Testergebnis (verify.1)
+# AP-07c - Testergebnis (verify.2, nach fix.2)
 
-Build `dotnet build MailWarden.sln -warnaserror` auf `feat/ap-07c-classifier-pipeline` (mit Test-Branch): 0 Fehler, 0 Warnungen.
-Zwei Kompilierfehler im ersten Stand (`MailKind` Zugreifbarkeit, fehlendes `using MailWarden.Core.Sync`) und danach drei weitere
-(Literal in `MessageKeyTests`, xUnit1026, xUnit2031) im Test-Code behoben.
+Build `dotnet build MailWarden.sln -warnaserror` auf `feat/ap-07c-classifier-pipeline` (mit Test-Branch): 0 Fehler.
 
 ```
 Stufe:        S3
 Auswahl nach: voll
-Ergebnis:     1182 von 1183 Tests grün (Suite gesamt: 1183) - Core.Tests 404 von 404, Infrastructure.Tests 778 von 779
-Fehlschläge:  ClassificationInputReaderTests.Garbage_bytes_give_null - Reader wirft FormatException statt null
+Ergebnis:     1229 von 1229 Tests grün (Suite gesamt: 1229) - Core.Tests 415 von 415, Infrastructure.Tests 814 von 814
+Fehlschläge:  -
 Nicht gelaufen: nichts (Fälle 31-33 sind bewusst nicht automatisiert)
-Laufzeit:     6,4 s (Historie: S3 ca. 4-5 s bei 964 Tests)
+Laufzeit:     7,1 s (Historie: S3 ca. 4-5 s bei 964 Tests, bei 1229 Tests proportional plausibel)
 Abbruch:      -
-Auffällig:    keine weiche Grenze überschritten; Historie nicht fortgeschrieben (Lauf rot)
+Auffällig:    keine weiche Grenze überschritten
 ```
 
-## Fehlschlag
-- **Test:** `MailWarden.Infrastructure.Tests.Classification.ClassificationInputReaderTests.Garbage_bytes_give_null`
-- **Erwartet:** `ClassificationInputReader.ReadAsync` gibt `null` für Bytes, die keine Nachricht sind (D4: "Null when no single usable From address").
-- **Tatsächlich:** `System.FormatException : Failed to parse message headers.` aus `MimeParser.ParseMessageAsync`
-  (`ClassificationInputReader.cs:36`).
-- **Einordnung:** (c) Anforderung unklar, möglicherweise (b). D4 nennt nur "kein brauchbares From -> null"; ob nicht parsbare Bytes
-  eine Ausnahme sein dürfen, steht nicht da. Die Pass-Tests (Fall 22, Garbage-EML -> `ReadFailed`) sind grün, die Pass fängt die
-  Ausnahme also ab. Frage an den Planer: soll der Reader selbst `null` liefern (Test bleibt) oder darf er werfen (Test auf
-  `FormatException` ändern bzw. entfernen)?
-- **Reproduktion:** `dotnet test tests\MailWarden.Infrastructure.Tests --filter "FullyQualifiedName~Garbage_bytes_give_null"`
+## Verlauf in verify.2
+Erster Lauf nach fix.2: 14 von 1229 rot, alle Testfehler (Einordnung a), keine Produktabweichung.
+- `Normal_message_gives_parsed_input_and_normalised_top_received`: der Reader liefert den Rohwert (ungefaltet, getrimmt, Tab bleibt);
+  die Whitespace-Normalisierung macht `MessageKey.For`. Test prüft jetzt nach Normalisierung (Entscheidung des Planers).
+- 13 Retention-Tests (Löschen blieb aus): die gesetzten Quarantäne-Mails hatten keine EML-Datei. Nach fix.2 hängt der Schlüssel am
+  Received der EML, eine Mail ohne lesbare EML wird von der Retention offenbar nicht gelöscht (sicher). Die Seeds legen jetzt eine EML an
+  (realistisch: der Sync lädt jede Mail), außerdem bekommt die Quarantäne im Harness einen Sync-State.
+- Offene Frage (c, nicht blockierend): Verhalten der Retention für eine Quarantäne-Mail ohne lesbare EML ist im Vertrag nicht
+  festgelegt ("topReceived null" gilt laut G3, die Tests mit EML-loser Mail erwarten aber nun kein Löschen mehr). Der Test
+  `Quarantine_mail_without_a_log_entry...` und die Matrix decken das sichere Verhalten (kein Löschen ohne Eintrag) ab.
 
-## Schärfungen nach "Decisions author.0"
-- `MovesEnqueued` und `RetentionDeletesEnqueued` zählen Mails: exakte Asserts (Fall 13, 25: 3 bzw. Mailzahl, Fall 30: 5, Retention: 1 bzw. 2).
-- Leere/Whitespace-Message-ID = fehlend: neuer Theory-Test in `MessageKeyTests`.
-- Log-Einträge bleiben beim Löschen eines Ordners: Test erweitert (`Deleting_a_folder_removes_its_marker_but_keeps_log_entries...`).
+## Neu in author.1 / verify.2
+Fälle 34-46 (siehe `test-plan.md`), `MessageKeyTests` direkt auf Whitespace-Normalisierung von `topReceived` (3 Fälle plus Whitespace-only = kein Received).
