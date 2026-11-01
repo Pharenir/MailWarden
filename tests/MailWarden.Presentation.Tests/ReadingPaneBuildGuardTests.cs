@@ -97,7 +97,7 @@ public sealed class ReadingPaneBuildGuardTests
             }
         }
 
-        public ReadingDocument Build(MailContent content, bool allowRemoteImages, bool allowEmbeddedImages)
+        public ReadingDocument Build(MailContent content, bool allowRemoteImages, bool allowEmbeddedImages, ReadingTheme theme)
         {
             ManualResetEventSlim? block;
             ManualResetEventSlim? remoteGate = null;
@@ -124,7 +124,7 @@ public sealed class ReadingPaneBuildGuardTests
                 throw new TimeoutException("test gate was never released");
             }
 
-            return ReadingDocumentBuilder.Build(content, allowRemoteImages, allowEmbeddedImages);
+            return ReadingDocumentBuilder.Build(content, allowRemoteImages, allowEmbeddedImages, theme);
         }
     }
 
