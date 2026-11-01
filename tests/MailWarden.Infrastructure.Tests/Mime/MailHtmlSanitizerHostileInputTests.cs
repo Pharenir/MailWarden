@@ -245,7 +245,7 @@ public sealed class MailHtmlSanitizerHostileInputTests
     [InlineData(102_400, 2_000)]
     public async Task Attribute_values_multiplied_by_reconstruction_fall_back_to_the_text(int valueLength, int repeats)
     {
-        string html = $"<p><b title=\"{new string('x', valueLength)}\">" + Repeat("</p><p>x", repeats);
+        string html = $"<p><b class=\"{new string('x', valueLength)}\">" + Repeat("</p><p>x", repeats);
 
         (SanitizedHtml Result, long AllocatedBytes) outcome = await Task.Run(() =>
         {

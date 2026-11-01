@@ -110,3 +110,22 @@ Rerun: PASS. Build clean, S3 28.9 s.
 | Presentation.Tests | 532 | 532 |
 | Infrastructure.Tests | 1575 | 1575 |
 | Total | 2643 | 2643 |
+
+# verify.6 (feat 2f30660 merged into the test branch)
+
+Result: PASS after test corrections for the contract change Y1. Build `-warnaserror` clean; `tests\test-map.json` still valid JSON after the merge. S3 via watchdog 29.2 s, no soft limit exceeded.
+
+| Project | Tests | Passed |
+|---|---|---|
+| Core.Tests | 536 | 536 |
+| Presentation.Tests | 532 | 532 |
+| Infrastructure.Tests | 1587 | 1587 |
+| Total | 2655 | 2655 |
+
+New: Y-a (`MailHtmlSanitizerTests`: title on a link removed and href stays, title on a span inside a link removed, title removed on p/div/td in any case with the text kept), Y-b (`SqliteMessageStoreRoleViewTests`, real SQLite: role view of one account with two accounts and four folders each, unread counts with and without `ExcludedMessageIds`, foreign ids ignored, folder and all-account views unchanged, `ListAsync` newest first with paging, all-account role view and folder view unchanged). Y-c is manual.
+
+First run with the merged head: 5 red, all caused by Y1 (title is no longer an allowed attribute), none by Y3. Tests changed to the new rule (the harmless attribute `class` replaces `title` as the positive control):
+- `MailHtmlSanitizerTests.Event_handler_and_blocked_attributes_are_removed_on_every_element`: expected `title` to survive; now expects `class`.
+- `MailHtmlSanitizerLimitsTests.Tag_with_ten_attributes_keeps_its_allowed_attributes`: same.
+- `MailHtmlSanitizerLimitsTests.Attribute_limit_is_256_per_tag`: same (the 256 limit now counts `class` as the kept attribute).
+- `MailHtmlSanitizerHostileInputTests.Attribute_values_multiplied_by_reconstruction_fall_back_to_the_text` (2 cases): the huge attribute was `title`; it is now dropped, so nothing was multiplied and the "reduced" expectation failed for the wrong reason. The huge value moved to `class`; all assertions are unchanged and green.
