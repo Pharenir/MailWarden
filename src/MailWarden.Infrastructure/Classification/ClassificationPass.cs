@@ -54,6 +54,7 @@ public sealed class ClassificationPass
     private readonly IMessageStore messages;
     private readonly IEmlStore emlStore;
     private readonly IContactStore contacts;
+    private readonly ISenderListStore senderLists;
     private readonly IClassificationLog log;
     private readonly IMailCommandQueue queue;
     private readonly IMailFolderProvisioner provisioner;
@@ -69,6 +70,7 @@ public sealed class ClassificationPass
     /// <param name="messages">Message store.</param>
     /// <param name="emlStore">Store of the raw messages.</param>
     /// <param name="contacts">Address book.</param>
+    /// <param name="senderLists">Allow and block lists.</param>
     /// <param name="log">Decision log and markers.</param>
     /// <param name="queue">Command queue for moves and retention deletes.</param>
     /// <param name="provisioner">Creates the app folders on the server.</param>
@@ -85,6 +87,7 @@ public sealed class ClassificationPass
         IMessageStore messages,
         IEmlStore emlStore,
         IContactStore contacts,
+        ISenderListStore senderLists,
         IClassificationLog log,
         IMailCommandQueue queue,
         IMailFolderProvisioner provisioner,
@@ -99,6 +102,7 @@ public sealed class ClassificationPass
         this.messages = messages ?? throw new ArgumentNullException(nameof(messages));
         this.emlStore = emlStore ?? throw new ArgumentNullException(nameof(emlStore));
         this.contacts = contacts ?? throw new ArgumentNullException(nameof(contacts));
+        this.senderLists = senderLists ?? throw new ArgumentNullException(nameof(senderLists));
         this.log = log ?? throw new ArgumentNullException(nameof(log));
         this.queue = queue ?? throw new ArgumentNullException(nameof(queue));
         this.provisioner = provisioner ?? throw new ArgumentNullException(nameof(provisioner));
@@ -220,9 +224,11 @@ public sealed class ClassificationPass
     {
         IReadOnlyList<Contact> allContacts = await contacts.ListAsync(ct).ConfigureAwait(false);
         IReadOnlyList<Account> allAccounts = await accounts.ListAsync(ct).ConfigureAwait(false);
+        IReadOnlyList<SenderListEntry> listEntries = await senderLists.ListAsync(ct).ConfigureAwait(false);
         return new ContactSenderDirectory(
             allContacts.Select(contact => contact.EmailAddress),
-            allAccounts.Select(account => account.EmailAddress));
+            allAccounts.Select(account => account.EmailAddress),
+            listEntries);
     }
 
     private async Task HandleFolderAsync(MailFolder folder, PassState state, CancellationToken ct)

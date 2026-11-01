@@ -48,6 +48,16 @@ internal sealed class AccountPipelines(
         return await cycle.Engine.SyncAccountAsync(accountId, progress, ct).ConfigureAwait(false);
     }
 
+    /// <summary>Runs one contact harvest of an account.</summary>
+    /// <param name="accountId">Account id.</param>
+    /// <param name="ct">Cancellation token.</param>
+    /// <returns>The report of the harvest.</returns>
+    public async Task<ContactHarvestReport> HarvestAccountAsync(Guid accountId, CancellationToken ct)
+    {
+        AccountCycle cycle = await GetCycleAsync(accountId, ct).ConfigureAwait(false);
+        return await cycle.Harvester.RunAsync(accountId, ct).ConfigureAwait(false);
+    }
+
     /// <summary>Runs one classification pass of an account.</summary>
     /// <param name="accountId">Account id.</param>
     /// <param name="ct">Cancellation token.</param>
@@ -106,6 +116,7 @@ internal sealed class AccountPipelines(
             var emlStore = new FileEmlStore(paths);
             var syncStates = new SqliteFolderSyncStateStore(database);
             var commandQueue = new SqliteMailCommandQueue(database, timeProvider);
+            var contacts = new SqliteContactStore(database);
             var engine = new SyncEngine(
                 transportFactory,
                 accountStore,
@@ -124,20 +135,30 @@ internal sealed class AccountPipelines(
                 commandQueue,
                 new CommandOptions(),
                 timeProvider);
+            var harvester = new ContactHarvester(
+                accountStore,
+                folders,
+                syncStates,
+                messages,
+                emlStore,
+                contacts,
+                new SqliteContactHarvestMarkerStore(database),
+                timeProvider);
             var pass = new ClassificationPass(
                 accountStore,
                 folders,
                 syncStates,
                 messages,
                 emlStore,
-                new SqliteContactStore(database),
+                contacts,
+                new SqliteSenderListStore(database),
                 new SqliteClassificationLog(database),
                 commandQueue,
                 new MailKitFolderProvisioner(accountService, folders),
                 classifierSettings,
                 classificationPolicy,
                 timeProvider);
-            cycle = new AccountCycle(engine, executor, pass);
+            cycle = new AccountCycle(engine, executor, harvester, pass);
             cycles.Add(accountId, cycle);
             return cycle;
         }
@@ -148,5 +169,5 @@ internal sealed class AccountPipelines(
     }
 
     // Everything of one account's cycle, on the one connection of that cycle. The account loop runs its steps in sequence.
-    private sealed record AccountCycle(SyncEngine Engine, CommandExecutor Executor, ClassificationPass Pass);
+    private sealed record AccountCycle(SyncEngine Engine, CommandExecutor Executor, ContactHarvester Harvester, ClassificationPass Pass);
 }
