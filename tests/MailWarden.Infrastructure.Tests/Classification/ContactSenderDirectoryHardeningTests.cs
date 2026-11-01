@@ -81,7 +81,7 @@ public sealed class ContactSenderDirectoryHardeningTests
     [InlineData("sender_a@ｅxample.test")]
     [InlineData("sender_a@example。test")]
     [InlineData("person_a@ａllowaddr.test")]
-    [InlineData("sender_a@\U0001D41Axample.test")]
+    [InlineData("sender_a@\U0001D41Example.test")]
     [InlineData("person_a@\U0001D41Allowaddr.test")]
     public void Look_alike_senders_never_hit_allow_entries_but_still_hit_block_entries(string sender)
     {
