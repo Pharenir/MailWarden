@@ -8,7 +8,8 @@ namespace MailWarden.Infrastructure.Mime;
 /// </summary>
 /// <param name="Html">A complete HTML5 document.</param>
 /// <param name="BlockedRemoteResourceCount">Number of blocked remote resources; 0 for plain text.</param>
-public sealed record ReadingDocument(string Html, int BlockedRemoteResourceCount);
+/// <param name="WasReduced">True when a limit for crafted input dropped markup or the inline image budget was hit.</param>
+public sealed record ReadingDocument(string Html, int BlockedRemoteResourceCount, bool WasReduced = false);
 
 /// <summary>
 /// Builds the document shown in the reading pane: a light page with a restrictive Content-Security-Policy around the
@@ -33,20 +34,35 @@ public static class ReadingDocumentBuilder
     {
         ArgumentNullException.ThrowIfNull(content);
 
-        string bodyContent;
-        int blockedCount;
         if (content.Html is null)
         {
-            bodyContent = $"<div style=\"white-space: pre-wrap\">{WebUtility.HtmlEncode(content.PlainText)}</div>";
-            blockedCount = 0;
-        }
-        else
-        {
-            SanitizedHtml sanitized = MailHtmlSanitizer.Sanitize(content.Html, content.InlineImages, allowRemoteImages);
-            bodyContent = sanitized.Html;
-            blockedCount = sanitized.BlockedRemoteResourceCount;
+            return BuildFromPlainText(content);
         }
 
+        SanitizedHtml sanitized = MailHtmlSanitizer.Sanitize(content.Html, content.InlineImages, allowRemoteImages);
+        return new ReadingDocument(
+            Wrap(sanitized.Html, allowRemoteImages),
+            sanitized.BlockedRemoteResourceCount,
+            sanitized.WasReduced);
+    }
+
+    /// <summary>
+    /// Builds the document from <see cref="MailContent.PlainText"/> only, whatever else the message has. Its cost grows
+    /// linearly with the text, so this always works when building from the HTML takes too long.
+    /// </summary>
+    /// <param name="content">Message content.</param>
+    /// <returns>The document; without remote resources.</returns>
+    /// <exception cref="ArgumentNullException"><paramref name="content"/> is null.</exception>
+    public static ReadingDocument BuildFromPlainText(MailContent content)
+    {
+        ArgumentNullException.ThrowIfNull(content);
+
+        string bodyContent = $"<div style=\"white-space: pre-wrap\">{WebUtility.HtmlEncode(content.PlainText)}</div>";
+        return new ReadingDocument(Wrap(bodyContent, allowRemoteImages: false), 0);
+    }
+
+    private static string Wrap(string bodyContent, bool allowRemoteImages)
+    {
         var document = new StringBuilder(bodyContent.Length + 512);
         document.Append("<!DOCTYPE html><html><head><meta charset=\"utf-8\">");
         document.Append("<meta http-equiv=\"Content-Security-Policy\" content=\"");
@@ -55,7 +71,7 @@ public static class ReadingDocumentBuilder
         document.Append("<style>").Append(BaseStyle).Append("</style></head><body>");
         document.Append(bodyContent);
         document.Append("</body></html>");
-        return new ReadingDocument(document.ToString(), blockedCount);
+        return document.ToString();
     }
 
     private static string BuildContentSecurityPolicy(bool allowRemoteImages)

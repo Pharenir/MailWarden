@@ -4,17 +4,29 @@ using System.Text;
 namespace MailWarden.Infrastructure.Mime;
 
 /// <summary>
-/// Rewrites HTML before it is parsed so that a crafted mail cannot stall the reading pane or overflow the stack. Time
-/// measured with the parser and the sanitizer grows with the square of: the depth (100,000 nested <c>div</c> take more
-/// than 20 s), the number of siblings, comments and attributes of a tag, the declarations of a style (100,000 take more
-/// than 40 s), and the number of pieces a text is split into by end tags or stray <c>&lt;</c> characters. Therefore tags
-/// beyond the limits are dropped, oversized style values are dropped and stray <c>&lt;</c> are encoded. The scan is linear
-/// and follows the tag syntax of HTML, but it only estimates the depth. Text outside of tags is never dropped.
+/// Result of <see cref="HtmlNestingLimiter.Limit"/>.
+/// </summary>
+/// <param name="Html">The rewritten HTML.</param>
+/// <param name="WasReduced">
+/// True when markup was dropped because of a limit. Removing raw-text elements does not count: they would be removed later
+/// anyway, and nearly every newsletter has a <c>style</c> element.
+/// </param>
+internal readonly record struct LimitedHtml(string Html, bool WasReduced);
+
+/// <summary>
+/// Rewrites HTML before it is parsed so that a crafted mail cannot stall the reading pane, exhaust the memory or overflow
+/// the stack. The cost of parser and sanitizer grows with the square of: the depth (100,000 nested <c>div</c> take more than
+/// 20 s), the number of siblings, comments and attributes of a tag, the declarations of a style (100,000 take more than
+/// 40 s), and the number of pieces a text is split into by end tags or stray <c>&lt;</c> characters. Open formatting elements
+/// are copied into every following block (a 154 KB mail reached over 5 GB). The scan is linear; text outside of tags and
+/// raw-text elements is never dropped.
 /// </summary>
 /// <remarks>
-/// The scan does not know raw text such as the content of <c>script</c>, because the parser treats that differently in
-/// SVG. A quote there can make the scan read real tags as an attribute value, so every <c>&lt;x</c> inside a kept quoted
-/// value counts against <see cref="MaxTagsInAttributeValues"/>; a tag dropped for it is not parsed at all.
+/// The scan can only stand in for the parser where both read the text the same way. Raw text is where they would differ:
+/// a comment start or a quote inside <c>script</c> means nothing to the parser but would hide the tags behind it from the
+/// scan. Therefore raw-text elements are removed here, so the parser never enters a raw-text state, and the rest is plain
+/// HTML that the scan follows like the tokenizer. What cannot be foreseen here is covered by the time limit of the build
+/// in the reading pane.
 /// </remarks>
 internal static class HtmlNestingLimiter
 {
@@ -26,6 +38,15 @@ internal static class HtmlNestingLimiter
 
     /// <summary>End tags kept.</summary>
     internal const int MaxEndTags = MaxMarkupItems;
+
+    /// <summary>Open formatting elements; the parser copies them into every following block.</summary>
+    internal const int MaxOpenFormattingElements = 64;
+
+    /// <summary>
+    /// Estimate of the formatting elements the parser would copy: the open ones for each start tag. 64 open elements alone
+    /// would still allow 18,000 blocks with a copy of each, over a million elements and 1 GB from a 154 KB mail.
+    /// </summary>
+    internal const int MaxCopiedFormattingElements = 100_000;
 
     /// <summary>A tag with more attributes is dropped.</summary>
     internal const int MaxAttributesPerTag = 256;
@@ -39,8 +60,11 @@ internal static class HtmlNestingLimiter
     /// <summary>Characters of all kept tags together, without <c>data:</c> values of <c>src</c>.</summary>
     internal const int MaxTagTextChars = 2_000_000;
 
-    /// <summary>Tag-like text inside kept quoted attribute values, see the remarks of the class.</summary>
-    internal const int MaxTagsInAttributeValues = MaxOpenTags;
+    /// <summary>Every <c>&lt;</c> in the attribute values of kept tags together; a tag beyond this is dropped.</summary>
+    internal const int MaxLessThanInAttributeValues = MaxOpenTags;
+
+    /// <summary>A comment with more <c>&lt;</c> inside is not skipped but scanned like normal HTML.</summary>
+    internal const int MaxLessThanInSkippedComment = 20_000;
 
     // An end tag closing more open elements than this is ignored, which keeps the scan linear. It can only overestimate.
     private const int MaxClosingSearchDepth = 64;
@@ -61,14 +85,29 @@ internal static class HtmlNestingLimiter
         "applet", "button", "caption", "marquee", "object", "table", "template",
     }.ToFrozenSet(StringComparer.Ordinal);
 
-    /// <summary>Returns the HTML with stray <c>&lt;</c> encoded and everything removed that would exceed a limit.</summary>
+    // Removed with their content up to the first matching end tag. The sanitizer would remove all of them anyway.
+    private static readonly FrozenSet<string> RawTextElements = new[]
+    {
+        "script", "style", "title", "textarea", "iframe", "noembed", "noframes", "noscript", "svg", "math",
+    }.ToFrozenSet(StringComparer.Ordinal);
+
+    // Also raw text for the parser (or wanted as such), but their content is shown as normal HTML: only the tag goes.
+    private static readonly FrozenSet<string> RawTextTagsOnly = new[] { "xmp", "plaintext", "listing" }
+        .ToFrozenSet(StringComparer.Ordinal);
+
+    // The elements on the parser's list of active formatting elements.
+    private static readonly FrozenSet<string> FormattingElements = new[]
+    {
+        "a", "b", "big", "code", "em", "font", "i", "nobr", "s", "small", "strike", "strong", "tt", "u",
+    }.ToFrozenSet(StringComparer.Ordinal);
+
+    /// <summary>Returns the HTML without raw-text elements, with stray <c>&lt;</c> encoded and within the limits.</summary>
     /// <param name="html">Raw HTML.</param>
-    /// <returns>The rewritten HTML; the same instance when nothing had to change.</returns>
-    public static string Limit(string html)
+    /// <returns>The rewritten HTML and whether a limit dropped anything.</returns>
+    public static LimitedHtml Limit(string html)
     {
         var rewriter = new Rewriter(html);
-        var budgets = new Budgets();
-        var openTags = new List<string>();
+        var state = new ScanState();
         int position = html.IndexOf('<', StringComparison.Ordinal);
         while (position >= 0 && position + 1 < html.Length)
         {
@@ -76,15 +115,15 @@ internal static class HtmlNestingLimiter
             char next = html[position + 1];
             if (char.IsAsciiLetter(next))
             {
-                resumeAt = HandleStartTag(html, position, rewriter, budgets, openTags);
+                resumeAt = HandleStartTag(html, position, rewriter, state);
             }
             else if (next == '/' && position + 2 < html.Length && char.IsAsciiLetter(html[position + 2]))
             {
-                resumeAt = HandleEndTag(html, position, rewriter, budgets, openTags);
+                resumeAt = HandleEndTag(html, position, rewriter, state);
             }
             else if (next is '/' or '!' or '?')
             {
-                resumeAt = HandleComment(html, position, rewriter, budgets);
+                resumeAt = HandleComment(html, position, rewriter, state);
             }
             else
             {
@@ -94,37 +133,62 @@ internal static class HtmlNestingLimiter
             position = resumeAt < html.Length ? html.IndexOf('<', resumeAt) : -1;
         }
 
-        return rewriter.ToResult();
+        return new LimitedHtml(rewriter.ToResult(), state.WasReduced);
     }
 
-    private static int HandleStartTag(string html, int tagStart, Rewriter rewriter, Budgets budgets, List<string> openTags)
+    private static int HandleStartTag(string html, int tagStart, Rewriter rewriter, ScanState state)
     {
         int nameEnd = FindTagNameEnd(html, tagStart + 1);
         string tagName = html[(tagStart + 1)..nameEnd].ToLowerInvariant();
         TagScan tag = ScanAttributes(html, tagStart, nameEnd);
-        bool isNesting = !NotNesting.Contains(tagName);
-        bool exceedsLimit = budgets.MarkupItems >= MaxMarkupItems
-            || (isNesting && openTags.Count >= MaxOpenTags)
-            || tag.AttributeCount > MaxAttributesPerTag
-            || budgets.TagTextChars + tag.CountedChars > MaxTagTextChars
-            || budgets.TagsInAttributeValues + tag.TagsInValues > MaxTagsInAttributeValues;
-        if (exceedsLimit)
+        if (RawTextElements.Contains(tagName))
+        {
+            int elementEnd = FindRawTextElementEnd(html, tag.End, tagName);
+            rewriter.Drop(tagStart, elementEnd);
+            return elementEnd;
+        }
+
+        if (RawTextTagsOnly.Contains(tagName))
         {
             rewriter.Drop(tagStart, tag.End);
             return tag.End;
         }
 
-        budgets.MarkupItems++;
-        budgets.TagTextChars += tag.CountedChars;
-        budgets.TagsInAttributeValues += tag.TagsInValues;
+        bool isNesting = !NotNesting.Contains(tagName);
+        bool isFormatting = FormattingElements.Contains(tagName);
+        bool exceedsLimit = state.MarkupItems >= MaxMarkupItems
+            || (isNesting && state.OpenTags.Count >= MaxOpenTags)
+            || (isFormatting && state.OpenFormattingTotal >= MaxOpenFormattingElements)
+            || state.CopiedFormatting + state.OpenFormattingTotal > MaxCopiedFormattingElements
+            || tag.AttributeCount > MaxAttributesPerTag
+            || state.TagTextChars + tag.CountedChars > MaxTagTextChars
+            || state.LessThanInValues + tag.LessThanInValues > MaxLessThanInAttributeValues;
+        if (exceedsLimit)
+        {
+            rewriter.Drop(tagStart, tag.End);
+            state.WasReduced = true;
+            return tag.End;
+        }
+
+        state.MarkupItems++;
+        state.CopiedFormatting += state.OpenFormattingTotal;
+        state.TagTextChars += tag.CountedChars;
+        state.LessThanInValues += tag.LessThanInValues;
         if (isNesting)
         {
-            openTags.Add(tagName);
+            state.OpenTags.Add(tagName);
+        }
+
+        if (isFormatting)
+        {
+            state.OpenFormatting[tagName] = state.OpenFormatting.GetValueOrDefault(tagName) + 1;
+            state.OpenFormattingTotal++;
         }
 
         foreach ((int start, int end) in tag.OversizedStyles ?? [])
         {
             rewriter.Drop(start, end);
+            state.WasReduced = true;
         }
 
         return tag.End;
@@ -132,51 +196,92 @@ internal static class HtmlNestingLimiter
 
     // Attributes of an end tag mean nothing, but the parser still reads them, so they are removed. A long list of tag
     // pairs ends here with bare text: once the start tags are over budget, their end tags soon are as well.
-    private static int HandleEndTag(string html, int tagStart, Rewriter rewriter, Budgets budgets, List<string> openTags)
+    private static int HandleEndTag(string html, int tagStart, Rewriter rewriter, ScanState state)
     {
         int nameEnd = FindTagNameEnd(html, tagStart + 2);
+        string tagName = html[(tagStart + 2)..nameEnd].ToLowerInvariant();
         TagScan tag = ScanAttributes(html, tagStart, nameEnd);
-        if (budgets.EndTags >= MaxEndTags)
+        if (state.EndTags >= MaxEndTags)
         {
             rewriter.Drop(tagStart, tag.End);
+            state.WasReduced = true;
             return tag.End;
         }
 
-        budgets.EndTags++;
-        CloseTag(openTags, html[(tagStart + 2)..nameEnd].ToLowerInvariant());
+        state.EndTags++;
+        CloseTag(state.OpenTags, tagName);
+
+        // Only its own end tag closes a formatting element here, whatever the parser does with other end tags.
+        if (state.OpenFormatting.GetValueOrDefault(tagName) > 0)
+        {
+            state.OpenFormatting[tagName]--;
+            state.OpenFormattingTotal--;
+        }
+
         if (tag.AttributeCount > 0)
         {
             rewriter.Drop(tagStart, tag.End);
-            CopyBareEndTag(html, tagStart, nameEnd, rewriter);
+            rewriter.Insert(html[tagStart..nameEnd] + ">");
         }
 
         return tag.End;
     }
 
-    private static void CopyBareEndTag(string html, int tagStart, int nameEnd, Rewriter rewriter)
+    // Comments and everything the parser treats like one: up to "-->" or "--!>", other forms up to the next '>'. A comment
+    // full of '<' is suspicious, because everything behind a disagreement about its end would be unseen: it stays in the
+    // text, but its inside is scanned like normal HTML.
+    private static int HandleComment(string html, int start, Rewriter rewriter, ScanState state)
     {
-        rewriter.Insert(html[tagStart..nameEnd] + ">");
+        bool isComment = string.CompareOrdinal(html, start, CommentStart, 0, CommentStart.Length) == 0;
+        if (isComment && start < state.ScanCommentsUntil)
+        {
+            return CountCommentOrDrop(start, state.ScanCommentsUntil, start + CommentStart.Length, rewriter, state);
+        }
+
+        int end = FindCommentEnd(html, start, isComment);
+        if (isComment && HasManyLessThan(html.AsSpan(start + 1, end - start - 1)))
+        {
+            state.ScanCommentsUntil = end;
+            return CountCommentOrDrop(start, end, start + CommentStart.Length, rewriter, state);
+        }
+
+        return CountCommentOrDrop(start, end, end, rewriter, state);
     }
 
-    // Comments and everything the parser treats like one: up to "-->" or "--!>", other forms up to the next '>'.
-    private static int HandleComment(string html, int start, Rewriter rewriter, Budgets budgets)
+    private static int CountCommentOrDrop(int start, int end, int resumeAt, Rewriter rewriter, ScanState state)
     {
-        int end = FindCommentEnd(html, start);
-        if (budgets.MarkupItems >= MaxMarkupItems)
+        if (state.MarkupItems >= MaxMarkupItems)
         {
             rewriter.Drop(start, end);
-        }
-        else
-        {
-            budgets.MarkupItems++;
+            state.WasReduced = true;
+            return end;
         }
 
-        return end;
+        state.MarkupItems++;
+        return resumeAt;
     }
 
-    private static int FindCommentEnd(string html, int start)
+    private static bool HasManyLessThan(ReadOnlySpan<char> text)
     {
-        if (string.CompareOrdinal(html, start, CommentStart, 0, CommentStart.Length) != 0)
+        int count = 0;
+        int index = text.IndexOf('<');
+        while (index >= 0)
+        {
+            if (++count > MaxLessThanInSkippedComment)
+            {
+                return true;
+            }
+
+            text = text[(index + 1)..];
+            index = text.IndexOf('<');
+        }
+
+        return false;
+    }
+
+    private static int FindCommentEnd(string html, int start, bool isComment)
+    {
+        if (!isComment)
         {
             int closing = html.IndexOf('>', start);
             return closing < 0 ? html.Length : closing + 1;
@@ -193,6 +298,25 @@ internal static class HtmlNestingLimiter
         }
 
         return normalEnd < 0 ? html.Length : normalEnd + 3;
+    }
+
+    // The position behind the first matching end tag; without one the rest of the input, as the parser would read it.
+    private static int FindRawTextElementEnd(string html, int contentStart, string tagName)
+    {
+        string endTagStart = "</" + tagName;
+        int candidate = html.IndexOf(endTagStart, contentStart, StringComparison.OrdinalIgnoreCase);
+        while (candidate >= 0)
+        {
+            int nameEnd = candidate + endTagStart.Length;
+            if (nameEnd < html.Length && (IsHtmlWhitespace(html[nameEnd]) || html[nameEnd] is '/' or '>'))
+            {
+                return ScanAttributes(html, candidate, nameEnd).End;
+            }
+
+            candidate = html.IndexOf(endTagStart, nameEnd, StringComparison.OrdinalIgnoreCase);
+        }
+
+        return html.Length;
     }
 
     private static void CloseTag(List<string> openTags, string tagName)
@@ -281,15 +405,9 @@ internal static class HtmlNestingLimiter
             }
 
             position = SkipWhitespace(html, position + 1);
-            (int valueStart, int valueEnd, position, bool isQuoted) = ReadAttributeValue(html, position);
+            (int valueStart, int valueEnd, position) = ReadAttributeValue(html, position);
             ReadOnlySpan<char> attributeName = html.AsSpan(attributeStart, attributeNameEnd - attributeStart);
             ReadOnlySpan<char> value = html.AsSpan(valueStart, valueEnd - valueStart);
-            if (attributeName.Equals("src", StringComparison.OrdinalIgnoreCase) && StartsWithDataScheme(value))
-            {
-                excludedChars += value.Length;
-                continue;
-            }
-
             if (attributeName.Equals("style", StringComparison.OrdinalIgnoreCase) && IsOversizedStyle(value))
             {
                 tag.OversizedStyles ??= [];
@@ -298,9 +416,10 @@ internal static class HtmlNestingLimiter
                 continue;
             }
 
-            if (isQuoted)
+            tag.LessThanInValues += value.Count('<');
+            if (attributeName.Equals("src", StringComparison.OrdinalIgnoreCase) && StartsWithDataScheme(value))
             {
-                tag.TagsInValues += CountTagLikeText(value);
+                excludedChars += value.Length;
             }
         }
 
@@ -309,11 +428,11 @@ internal static class HtmlNestingLimiter
     }
 
     // Returns the range of the value and the position behind it. A missing value before '>' is empty.
-    private static (int ValueStart, int ValueEnd, int Next, bool IsQuoted) ReadAttributeValue(string html, int position)
+    private static (int ValueStart, int ValueEnd, int Next) ReadAttributeValue(string html, int position)
     {
         if (position >= html.Length)
         {
-            return (html.Length, html.Length, html.Length, false);
+            return (html.Length, html.Length, html.Length);
         }
 
         char first = html[position];
@@ -321,8 +440,8 @@ internal static class HtmlNestingLimiter
         {
             int closing = html.IndexOf(first, position + 1);
             return closing < 0
-                ? (position + 1, html.Length, html.Length, true)
-                : (position + 1, closing, closing + 1, true);
+                ? (position + 1, html.Length, html.Length)
+                : (position + 1, closing, closing + 1);
         }
 
         int end = position;
@@ -331,7 +450,7 @@ internal static class HtmlNestingLimiter
             end++;
         }
 
-        return (position, end, end, false);
+        return (position, end, end);
     }
 
     private static bool StartsWithDataScheme(ReadOnlySpan<char> value)
@@ -342,24 +461,6 @@ internal static class HtmlNestingLimiter
     private static bool IsOversizedStyle(ReadOnlySpan<char> value)
     {
         return value.Length > MaxStyleValueChars || value.Count(';') > MaxStyleDeclarations;
-    }
-
-    private static int CountTagLikeText(ReadOnlySpan<char> value)
-    {
-        int count = 0;
-        int index = value.IndexOf('<');
-        while (index >= 0 && index + 1 < value.Length)
-        {
-            if (char.IsAsciiLetter(value[index + 1]))
-            {
-                count++;
-            }
-
-            int next = value[(index + 1)..].IndexOf('<');
-            index = next < 0 ? -1 : index + 1 + next;
-        }
-
-        return count;
     }
 
     /// <summary>Result of reading one tag.</summary>
@@ -373,23 +474,36 @@ internal static class HtmlNestingLimiter
         /// <summary>Length of the tag without <c>data:</c> values of <c>src</c> and without oversized styles.</summary>
         public int CountedChars { get; set; }
 
-        /// <summary>Tag-like text inside quoted values.</summary>
-        public int TagsInValues { get; set; }
+        /// <summary>Number of <c>&lt;</c> inside the values.</summary>
+        public int LessThanInValues { get; set; }
 
         /// <summary>Attribute ranges (name and value) to drop; null when there is none.</summary>
         public List<(int Start, int End)>? OversizedStyles { get; set; }
     }
 
     /// <summary>What the kept markup has used so far.</summary>
-    private sealed class Budgets
+    private sealed class ScanState
     {
+        public List<string> OpenTags { get; } = [];
+
+        public Dictionary<string, int> OpenFormatting { get; } = new(StringComparer.Ordinal);
+
+        public int OpenFormattingTotal { get; set; }
+
+        public int CopiedFormatting { get; set; }
+
         public int MarkupItems { get; set; }
 
         public int EndTags { get; set; }
 
         public int TagTextChars { get; set; }
 
-        public int TagsInAttributeValues { get; set; }
+        public int LessThanInValues { get; set; }
+
+        /// <summary>Comment starts before this position are not skipped, see <see cref="HandleComment"/>.</summary>
+        public int ScanCommentsUntil { get; set; }
+
+        public bool WasReduced { get; set; }
     }
 
     /// <summary>Copies the unchanged parts of the HTML; allocates only when something changes.</summary>

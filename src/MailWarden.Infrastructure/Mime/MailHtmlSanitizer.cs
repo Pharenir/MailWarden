@@ -14,7 +14,8 @@ namespace MailWarden.Infrastructure.Mime;
 /// </summary>
 /// <param name="Html">The cleaned body content.</param>
 /// <param name="BlockedRemoteResourceCount">Number of remote images and remote style URLs that were blocked.</param>
-public sealed record SanitizedHtml(string Html, int BlockedRemoteResourceCount);
+/// <param name="WasReduced">True when a limit for crafted input dropped markup or the inline image budget was hit.</param>
+public sealed record SanitizedHtml(string Html, int BlockedRemoteResourceCount, bool WasReduced = false);
 
 /// <summary>
 /// Cleans the HTML body of a mail with an allow-list. Before parsing, <see cref="HtmlNestingLimiter"/> bounds the work
@@ -70,9 +71,9 @@ public static partial class MailHtmlSanitizer
     private static readonly FrozenSet<string> DataImageTypes =
         new[] { "image/png", "image/jpeg", "image/gif", "image/webp" }.ToFrozenSet(StringComparer.OrdinalIgnoreCase);
 
-    // Every position value except "fixed", which could cover the whole reading document.
     private static readonly char[] UrlEdgeCharacters = [.. Enumerable.Range(0, 33).Select(code => (char)code)];
 
+    // Every position value except "fixed", which could cover the whole reading document.
     private static readonly FrozenSet<string> AllowedPositions =
         new[] { "static", "relative", "absolute", "sticky" }.ToFrozenSet(StringComparer.OrdinalIgnoreCase);
 
@@ -103,30 +104,35 @@ public static partial class MailHtmlSanitizer
     /// <param name="html">Raw HTML of a mail body.</param>
     /// <param name="inlineImages">Content-ID → data URI, the targets of <c>cid:</c> image sources.</param>
     /// <param name="allowRemoteImages">True when the user approved remote images for this message.</param>
-    /// <returns>The cleaned body content and the number of blocked remote resources.</returns>
+    /// <returns>The cleaned body content, the number of blocked remote resources and whether a limit reduced it.</returns>
     /// <exception cref="ArgumentNullException"><paramref name="html"/> or <paramref name="inlineImages"/> is null.</exception>
     public static SanitizedHtml Sanitize(string html, IReadOnlyDictionary<string, string> inlineImages, bool allowRemoteImages)
     {
         ArgumentNullException.ThrowIfNull(html);
         ArgumentNullException.ThrowIfNull(inlineImages);
 
-        string limitedHtml = HtmlNestingLimiter.Limit(html);
-        using IHtmlDocument document = PackageSanitizer.HtmlParserFactory().ParseDocument(DocumentPrefix + limitedHtml);
+        LimitedHtml limited = HtmlNestingLimiter.Limit(html);
+        using IHtmlDocument document = PackageSanitizer.HtmlParserFactory().ParseDocument(DocumentPrefix + limited.Html);
         IHtmlElement? body = document.Body;
         if (body is null)
         {
-            return new SanitizedHtml(string.Empty, 0);
+            return new SanitizedHtml(string.Empty, 0, limited.WasReduced);
         }
 
-        PruneElements(body);
+        bool wasFlattened = PruneElements(body);
         PackageSanitizer.SanitizeDom(document, body);
-        int blockedCount = ApplyUrlRules(body, inlineImages, allowRemoteImages);
-        return new SanitizedHtml(body.ChildNodes.ToHtml(PackageSanitizer.OutputFormatter), blockedCount);
+        var inlineImageBudget = new InlineImageBudget();
+        int blockedCount = ApplyUrlRules(body, inlineImages, inlineImageBudget, allowRemoteImages);
+        return new SanitizedHtml(
+            body.ChildNodes.ToHtml(PackageSanitizer.OutputFormatter),
+            blockedCount,
+            limited.WasReduced || wasFlattened || inlineImageBudget.WasExhausted);
     }
 
-    // Iterative on purpose (see MaxNestingDepth).
-    private static void PruneElements(IElement root)
+    // Iterative on purpose (see MaxNestingDepth). Returns true when something was flattened to text.
+    private static bool PruneElements(IElement root)
     {
+        bool wasFlattened = false;
         var pending = new Stack<(IElement Element, int Depth)>();
         pending.Push((root, 0));
         while (pending.Count > 0)
@@ -134,6 +140,7 @@ public static partial class MailHtmlSanitizer
             (IElement element, int depth) = pending.Pop();
             if (depth >= MaxNestingDepth)
             {
+                wasFlattened |= element.Children.Length > 0;
                 FlattenToText(element);
                 continue;
             }
@@ -150,6 +157,8 @@ public static partial class MailHtmlSanitizer
                 }
             }
         }
+
+        return wasFlattened;
     }
 
     // Replaces the descendants of the element by their text; the content of removed elements is not text.
@@ -184,10 +193,13 @@ public static partial class MailHtmlSanitizer
     }
 
     // Final step on the elements the package left: decides about every URL that can still load or open something.
-    private static int ApplyUrlRules(IElement body, IReadOnlyDictionary<string, string> inlineImages, bool allowRemoteImages)
+    private static int ApplyUrlRules(
+        IElement body,
+        IReadOnlyDictionary<string, string> inlineImages,
+        InlineImageBudget inlineImageBudget,
+        bool allowRemoteImages)
     {
         int blockedCount = 0;
-        var inlineImageBudget = new InlineImageBudget();
         foreach (IElement element in body.QuerySelectorAll("*").ToArray())
         {
             if (element.LocalName == "img")
@@ -379,6 +391,9 @@ public static partial class MailHtmlSanitizer
         private readonly Dictionary<string, bool> checkedImages = new(ReferenceEqualityComparer.Instance);
         private long insertedChars;
 
+        /// <summary>True when an allowed image was refused because the budget is used up.</summary>
+        public bool WasExhausted { get; private set; }
+
         public bool TryInsert(string dataUri)
         {
             if (!checkedImages.TryGetValue(dataUri, out bool isAllowed))
@@ -387,8 +402,14 @@ public static partial class MailHtmlSanitizer
                 checkedImages.Add(dataUri, isAllowed);
             }
 
-            if (!isAllowed || insertedChars + dataUri.Length > MaxInsertedDataUriChars)
+            if (!isAllowed)
             {
+                return false;
+            }
+
+            if (insertedChars + dataUri.Length > MaxInsertedDataUriChars)
+            {
+                WasExhausted = true;
                 return false;
             }
 
