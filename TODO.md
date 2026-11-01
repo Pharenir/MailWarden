@@ -261,7 +261,7 @@ AP-03 neu geteilt: AP-03b = Abgleich robust/schnell, **AP-03c** = Befehlswartesc
 - [ ] „Warum?“-Ansicht zeigt Begründungen nur als Text, nie als HTML (AP-08)
 - [ ] Fehlgeschlagene Befehle sperren die Aufbewahrung ihrer UIDs bis zum Verwerfen → Verwerfen in der UI (AP-04b)
 - [ ] Altbestand prüfen: der Durchlauf sortiert vorhandene Mails nie ein, eine bewusste Prüfung gehört nach AP-08
-- [ ] AP-06 (Kontakte, Allow-/Block-Listen) ist Voraussetzung für `Act`: solange das Adressbuch leer ist, ruht der Modus
+- [x] AP-06 (Kontakte, Allow-/Block-Listen) ist Voraussetzung für `Act`: erledigt in AP-06 (Sammeln, Listen, Import); solange das Adressbuch leer ist, ruht der Modus weiter
 - [x] Fall 33 erledigt (2026-11-01, `work\AP-07c\requirement.md`): Versand, Ordner anlegen, Verschieben, Schlüssel stabil auf beiden Anbietern. Dennis 2026-11-01: Mails und Ordner erscheinen im Web und in der Outlook-App. Testmails und beide Ordner liegen weiter in Konto 2 und im Google-Konto
 
 ### Vertagt aus AP-07d
@@ -276,7 +276,7 @@ Erledigt aus AP-07c: D8, J4 (Bremse) und die Sichtbarkeit von `EvaluationFailed`
 - [ ] Die Marke kann eine Lücke überspringen: eine später nachgeladene UID unter der Marke wird nie entschieden (secure N1, review N3)
 - [ ] Beim Durchlauf einen Stream statt `MemoryStream` für die EML (secure N2; siehe auch AP-07c oben)
 - [ ] Aufbewahrung fragt zuerst das Protokoll nach abgelaufenen Einträgen, statt jede Quarantäne-Datei zu lesen (secure N3)
-- [ ] AP-06 (Adressbuch) – ohne Kontakte ruht `Act`
+- [x] AP-06 (Adressbuch) – erledigt (Sammeln aus Gesendet, Listen, Import); ohne Kontakte ruht `Act` weiter
 - [ ] Fall 18 bestanden (Planer)
 
 **Ohne Bedingung:**
@@ -291,6 +291,37 @@ Erledigt aus AP-07c: D8, J4 (Bremse) und die Sichtbarkeit von `EvaluationFailed`
 - [ ] Bilder bei vertrauenswürdiger Mail automatisch laden (Wunsch aus der Anforderung, später)
 - [ ] Befund der Tester: das Maximum der Bremse (1000) entspricht der Befehlsgröße, ein Aufteilen von Verschiebungen
   im Durchlauf gibt es nicht mehr – bewusst bestätigen (Planer)
+
+### Vertagt aus AP-06
+Stand: S3 2406/2406, review.3 APPROVE, Sicherheitsprüfung ohne Kritisch/Hoch (solange `Act` aus ist). Fall 19 (echte Daten) nach T5
+nicht erneut gezählt.
+
+**Bedingungen vor `Act` auf einem echten Konto (zusätzlich zu „Vertagt aus AP-07d“):**
+- [ ] An echten Headern prüfen, dass jede eingehende Mail einen Anbieter-Stempel von `Authentication-Results` trägt
+- [ ] Entscheiden, ob `AutoCollected`-Kontakte aus Junk retten dürfen
+- [ ] Im Bestand zählen, wie viele `Authenticated` nur an der Kind-Domain-Regel hängen (Signatur auf einer Kind-Domain der
+  `From`-Domain); sind es fast keine, diese Richtung entfernen. Regel: `docs\classifier.md`, „Ausrichtung“
+- [ ] Im Bestand zählen, wie oft `dmarc=pass` mit abweichendem `header.from` vorkommt (Geschwister-Domains werden seit fix.3
+  nicht mehr bestätigt, echte Mails können auf `Unknown` fallen)
+
+**Ohne Bedingung:**
+- [ ] AP-08 braucht eine Oberfläche für Kontakte, Listen und Import
+- [ ] AP-08: gelöschte Kontakte kommen nach einem UIDVALIDITY-Wechsel zurück (sperren statt löschen oder eine Löschmarke)
+- [ ] AP-08: Kontoentfernung und die Kontakte des Kontos
+- [ ] AP-08: Warnung bei jedem Allow-Eintrag auf eine Domain (nicht nur `FreemailDomains`), weil Subdomains mitzählen
+- [ ] AP-08: Bestätigung mit Anzahl vor einem Import
+- [ ] UIDs, die später unter der Marke nachgeladen werden, und vorübergehend unlesbare Mails werden nicht mehr gesammelt
+- [ ] Beim Import liegen die IDs über der Importgrenze im Speicher; ein Commit je Kontakt
+- [ ] `MailsSkipped` ist nirgends sichtbar (der Zyklus verwirft den Bericht)
+- [ ] Doppelte Kontakte durch Groß-/Kleinschreibung bei Nicht-ASCII-Zeichen (die Spalte kennt nur ASCII)
+- [ ] Ein späterer CSV-Export muss Zellen mit Formelanfang maskieren
+- [ ] vCard 2.1 mit quoted-printable in `FN` wird nicht dekodiert (nur der Name ist betroffen)
+- [ ] Ein Public Suffix außerhalb der eingebauten Liste wird nicht erkannt (vollständige Liste, siehe „Vertagt aus AP-07a“)
+- [ ] Ein Kontakt auf einer IDN-Domain wird nicht bestätigt, wenn der Stempel in A-Form (Punycode) steht (sichere Seite); die
+  Formen später vergleichen. Punycode und U-Form können zwei Zeilen im Listenspeicher sein, `Unlist` trifft dann eine
+- [ ] Alias-Adressen als `From` liefern keine Kontakte (sichere Seite); bei Bedarf Aliase je Konto hinterlegen
+- [ ] `DomainNames.AreAligned` hat keinen Aufrufer mehr: entfernen oder behalten
+- [ ] Die leere vCard-Datei wird mit `InvalidDataException` abgelehnt (Annahme des Testers): Planer bestätigt
 
 WinUI-App für Fall 30: im Projektordner `dotnet build MailWarden.sln`, dann
 `src\MailWarden.App\bin\x64\Debug\net9.0-windows10.0.19041.0\win-x64\MailWarden.App.exe` starten.
