@@ -89,7 +89,7 @@ Später: Naive Bayes aus Dennis’ Entscheidungen, Domain-Alter per RDAP.
 | AP | Inhalt | Ergebnis |
 |---|---|---|
 | AP-06 | Adressbuch minimal: lokal, Import vCard/CSV, automatisches Sammeln aus gesendeten Mails, Allow-/Block-Listen | Grundlage für Stufe `TrustedContact` |
-| AP-07 | Klassifizierer: Signale v1, Schwellen, Entscheidungsprotokoll, Anlegen von `Screener`/`Quarantine` je Konto, Aufbewahrung Quarantäne, Rettung sicherer Absender aus Junk. **AP-07a** = Kern (erledigt); **AP-07b** = Kalibrierung an echten Headern (PstProbe) + Einstellungsdatei; **AP-07c** = Anbindung an Mails/Ordner (nach AP-03c) | Vier Stufen sichtbar, jede Entscheidung erklärbar |
+| AP-07 | Klassifizierer: Signale v1, Schwellen, Entscheidungsprotokoll, Anlegen von `Screener`/`Quarantine` je Konto, Aufbewahrung Quarantäne, Rettung sicherer Absender aus Junk. **AP-07a** = Kern (erledigt); **AP-07b** = Kalibrierung an echten Headern (PstProbe) + Einstellungsdatei; **AP-07c** = Anbindung an Mails/Ordner (nach AP-03c); **AP-07d** = Verdrahtung in die laufende App, Bremse, sichtbare Probleme | Vier Stufen sichtbar, jede Entscheidung erklärbar |
 | AP-08 | Regel-Engine + UI: eigene Regeln, „Warum?“-Ansicht je Mail, Rückmeldung „kein Junk“/„Junk“ pflegt Listen, Zuordnung Stufe → Aktion, Schalter „CertainSpam direkt löschen“ | Regeln ersetzen Outlook-Regeln |
 | AP-09 | Archivierung + Backup: Archiv-Ordner je Konto synchronisieren, Volltextsuche über alles, Export mbox/EML, Export/Import der Konto- und Regel-Einstellungen (verschlüsselt) | Datensicherung ohne Anbieter |
 
