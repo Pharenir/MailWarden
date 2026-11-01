@@ -955,8 +955,16 @@ public sealed class ShellViewModel : ObservableObject, IDisposable
         List<MailMessage> messages = MessagesOf(rows);
         HashSet<long> messageIds = messages.Select(message => message.Id).ToHashSet();
         pendingMail.BeginFlagChange(messageIds, flag, isSet);
-        Messages.ShowWantedFlags(messageIds);
-        await EnqueueAsync(() => enqueue(messages));
+        try
+        {
+            Messages.ShowWantedFlags(messageIds);
+            await EnqueueAsync(() => enqueue(messages));
+        }
+        finally
+        {
+            // Does nothing when EnqueueAsync has ended the action; otherwise a failure before it would keep the flags as wanted.
+            pendingMail.EndAction(isStored: false);
+        }
     }
 
     // Rows go at once and the next row takes over; nothing below this reports the action as done before it is stored.

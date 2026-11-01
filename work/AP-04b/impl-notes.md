@@ -154,3 +154,6 @@ Build: `MailWarden.Presentation` and `MailWarden.App` with `-warnaserror`: 0 err
 **Tested (self-check, no proof; `_scratch\ap04bprobe`, artificial data):** V1 before enqueuing (a lower UID arrives, count above the confirmed one; fewer goes ahead), V2 with an SQLite trigger that fails the second group (`PartlyDoneText`, type name in the log), V3, V4 (no event after `Dispose`). All passed.
 **Untested:** the check of V1 after enqueuing, because it is only reachable in a race with the sync and the queue has no seam for it; read only.
 Build: `MailWarden.Presentation` and `MailWarden.App` with `-warnaserror`, see the report. **Not run:** S1-S3.
+
+## fix.3 addendum (planner, 2026-11-01)
+`ChangeFlagAsync` gets the same `try`/`finally` around `BeginFlagChange` as `RemoveRowsAsync`: the builder reported the same order and the planner decided to treat both alike. `EndAction` does nothing when the action has already ended.
