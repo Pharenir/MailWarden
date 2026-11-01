@@ -1,4 +1,4 @@
-STEP-RESULT: done (implement.1, including the coordinator's precisions of 2026-11-01)
+STEP-RESULT: done (implement.1, including the coordinator's precisions and decisions of 2026-11-01)
 
 # AP-06 – Implementation notes (Builder, implement.1)
 
@@ -36,6 +36,8 @@ for AP-06 yet; the requirement gives the rows to the documenter).
   `UnlistAsync(string entry, bool isDomain, ct)`.
 - `AccountCycleSteps(Sync, IdleWatchers, Classify = null, ExecuteCommands = null, Harvest = null)`.
 - `AddressRules.IsWellFormedAddress(string?)`, `IsWellFormedDomain(string?)`, `ToLookupForm(string?)`.
+- `ContactHarvester(accounts, folders, syncStates, messages, emlStore, contacts, markers)`, without the `TimeProvider` of D4 (decision 1).
+- `DomainNames.IsPublicSuffix(string)`: new public member (decision 2).
 
 ## What compiles differently now
 Expected to break existing tests until they are adapted: the constructors of `ClassificationPass` and `ClassifyingSyncCycle`, every fake
@@ -71,6 +73,10 @@ authentication. The documenter takes this to `docs\classifier.md`.
 ## Deviations
 - D3 as written (organisational domain) is replaced by the coordinator's precision: sender domain equals the entry or is a sub-domain of it.
 - D8 prints the account numbers in storage order (rowid), the same numbering as `classification-probe`.
+- D4: the constructor has no `TimeProvider` (decision 1). A harvest stores no time.
+- D2: `SetAsync` also rejects a domain entry that is itself a public suffix (decision 2). `IsPublicSuffix` knows single labels and the built-in
+  list of `DomainNames`; a suffix outside that list passes. The constructor of `ContactSenderDirectory` does not check this: it takes what the store holds.
+- D7: `AddContactAsync` cleans the name with `ContactNames.Clean` (decision 3), the one rule beyond the facade.
 - No deviation otherwise.
 
 ## Tested / not tested
@@ -80,11 +86,10 @@ authentication. The documenter takes this to `docs\classifier.md`.
 - Not exercised: cases 5, 14, 15 (pass and cycle at runtime), migration from v1 with data, EML with a locked file, case 19 (planner). The probe was not started. No tester run.
 
 ## Questions
-1. `src\MailWarden.Infrastructure\Classification\ContactHarvester.cs:65`: `TimeProvider timeProvider` is in the binding signature, but a harvest stores no time. It is only checked for null. Keep it, or drop it?
-2. `src\MailWarden.Infrastructure\Classification\ContactSenderDirectory.cs:107`: with the sub-domain rule a domain entry `co.uk` covers every `.co.uk` sender, and `Allow` on such an entry beats everything except failed authentication. `SetAsync` accepts it (D2: at least one dot). Refuse public suffixes, or warn in the screens of AP-08?
-3. `src\MailWarden.Infrastructure\Classification\ContactBook.cs:20`: `AddContactAsync` stores name and address as given (D7: no further logic); `UpsertAsync` only refuses a blank address. So case 18 holds for harvest and import, not for this path. Clean there with AP-08?
-4. `_scratch\classification-probe\Program.cs:454` (main folder, outside my working folder, not changed): the mode `pass` needs `new SqliteSenderListStore(database),` after this line, otherwise the probe no longer compiles against v6, which also blocks `stock` for case 19.
+None open. Decided by the coordinator on 2026-11-01: the `TimeProvider` is dropped, public suffixes are rejected, manual names are cleaned, and the
+coordinator changes `_scratch\classification-probe\Program.cs` in the main folder (it needs `new SqliteSenderListStore(database),` after line 454).
 
 ## Known limits
 - vCard 2.1 `ENCODING=QUOTED-PRINTABLE` is not decoded; such an `FN` is stored as its encoded text, cleaned. The address is unaffected.
 - As in the contract, the marker moves on past a mail that was only temporarily unreadable, and a mail that appears locally with a UID below the marker is not read.
+- The coordinator records the temporarily unreadable mails and vCard 2.1 quoted-printable in `TODO.md`; both stay as they are.
