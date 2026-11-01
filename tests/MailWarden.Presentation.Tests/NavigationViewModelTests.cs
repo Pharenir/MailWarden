@@ -272,4 +272,37 @@ public sealed class NavigationViewModelTests
             () => harness.Shell.Messages.Items.Count == 1 && harness.Shell.Messages.Items[0].Message.FolderId == seed.DraftsA.Id,
             "drafts folder listed");
     }
-}
+
+    // Case 96 (P2): only the node of an account is an account node.
+    [Fact(Timeout = TestTimeouts.PerTestMilliseconds)]
+    public async Task Only_the_account_nodes_are_marked_as_account_nodes()
+    {
+        var harness = new ShellHarness();
+        TwoAccounts seed = SeedTwoAccounts(harness);
+        await harness.Shell.InitializeAsync();
+
+        NavigationItem[] groupItems = [.. harness.Shell.Navigation.Items.Take(6)];
+        NavigationItem nodeA = harness.AccountNode(seed.AccountA.Id);
+        NavigationItem nodeB = harness.AccountNode(seed.AccountB.Id);
+        NavigationItem archiveParent = nodeA.Children.Single(item => item.Label == "Archive");
+
+        Assert.True(nodeA.IsAccountNode);
+        Assert.True(nodeB.IsAccountNode);
+        Assert.All(groupItems, item => Assert.False(item.IsAccountNode));
+        Assert.All(nodeA.Children.Take(6), item => Assert.False(item.IsAccountNode));
+        Assert.False(archiveParent.IsAccountNode);
+        Assert.All(Flatten(nodeA.Children), item => Assert.False(item.IsAccountNode));
+        Assert.All(Flatten(nodeB.Children), item => Assert.False(item.IsAccountNode));
+        Assert.Equal(2, Flatten(harness.Shell.Navigation.Items).Count(item => item.IsAccountNode));
+    }
+
+    // Case 96 positive control: without accounts there is no account node.
+    [Fact(Timeout = TestTimeouts.PerTestMilliseconds)]
+    public async Task Without_accounts_no_item_is_an_account_node()
+    {
+        var harness = new ShellHarness();
+
+        await harness.Shell.InitializeAsync();
+
+        Assert.All(harness.Shell.Navigation.Items, item => Assert.False(item.IsAccountNode));
+    }}

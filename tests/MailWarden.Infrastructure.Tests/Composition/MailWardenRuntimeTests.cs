@@ -305,4 +305,43 @@ public sealed class MailWardenRuntimeTests : IDisposable
         Assert.Equal(MessageFlags.None, reloaded?.Flags);
         Assert.Equal(1, await runtime.ReadModel.CountUnreadAsync(new MessageQuery(Role: FolderRole.Inbox)));
     }
-}
+
+    // Case 103 (P3): the read model reports the role of a stored folder, and null for an unknown one.
+    [Fact(Timeout = TestTimeouts.PerTestMilliseconds)]
+    public async Task Read_model_reports_the_role_of_known_folders_and_null_for_unknown_ones()
+    {
+        DataPaths paths = NewPaths();
+        await using MailWardenRuntime runtime = await MailWardenRuntime.OpenAsync(paths);
+        SqliteDatabase database = await runtime.OpenDatabaseAsync();
+        Account account = TestData.NewAccount("Account_A");
+        await new SqliteAccountStore(database).UpsertAsync(account);
+        var folders = new SqliteFolderStore(database);
+        MailFolder inbox = await folders.UpsertAsync(TestData.NewFolder(account.Id, "INBOX", FolderRole.Inbox));
+        MailFolder junk = await folders.UpsertAsync(TestData.NewFolder(account.Id, "Junk", FolderRole.Junk));
+        MailFolder quarantine = await folders.UpsertAsync(TestData.NewFolder(account.Id, "Quarantine", FolderRole.Quarantine));
+        MailFolder custom = await folders.UpsertAsync(TestData.NewFolder(account.Id, "Projects", FolderRole.None));
+
+        Assert.Equal(FolderRole.Inbox, await runtime.ReadModel.GetFolderRoleAsync(inbox.Id));
+        Assert.Equal(FolderRole.Junk, await runtime.ReadModel.GetFolderRoleAsync(junk.Id));
+        Assert.Equal(FolderRole.Quarantine, await runtime.ReadModel.GetFolderRoleAsync(quarantine.Id));
+        Assert.Equal(FolderRole.None, await runtime.ReadModel.GetFolderRoleAsync(custom.Id));
+        Assert.Null(await runtime.ReadModel.GetFolderRoleAsync(999_999));
+        Assert.Null(await runtime.ReadModel.GetFolderRoleAsync(0));
+        Assert.Null(await runtime.ReadModel.GetFolderRoleAsync(-1));
+    }
+
+    // Case 103: the role is read live (a folder stored after the first look is known afterwards).
+    [Fact(Timeout = TestTimeouts.PerTestMilliseconds)]
+    public async Task Read_model_folder_role_follows_the_stored_folders()
+    {
+        DataPaths paths = NewPaths();
+        await using MailWardenRuntime runtime = await MailWardenRuntime.OpenAsync(paths);
+        SqliteDatabase database = await runtime.OpenDatabaseAsync();
+        Account account = TestData.NewAccount("Account_A");
+        await new SqliteAccountStore(database).UpsertAsync(account);
+        var folders = new SqliteFolderStore(database);
+
+        MailFolder later = await folders.UpsertAsync(TestData.NewFolder(account.Id, "Later", FolderRole.Junk));
+
+        Assert.Equal(FolderRole.Junk, await runtime.ReadModel.GetFolderRoleAsync(later.Id));
+    }}

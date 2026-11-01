@@ -227,6 +227,20 @@ internal sealed class FakeMailboxReadModel : IMailboxReadModel
     /// <summary>Replaces <see cref="ReadContentAsync"/>; arguments are the message and the 1-based call number.</summary>
     public Func<MailMessage, int, Task<MailContent?>>? ReadBehavior { get; set; }
 
+    /// <summary>When set, <see cref="GetFolderRoleAsync"/> throws it (read failure of the folder role).</summary>
+    public Exception? FolderRoleFailure { get; set; }
+
+    private readonly Dictionary<long, FolderRole?> _roleOverrides = [];
+
+    /// <summary>Overrides the role the read model reports for a folder (null = unknown folder).</summary>
+    public void SetFolderRole(long folderId, FolderRole? role)
+    {
+        lock (_gate)
+        {
+            _roleOverrides[folderId] = role;
+        }
+    }
+
     public int ListMessagesCalls
     {
         get
@@ -363,6 +377,26 @@ internal sealed class FakeMailboxReadModel : IMailboxReadModel
         {
             _listAccountsCalls++;
             return Task.FromResult<IReadOnlyList<Account>>([.. _accounts]);
+        }
+    }
+
+    public Task<FolderRole?> GetFolderRoleAsync(long folderId, CancellationToken ct = default)
+    {
+        if (FolderRoleFailure is not null)
+        {
+            throw FolderRoleFailure;
+        }
+
+        lock (_gate)
+        {
+            if (_roleOverrides.TryGetValue(folderId, out FolderRole? overridden))
+            {
+                return Task.FromResult(overridden);
+            }
+
+            // Known folders report the role they were added with (Inbox in most tests); unknown folders report null.
+            MailFolder? folder = _folders.FirstOrDefault(candidate => candidate.Id == folderId);
+            return Task.FromResult<FolderRole?>(folder?.Role);
         }
     }
 
