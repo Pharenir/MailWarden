@@ -267,7 +267,7 @@ public sealed class ClassificationPassSafetyTests
         bool withEntry = true)
     {
         MailMessage message = await harness.AddRawAsync(
-            harness.Quarantine!, uid, null, $"<quarantine_{uid}@example.test>", messageDate ?? harness.Clock.GetUtcNow());
+            harness.Quarantine!, uid, ClassificationTestEml.For(MailKind.CertainSpam), $"<quarantine_{uid}@example.test>", messageDate ?? harness.Clock.GetUtcNow());
         if (withEntry)
         {
             await harness.SeedEntryAsync(message, harness.Clock.GetUtcNow() - decisionAge, outcome, action);
