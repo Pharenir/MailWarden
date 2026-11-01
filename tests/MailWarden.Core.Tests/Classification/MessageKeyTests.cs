@@ -127,6 +127,17 @@ public sealed class MessageKeyTests
         Assert.NotEqual(baseKey, MessageKey.For(Message(null, fromAddress: "sender_b@example.test")));
     }
 
+    [Theory]
+    [InlineData("")]
+    [InlineData("   ")]
+    [InlineData("	
+")]
+    public void Empty_or_whitespace_message_id_counts_as_absent(string messageId)
+    {
+        Assert.Equal(MessageKey.For(Message(null)), MessageKey.For(Message(messageId)));
+        Assert.StartsWith("h:", MessageKey.For(Message(messageId)), StringComparison.Ordinal);
+    }
+
     [Fact]
     public void Message_id_form_and_hash_form_never_collide()
     {

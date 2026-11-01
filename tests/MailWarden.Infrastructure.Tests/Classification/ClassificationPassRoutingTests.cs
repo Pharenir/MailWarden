@@ -428,7 +428,7 @@ public sealed class ClassificationPassRoutingTests
         Assert.Equal((long)mailCount, await harness.LogCountAsync());
         Assert.Equal(mailCount, report.Classified);
         Assert.Equal((uint)mailCount, (await harness.MarkerAsync(harness.Inbox))!.ClassifiedUpToUid);
-        Assert.Contains(report.MovesEnqueued, new[] { commands.Count, mailCount });
+        Assert.Equal(mailCount, report.MovesEnqueued);
     }
 
     // Case 25, retention flavour: the same limit holds for deletes

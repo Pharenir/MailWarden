@@ -309,7 +309,7 @@ public sealed class ClassificationPassSafetyTests
         Assert.Equal(harness.Quarantine!.Id, command.FolderId);
         Assert.Equal(FakeFolderProvisioner.QuarantineUidValidity, command.FolderUidValidity);
         Assert.Equal(new uint[] { 1, 2 }, command.Uids);
-        Assert.True(report.RetentionDeletesEnqueued >= 1);
+        Assert.Equal(2, report.RetentionDeletesEnqueued);
     }
 
     // Case 27: both boundaries (exactly the retention days, one second less), decision time, entry kind
@@ -355,7 +355,7 @@ public sealed class ClassificationPassSafetyTests
             MailCommand command = Assert.Single(commands);
             Assert.Equal(MailCommandKind.DeletePermanently, command.Kind);
             Assert.Equal(new[] { message.Uid }, command.Uids);
-            Assert.True(report.RetentionDeletesEnqueued >= 1, description);
+            Assert.Equal(1, report.RetentionDeletesEnqueued);
         }
         else
         {

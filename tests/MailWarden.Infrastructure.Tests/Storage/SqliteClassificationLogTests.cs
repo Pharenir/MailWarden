@@ -305,16 +305,18 @@ public sealed class SqliteClassificationLogTests
 
     // Case 6
     [Fact(Timeout = TestTimeouts.PerTestMilliseconds)]
-    public async Task Deleting_a_folder_removes_its_marker_and_leaves_the_other_markers()
+    public async Task Deleting_a_folder_removes_its_marker_but_keeps_log_entries_and_other_markers()
     {
         (StorageFixture storage, SqliteClassificationLog log, Account account, MailFolder folder) = await CreateAsync();
         await using (storage)
         {
             MailFolder junk = await storage.AddFolderAsync(account.Id, FolderRole.Junk, "Junk");
-            await log.CommitAsync([], new ClassificationMarker(folder.Id, 1000, 5));
+            await log.CommitAsync([NewEntry(account.Id, "m:survivor", folder.Id)], new ClassificationMarker(folder.Id, 1000, 5));
             await log.CommitAsync([], new ClassificationMarker(junk.Id, 2000, 7));
 
             await storage.Folders.DeleteAsync(folder.Id);
+
+            Assert.NotNull(await log.GetAsync(account.Id, "m:survivor"));
 
             Assert.Null(await log.GetMarkerAsync(folder.Id));
             Assert.Equal(new ClassificationMarker(junk.Id, 2000, 7), await log.GetMarkerAsync(junk.Id));
