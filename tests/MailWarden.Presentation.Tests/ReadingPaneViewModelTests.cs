@@ -287,7 +287,7 @@ public sealed class ReadingPaneViewModelTests
         ((INotifyPropertyChanged)reading).PropertyChanged += (_, args) => changed.Add(args.PropertyName);
 
         reading.LoadRemoteImagesCommand.Execute(null);
-        await Wait.UntilAsync(() => !reading.CanLoadRemoteImages, "remote images approved");
+        await Wait.UntilAsync(() => !reading.CanLoadRemoteImages && reading.DocumentHtml?.Contains("tracker.test", StringComparison.Ordinal) == true, "remote images approved and document rebuilt");
 
         Assert.Contains("tracker.test", reading.DocumentHtml, StringComparison.Ordinal);
         Assert.Contains("keep_marker", reading.DocumentHtml, StringComparison.Ordinal);
@@ -309,7 +309,7 @@ public sealed class ReadingPaneViewModelTests
         ReadingPaneViewModel reading = harness.Shell.Reading;
         await reading.ShowAsync(first);
         reading.LoadRemoteImagesCommand.Execute(null);
-        await Wait.UntilAsync(() => !reading.CanLoadRemoteImages, "remote images approved");
+        await Wait.UntilAsync(() => !reading.CanLoadRemoteImages && reading.DocumentHtml?.Contains("tracker.test", StringComparison.Ordinal) == true, "remote images approved and document rebuilt");
 
         await reading.ShowAsync(second);
 
@@ -476,7 +476,7 @@ public sealed class ReadingPaneViewModelTests
         await reading.ShowAsync(message);
 
         reading.LoadRemoteImagesCommand.Execute(null);
-        await Wait.UntilAsync(() => !reading.CanLoadRemoteImages, "rebuild finished");
+        await Wait.UntilAsync(() => !reading.CanLoadRemoteImages && reading.DocumentHtml?.Contains("tracker.test", StringComparison.Ordinal) == true, "rebuild finished");
 
         Assert.Contains("tracker.test", reading.DocumentHtml, StringComparison.Ordinal);
         Assert.Equal(1, harness.ReadModel.ReadCalls);

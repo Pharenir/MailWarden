@@ -180,7 +180,16 @@ internal sealed class FakeMailboxController : IMailboxController
     }
 
     /// <summary>Raises the event on the calling thread.</summary>
-    public void Raise(AccountSyncStatus status) => StatusChanged?.Invoke(this, status);
+    public void Raise(AccountSyncStatus status)
+    {
+        // Like the real controller: CurrentStatus already shows the new status when the event fires.
+        lock (_gate)
+        {
+            CurrentStatus = [.. CurrentStatus.Where(existing => existing.AccountId != status.AccountId), status];
+        }
+
+        StatusChanged?.Invoke(this, status);
+    }
 
     /// <summary>Raises the event on a thread-pool thread, as the real service does.</summary>
     public Task RaiseOnPoolAsync(AccountSyncStatus status) => Task.Run(() => Raise(status));
