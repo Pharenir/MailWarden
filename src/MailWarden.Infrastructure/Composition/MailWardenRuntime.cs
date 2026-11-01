@@ -11,7 +11,8 @@ namespace MailWarden.Infrastructure.Composition;
 
 /// <summary>
 /// Composition root of one opened data folder: holds the data-folder lock, the database connections (one per flow), one
-/// credential store with the token providers on it, the background service and the read model of the user interface.
+/// credential store with the token providers on it, the background service, the read model and the actions of the user
+/// interface.
 /// </summary>
 public sealed class MailWardenRuntime : IAsyncDisposable
 {
@@ -27,6 +28,7 @@ public sealed class MailWardenRuntime : IAsyncDisposable
     private readonly DataFolderLock folderLock;
     private readonly RuntimeConnections connections;
     private readonly MailboxReadModel readModel;
+    private readonly MailboxActions actions;
     private readonly ICriticalLog log;
     private readonly Lock disposeGate = new();
     private Task? disposeTask;
@@ -37,6 +39,7 @@ public sealed class MailWardenRuntime : IAsyncDisposable
         RuntimeConnections connections,
         MailboxService service,
         MailboxReadModel readModel,
+        MailboxActions actions,
         ICriticalLog log)
     {
         Paths = paths;
@@ -44,6 +47,7 @@ public sealed class MailWardenRuntime : IAsyncDisposable
         this.connections = connections;
         Service = service;
         this.readModel = readModel;
+        this.actions = actions;
         this.log = log;
     }
 
@@ -65,6 +69,9 @@ public sealed class MailWardenRuntime : IAsyncDisposable
 
     /// <summary>Read access for the user interface.</summary>
     public IMailboxReadModel ReadModel => readModel;
+
+    /// <summary>What the user interface may change: everything goes through the command queue.</summary>
+    public IMailboxActions Actions => actions;
 
     /// <summary>
     /// Takes the data-folder lock BEFORE opening or migrating the database, loads the classification policy and the
@@ -165,6 +172,7 @@ public sealed class MailWardenRuntime : IAsyncDisposable
             ICriticalLog criticalLog = log ?? new NoCriticalLog();
             SqliteDatabase serviceDatabase = await connections.OpenAsync(ct).ConfigureAwait(false);
             SqliteDatabase readDatabase = await connections.OpenAsync(ct).ConfigureAwait(false);
+            SqliteDatabase actionsDatabase = await connections.OpenAsync(ct).ConfigureAwait(false);
             var pipelines = new AccountPipelines(paths, connections, tokenProviders, timeProvider, classifierSettings, classificationPolicy);
 
             // Service and runtime need the cycle, the cycle needs them. Assigned below, before any cycle can run: the service
@@ -188,7 +196,8 @@ public sealed class MailWardenRuntime : IAsyncDisposable
                 timeProvider,
                 folderLock);
             var mailboxReadModel = new MailboxReadModel(readDatabase, new FileEmlStore(paths));
-            runtime = new MailWardenRuntime(paths, folderLock, connections, service, mailboxReadModel, criticalLog);
+            var mailboxActions = new MailboxActions(actionsDatabase, service.TriggerAccount, timeProvider);
+            runtime = new MailWardenRuntime(paths, folderLock, connections, service, mailboxReadModel, mailboxActions, criticalLog);
             return runtime;
         }
         catch
@@ -246,6 +255,8 @@ public sealed class MailWardenRuntime : IAsyncDisposable
     {
         try
         {
+            // First, so that no action of the user interface can store a command the service no longer picks up.
+            await actions.CloseAsync().ConfigureAwait(false);
             await Service.StopAsync().ConfigureAwait(false);
         }
         finally

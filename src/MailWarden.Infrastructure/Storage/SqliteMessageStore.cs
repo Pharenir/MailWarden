@@ -343,6 +343,33 @@ public sealed class SqliteMessageStore(SqliteDatabase database) : IMessageStore
         }
     }
 
+    /// <summary>Loads UID and database id of all messages of one folder.</summary>
+    /// <param name="folderId">Folder id.</param>
+    /// <param name="ct">Cancellation token.</param>
+    /// <returns>UID → <see cref="MailMessage.Id"/>; empty for an unknown folder.</returns>
+    public async Task<IReadOnlyDictionary<uint, long>> GetUidIdsAsync(long folderId, CancellationToken ct = default)
+    {
+        try
+        {
+            await using var command = database.Connection.CreateCommand();
+            command.CommandText = "SELECT uid, id FROM messages WHERE folder_id = $folder_id;";
+            command.Parameters.AddWithValue("$folder_id", folderId);
+
+            var idsByUid = new Dictionary<uint, long>();
+            await using var reader = await command.ExecuteReaderAsync(ct).ConfigureAwait(false);
+            while (await reader.ReadAsync(ct).ConfigureAwait(false))
+            {
+                idsByUid.Add(SqliteValues.ReadUInt32(reader, 0), reader.GetInt64(1));
+            }
+
+            return idsByUid;
+        }
+        catch (SqliteException exception)
+        {
+            throw SqliteValues.Wrap("Loading message ids", exception);
+        }
+    }
+
     /// <inheritdoc />
     public async Task UpdateFlagsAsync(
         long folderId,

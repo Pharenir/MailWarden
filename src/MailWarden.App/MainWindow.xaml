@@ -17,13 +17,76 @@
       <RowDefinition Height="*" />
     </Grid.RowDefinitions>
 
-    <!-- Toolbar: layout toggle, refresh, theme. -->
-    <StackPanel Grid.Row="0" Margin="8" Orientation="Horizontal" Spacing="8">
-      <Button x:Name="ToggleLayoutButton" Command="{x:Bind ViewModel.ToggleLayoutCommand}" />
-      <Button x:Name="RefreshButton" Command="{x:Bind ViewModel.RefreshCommand}" />
-      <TextBlock x:Name="ThemeLabel" VerticalAlignment="Center" />
-      <ComboBox x:Name="ThemeChoice" SelectionChanged="OnThemeChoiceChanged" />
-    </StackPanel>
+    <!-- Toolbar: actions on the selection, layout toggle, refresh, theme, settings, failed actions; the search on the right. -->
+    <Grid Grid.Row="0" Margin="8" ColumnSpacing="8">
+      <Grid.ColumnDefinitions>
+        <ColumnDefinition Width="*" />
+        <ColumnDefinition Width="Auto" />
+      </Grid.ColumnDefinitions>
+
+      <ScrollViewer
+          Grid.Column="0"
+          HorizontalScrollBarVisibility="Auto"
+          HorizontalScrollMode="Auto"
+          VerticalScrollBarVisibility="Disabled"
+          VerticalScrollMode="Disabled">
+        <StackPanel Orientation="Horizontal" Spacing="8">
+          <Button x:Name="MarkReadButton" Command="{x:Bind ViewModel.MarkReadCommand}" />
+          <Button x:Name="MarkUnreadButton" Command="{x:Bind ViewModel.MarkUnreadCommand}" />
+          <Button x:Name="ToggleFlagButton" Command="{x:Bind ViewModel.ToggleFlagCommand}" />
+          <Button x:Name="DeleteButton" Command="{x:Bind ViewModel.DeleteCommand}" />
+          <DropDownButton x:Name="MoveButton" IsEnabled="{x:Bind ViewModel.CanMove, Mode=OneWay}">
+            <DropDownButton.Flyout>
+              <MenuFlyout x:Name="MoveToolbarMenu" />
+            </DropDownButton.Flyout>
+          </DropDownButton>
+          <Button
+              x:Name="EmptyFolderButton"
+              Command="{x:Bind ViewModel.EmptyFolderCommand}"
+              Visibility="{x:Bind ViewModel.CanEmptyFolder, Mode=OneWay}" />
+          <Button x:Name="ToggleLayoutButton" Command="{x:Bind ViewModel.ToggleLayoutCommand}" />
+          <Button x:Name="RefreshButton" Command="{x:Bind ViewModel.RefreshCommand}" />
+          <TextBlock x:Name="ThemeLabel" VerticalAlignment="Center" />
+          <ComboBox x:Name="ThemeChoice" SelectionChanged="OnThemeChoiceChanged" />
+          <Button x:Name="SettingsButton">
+            <Button.Flyout>
+              <Flyout>
+                <ToggleSwitch x:Name="MarkReadOnSelectSwitch" IsOn="{x:Bind ViewModel.MarkReadOnSelect, Mode=TwoWay}" />
+              </Flyout>
+            </Button.Flyout>
+          </Button>
+          <Button x:Name="FailedActionsButton" Visibility="{x:Bind ViewModel.HasFailedActions, Mode=OneWay}">
+            <Button.Flyout>
+              <Flyout>
+                <ItemsControl ItemsSource="{x:Bind ViewModel.FailedActions, Mode=OneWay}">
+                  <ItemsControl.ItemTemplate>
+                    <DataTemplate x:DataType="presentation:PendingActionRow">
+                      <Grid Margin="0,4" ColumnSpacing="12">
+                        <Grid.ColumnDefinitions>
+                          <ColumnDefinition Width="*" />
+                          <ColumnDefinition Width="Auto" />
+                        </Grid.ColumnDefinitions>
+                        <TextBlock Grid.Column="0" VerticalAlignment="Center" Text="{x:Bind Text}" TextWrapping="Wrap" />
+                        <Button Grid.Column="1" Click="OnDiscardFailedActionClicked" Content="{x:Bind presentation:UiText.DiscardFailedAction}" />
+                      </Grid>
+                    </DataTemplate>
+                  </ItemsControl.ItemTemplate>
+                </ItemsControl>
+              </Flyout>
+            </Button.Flyout>
+          </Button>
+        </StackPanel>
+      </ScrollViewer>
+
+      <AutoSuggestBox
+          x:Name="SearchBox"
+          Grid.Column="1"
+          Width="240"
+          VerticalAlignment="Center"
+          QueryIcon="Find"
+          QuerySubmitted="OnSearchSubmitted"
+          TextChanged="OnSearchTextChanged" />
+    </Grid>
 
     <!-- Set in code-behind: x:Bind function bindings are not called for null, so the bar would never close. -->
     <InfoBar x:Name="BannerBar" Grid.Row="1" IsClosable="False" Severity="Warning" />
@@ -91,10 +154,26 @@
 
         <ListView
             x:Name="MessageList"
+            ContextRequested="OnMessageListContextRequested"
             ItemsSource="{x:Bind ViewModel.Messages.Items}"
+            KeyDown="OnMessageListKeyDown"
             Loaded="OnMessageListLoaded"
             SelectionChanged="OnMessageListSelectionChanged"
-            SelectionMode="Single">
+            SelectionMode="Extended">
+          <ListView.ContextFlyout>
+            <MenuFlyout>
+              <MenuFlyoutItem x:Name="ContextMarkRead" Command="{x:Bind ViewModel.MarkReadCommand}" />
+              <MenuFlyoutItem x:Name="ContextMarkUnread" Command="{x:Bind ViewModel.MarkUnreadCommand}" />
+              <MenuFlyoutItem x:Name="ContextToggleFlag" Command="{x:Bind ViewModel.ToggleFlagCommand}" />
+              <MenuFlyoutItem x:Name="ContextDelete" Command="{x:Bind ViewModel.DeleteCommand}" />
+              <MenuFlyoutItem x:Name="ContextDeletePermanently" Command="{x:Bind ViewModel.DeletePermanentlyCommand}" />
+              <MenuFlyoutSubItem x:Name="ContextMove" IsEnabled="{x:Bind ViewModel.CanMove, Mode=OneWay}" />
+              <MenuFlyoutItem
+                  x:Name="ContextEmptyFolder"
+                  Command="{x:Bind ViewModel.EmptyFolderCommand}"
+                  Visibility="{x:Bind ViewModel.CanEmptyFolder, Mode=OneWay}" />
+            </MenuFlyout>
+          </ListView.ContextFlyout>
           <ListView.ItemContainerStyle>
             <Style TargetType="ListViewItem">
               <Setter Property="HorizontalContentAlignment" Value="Stretch" />
@@ -109,11 +188,11 @@
                 </Grid.ColumnDefinitions>
                 <StackPanel Grid.Column="0">
                   <TextBlock
-                      FontWeight="{x:Bind local:XamlFormat.RowWeight(IsUnread)}"
+                      FontWeight="{x:Bind local:XamlFormat.RowWeight(IsUnread), Mode=OneWay}"
                       Text="{x:Bind Sender}"
                       TextTrimming="CharacterEllipsis" />
                   <TextBlock
-                      FontWeight="{x:Bind local:XamlFormat.RowWeight(IsUnread)}"
+                      FontWeight="{x:Bind local:XamlFormat.RowWeight(IsUnread), Mode=OneWay}"
                       Text="{x:Bind Subject}"
                       TextTrimming="CharacterEllipsis" />
                   <TextBlock
@@ -132,7 +211,7 @@
                       Text="{x:Bind AccountLabel}" />
                   <StackPanel HorizontalAlignment="Right" Orientation="Horizontal" Spacing="4">
                     <FontIcon FontSize="12" Glyph="&#xE723;" Visibility="{x:Bind HasAttachments}" />
-                    <FontIcon FontSize="12" Glyph="&#xE7C1;" Visibility="{x:Bind IsFlagged}" />
+                    <FontIcon FontSize="12" Glyph="&#xE7C1;" Visibility="{x:Bind IsFlagged, Mode=OneWay}" />
                   </StackPanel>
                 </StackPanel>
               </Grid>
@@ -203,5 +282,20 @@
         </Grid>
       </Grid>
     </Grid>
+
+    <!-- Target of the link under the mouse; placed in code-behind, above everything, and never in the way of the mouse. -->
+    <Canvas Grid.RowSpan="3" IsHitTestVisible="False">
+      <Border
+          x:Name="LinkHint"
+          MaxWidth="600"
+          Padding="8,4"
+          Background="{ThemeResource SolidBackgroundFillColorBaseBrush}"
+          BorderBrush="{ThemeResource CardStrokeColorDefaultBrush}"
+          BorderThickness="1"
+          CornerRadius="4"
+          Visibility="Collapsed">
+        <TextBlock x:Name="LinkHintText" TextWrapping="Wrap" />
+      </Border>
+    </Canvas>
   </Grid>
 </Window>

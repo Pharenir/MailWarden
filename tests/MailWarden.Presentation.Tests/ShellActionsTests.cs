@@ -262,24 +262,38 @@ public sealed class ShellActionsTests
 
     // ---- Case 11 -------------------------------------------------------------------------------------------
 
-    private static async Task<(ShellHarness Harness, Account Account, MailFolder Junk)> InitializedWithJunkAsync(int junkCount)
+    private static IEnumerable<NavigationItem> Flatten(IEnumerable<NavigationItem> items) =>
+        items.SelectMany(item => new[] { item }.Concat(Flatten(item.Children)));
+
+    /// <summary>Seeds Inbox, Trash and Junk before initialisation and selects the folder node of <paramref name="role"/>.</summary>
+    private static async Task<(ShellHarness Harness, Account Account, MailFolder Folder)> InitializedInFolderAsync(FolderRole role, int count)
     {
-        (ShellHarness harness, Account account, _, _) = await InitializedAsync(1);
+        var harness = new ShellHarness();
+        Account account = harness.ReadModel.AddAccount("Account_A");
+        harness.ReadModel.AddMessage(harness.ReadModel.AddFolder(account, FolderRole.Inbox, "INBOX"), "marker_subject_inbox");
+        MailFolder trash = harness.ReadModel.AddFolder(account, FolderRole.Trash, "Trash");
         MailFolder junk = harness.ReadModel.AddFolder(account, FolderRole.Junk, "Junk");
-        for (int index = 0; index < junkCount; index++)
+        MailFolder folder = role == FolderRole.Trash ? trash : junk;
+        for (int index = 0; index < count; index++)
         {
-            harness.ReadModel.AddMessage(junk, $"marker_subject_junk_{index}", fromName: "marker_sender_x", fromAddress: "sender_a@example.test");
+            harness.ReadModel.AddMessage(folder, $"marker_subject_{role}_{index}", fromName: "marker_sender_x", fromAddress: "sender_a@example.test");
         }
 
-        await harness.Shell.Messages.LoadAsync(MailView.Folder(account.Id, junk.Id));
-        return (harness, account, junk);
+        harness.SetStatuses(FakeMailboxController.Status(account.Id, AccountSyncState.Idle));
+        await harness.Shell.InitializeAsync();
+        NavigationItem node = Flatten(harness.Shell.Navigation.Items).First(item =>
+            item.View == MailView.Folder(account.Id, folder.Id) || item.View == MailView.GroupForAccount(role, account.Id));
+        harness.Shell.Navigation.SelectedItem = node;
+        await Wait.UntilAsync(() => harness.Shell.Messages.Items.Count == count, "folder listed");
+        await Wait.NegativeWindowAsync();
+        return (harness, account, folder);
     }
 
     // Case 11: the count comes from CountForEmptyAsync, the words of the role are named, no sender or subject.
     [Fact(Timeout = TestTimeouts.PerTestMilliseconds)]
     public async Task Empty_folder_asks_with_the_snapshot_count_and_the_role_word_and_then_enqueues()
     {
-        (ShellHarness harness, _, MailFolder junk) = await InitializedWithJunkAsync(4);
+        (ShellHarness harness, _, MailFolder junk) = await InitializedInFolderAsync(FolderRole.Junk, 4);
         harness.Actions.OverrideEmptyCount(junk.Id, 7);
         Assert.True(harness.Shell.EmptyFolderCommand.CanExecute(null));
 
@@ -300,7 +314,7 @@ public sealed class ShellActionsTests
     [InlineData(null)]
     public async Task Empty_folder_without_a_yes_enqueues_nothing(bool? answer)
     {
-        (ShellHarness harness, _, _) = await InitializedWithJunkAsync(4);
+        (ShellHarness harness, _, _) = await InitializedInFolderAsync(FolderRole.Junk, 4);
         harness.ConfirmationAnswer = answer;
 
         harness.Shell.EmptyFolderCommand.Execute(null);
@@ -315,10 +329,7 @@ public sealed class ShellActionsTests
     [Fact(Timeout = TestTimeouts.PerTestMilliseconds)]
     public async Task Empty_folder_on_the_trash_asks_with_the_trash_word()
     {
-        (ShellHarness harness, Account account, _, MailFolder trash) = await InitializedAsync(1);
-        harness.ReadModel.AddMessage(trash, "marker_subject_trash_a", fromName: "marker_sender_x");
-        harness.ReadModel.AddMessage(trash, "marker_subject_trash_b", fromName: "marker_sender_x");
-        await harness.Shell.Messages.LoadAsync(MailView.Folder(account.Id, trash.Id));
+        (ShellHarness harness, _, _) = await InitializedInFolderAsync(FolderRole.Trash, 2);
         Assert.True(harness.Shell.EmptyFolderCommand.CanExecute(null));
 
         harness.Shell.EmptyFolderCommand.Execute(null);
@@ -615,7 +626,7 @@ public sealed class ShellActionsTests
         await Wait.UntilAsync(() => open is not null, "confirmation open");
 
         harness.Shell.Dispose();
-        open!.SetResult(true);
+        open!.TrySetResult(true);
         await Wait.NegativeWindowAsync();
 
         Assert.Empty(harness.Actions.Calls);

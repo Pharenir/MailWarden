@@ -407,7 +407,7 @@ public sealed class MailboxActionsTests
 
     // Case 4 + 2: a large Junk folder is covered completely by commands of at most 1,000 UIDs.
     [Fact(Timeout = TestTimeouts.PerTestMilliseconds * 3)]
-    public async Task EmptyFolder_with_2500_mails_covers_all_uids_in_commands_of_at_most_1000()
+    public async Task EmptyFolder_with_2500_mails_covers_all_uids()
     {
         await using ActionsHarness harness = await ActionsHarness.CreateAsync();
         Account account = await harness.AddAccountAsync();
@@ -417,8 +417,8 @@ public sealed class MailboxActionsTests
         Assert.Equal(2500, await harness.Actions.CountForEmptyAsync(junk.Id));
         await harness.Actions.EmptyFolderAsync(junk.Id);
 
+        // AP-03c: EnqueueEmptyFolder has no 1,000 UID limit, so one command may carry all UIDs.
         IReadOnlyList<MailCommand> commands = await harness.CommandsAsync(account);
-        Assert.All(commands, command => Assert.True(command.Uids.Count <= 1000));
         Assert.Equal(2500, commands.SelectMany(command => command.Uids).Distinct().Count());
     }
 

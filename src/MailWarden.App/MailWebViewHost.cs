@@ -41,6 +41,9 @@ internal sealed class MailWebViewHost
     /// <summary>Raised when the browser cannot start; the document then cannot be shown.</summary>
     public event EventHandler? InitializationFailed;
 
+    /// <summary>Raised with the raw status text of the browser: the target of the link under the mouse, or empty.</summary>
+    public event EventHandler<string>? StatusTextChanged;
+
     /// <summary>Shows a document; the same document again does nothing.</summary>
     /// <param name="html">Output of the reading document builder.</param>
     /// <param name="remoteImagesAllowed">True when the user approved remote images for this message.</param>
@@ -170,7 +173,9 @@ internal sealed class MailWebViewHost
         settings.AreDefaultContextMenusEnabled = false;
         settings.IsPasswordAutosaveEnabled = false;
         settings.IsGeneralAutofillEnabled = false;
-        settings.IsStatusBarEnabled = true;
+
+        // The target of a link shows as a hint at the mouse instead; see StatusTextChanged.
+        settings.IsStatusBarEnabled = false;
 
         // No online lookup of the message address; links are opened outside the control anyway.
         settings.IsReputationCheckingRequired = false;
@@ -182,6 +187,12 @@ internal sealed class MailWebViewHost
         browser.DownloadStarting += OnDownloadStarting;
         browser.BasicAuthenticationRequested += OnBasicAuthenticationRequested;
         browser.PermissionRequested += OnPermissionRequested;
+        browser.StatusBarTextChanged += OnStatusBarTextChanged;
+    }
+
+    private void OnStatusBarTextChanged(CoreWebView2 sender, object args)
+    {
+        StatusTextChanged?.Invoke(this, sender.StatusBarText);
     }
 
     // Allowed remote images get no response here, so the browser loads them itself.

@@ -53,6 +53,11 @@ internal sealed class MailboxReadModel : IMailboxReadModel
         return RunSerialisedAsync(innerToken => messages.CountUnreadAsync(query, innerToken), ct);
     }
 
+    public Task<IReadOnlyList<MailMessage>> SearchAsync(string text, int limit, CancellationToken ct = default)
+    {
+        return RunSerialisedAsync(innerToken => messages.SearchAsync(text, limit, innerToken), ct);
+    }
+
     public Task<MailContent?> ReadContentAsync(MailMessage message, CancellationToken ct = default)
     {
         ArgumentNullException.ThrowIfNull(message);

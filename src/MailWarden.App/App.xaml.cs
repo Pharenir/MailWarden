@@ -94,6 +94,7 @@ public partial class App : Application
         shell = new ShellViewModel(
             runtime.ReadModel,
             new MailboxServiceController(runtime),
+            runtime.Actions,
             dispatcher,
             new UiSettingsFile(Path.Combine(paths.Root, UiSettingsFile.FileName)),
             criticalLog,
@@ -102,6 +103,7 @@ public partial class App : Application
         var mainWindow = new MainWindow(shell, paths, criticalLog);
         mainWindow.Closed += OnMainWindowClosed;
         openWindow = mainWindow;
+        mainWindow.ApplyStoredPlacement();
         mainWindow.Activate();
 
         await shell.InitializeAsync();
@@ -123,6 +125,7 @@ public partial class App : Application
         args.Handled = true;
         try
         {
+            SaveWindowPlacementAndLog();
             openWindow?.AppWindow.Hide();
             shell?.Dispose();
             CloseReadingViewAndLog();
@@ -137,6 +140,19 @@ public partial class App : Application
         }
 
         Exit();
+    }
+
+    // A failure here must not keep the runtime from being disposed.
+    private void SaveWindowPlacementAndLog()
+    {
+        try
+        {
+            (openWindow as MainWindow)?.SaveWindowPlacement();
+        }
+        catch (Exception exception) when (exception is not OutOfMemoryException)
+        {
+            WriteLog("App.SaveWindowPlacementAndLog", $"Saving the window placement failed: {exception.GetType().Name}");
+        }
     }
 
     // A failure of the browser control must not keep the runtime from being disposed.

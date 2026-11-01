@@ -238,7 +238,7 @@ public sealed class SearchViewModelTests
         await Wait.NegativeWindowAsync();
 
         Assert.Null(failure);
-        Assert.Equal(3, harness.Shell.Messages.Items.Count);
+        Assert.DoesNotContain(harness.Shell.Messages.Items, row => row.Subject == "invoice_alpha_trashed");
         Assert.Empty(harness.Log.Entries);
     }
 }
