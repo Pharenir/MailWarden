@@ -36,7 +36,7 @@ public sealed class NavigationItem : ObservableObject
     /// <summary>The view it selects; null when not selectable (account node, tree parent).</summary>
     public MailView? View { get; }
 
-    /// <summary>Number of unread messages of the view; 0 when <see cref="View"/> is null.</summary>
+    /// <summary>Number of unread messages of the view without those on their way out; 0 when <see cref="View"/> is null.</summary>
     public int UnreadCount
     {
         get => unreadCount;
@@ -88,6 +88,7 @@ public sealed class NavigationViewModel : ObservableObject
     private readonly IMailboxController controller;
     private readonly ICriticalLog log;
     private readonly ShellBanner banner;
+    private readonly PendingMailState pendingMail;
     private readonly Dictionary<Guid, NavigationItem> accountItems = [];
     private NavigationItem? selectedItem;
     private int refreshGeneration;
@@ -98,12 +99,14 @@ public sealed class NavigationViewModel : ObservableObject
         IMailboxReadModel readModel,
         IMailboxController controller,
         ICriticalLog log,
-        ShellBanner banner)
+        ShellBanner banner,
+        PendingMailState pendingMail)
     {
         this.readModel = readModel;
         this.controller = controller;
         this.log = log;
         this.banner = banner;
+        this.pendingMail = pendingMail;
     }
 
     /// <summary>Top-level entries.</summary>
@@ -302,15 +305,18 @@ public sealed class NavigationViewModel : ObservableObject
         }
     }
 
+    // Hidden mails do not count, in the query and not by subtracting: a mail that is gone after its command has run cannot be taken
+    // off twice. A change of the hidden mails during this pass starts a newer refresh, which replaces this one.
     private async Task<Dictionary<MailView, int>> ReadUnreadCountsAsync(List<NavigationItem> items, CancellationToken ct)
     {
+        IReadOnlyCollection<long>? hiddenIds = pendingMail.HiddenMessageIds;
         var counts = new Dictionary<MailView, int>();
         foreach (NavigationItem item in Flatten(items))
         {
             if (item.View is MailView view)
             {
                 ct.ThrowIfCancellationRequested();
-                counts[view] = await readModel.CountUnreadAsync(view.ToQuery(1, 0), ct);
+                counts[view] = await readModel.CountUnreadAsync(view.ToQuery(1, 0) with { ExcludedMessageIds = hiddenIds }, ct);
             }
         }
 

@@ -134,8 +134,8 @@ public sealed class ShellViewModel : ObservableObject, IDisposable
         this.settings = settings ?? throw new ArgumentNullException(nameof(settings));
         this.log = log ?? throw new ArgumentNullException(nameof(log));
 
-        Navigation = new NavigationViewModel(readModel, controller, log, banner);
         pendingMail = new PendingMailState(actions, log, banner);
+        Navigation = new NavigationViewModel(readModel, controller, log, banner, pendingMail);
         permanentDeleteWatcher = new PermanentDeleteWatcher(readModel, banner);
         Messages = new MessageListViewModel(readModel, log, banner, timeProvider, pendingMail);
         Search = new SearchViewModel(Messages);
@@ -154,6 +154,7 @@ public sealed class ShellViewModel : ObservableObject, IDisposable
 
         banner.Changed += OnBannerChanged;
         pendingMail.Refreshed += OnPendingMailRefreshed;
+        pendingMail.HiddenChanged += OnHiddenMailChanged;
         Search.PropertyChanged += OnSearchPropertyChanged;
         Navigation.PropertyChanged += OnNavigationPropertyChanged;
         Messages.PropertyChanged += OnMessagesPropertyChanged;
@@ -834,6 +835,16 @@ public sealed class ShellViewModel : ObservableObject, IDisposable
         }
     }
 
+    // The numbers of the tree follow the rows at once, and come back with them. Before the first tree there is no number to correct.
+    // Nobody waits for this: the newest refresh of the tree wins, and an action must not wait for its numbers.
+    private void OnHiddenMailChanged(object? sender, EventArgs eventArgs)
+    {
+        if (!isDisposed && Navigation.Items.Count > 0)
+        {
+            _ = RunObservedAsync(() => Navigation.RefreshAsync(), "ShellViewModel.OnHiddenMailChanged");
+        }
+    }
+
     // An action the user started replaces what the banner said about the last one.
     private void StartUserAction(Func<Task> work)
     {
@@ -1131,6 +1142,9 @@ public sealed class ShellViewModel : ObservableObject, IDisposable
             {
                 List<MessageRowViewModel> rows = Messages.Items.Where(row => row.Message.FolderId == folder.Id).ToList();
                 await RemoveRowsAsync(rows, () => actions.EmptyFolderAsync(folder.Id, confirmed));
+
+                // The command holds mails beyond the loaded rows or outside the list: only the queue knows them.
+                await pendingMail.RefreshAsync();
                 break;
             }
             catch (MailActionException) when (question < MaxEmptyConfirmations)

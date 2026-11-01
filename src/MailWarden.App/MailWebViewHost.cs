@@ -174,9 +174,8 @@ internal sealed class MailWebViewHost
         settings.IsPasswordAutosaveEnabled = false;
         settings.IsGeneralAutofillEnabled = false;
 
-        // Stays on: the target must never be invisible. The hint at the mouse (StatusTextChanged) comes on top; whether the bar can
-        // go is decided in the manual test.
-        settings.IsStatusBarEnabled = true;
+        // Off since the manual test showed the hint at the mouse working: StatusTextChanged is the only display of a link target now.
+        settings.IsStatusBarEnabled = false;
 
         // No online lookup of the message address; links are opened outside the control anyway.
         settings.IsReputationCheckingRequired = false;
