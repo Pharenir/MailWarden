@@ -187,7 +187,7 @@ public sealed class SafeDisplayTextTests
         Assert.Equal(text, SafeDisplayText.Shorten(text, 50));
     }
 
-    // Case 53: the ellipsis is appended when something was cut; whether it counts into the limit is not fixed.
+    // Case 53: up to maxCharacters characters plus the ellipsis; exactly maxCharacters stays unchanged.
     [Fact]
     public void Shorten_text_one_over_the_limit_is_cut_and_ends_with_an_ellipsis()
     {
@@ -197,7 +197,7 @@ public sealed class SafeDisplayTextTests
 
         Assert.EndsWith(Ellipsis, result, StringComparison.Ordinal);
         string kept = result[..^1];
-        Assert.True(kept.Length is 49 or 50, $"kept {kept.Length} characters");
+        Assert.Equal(50, kept.Length);
         Assert.StartsWith(kept, text, StringComparison.Ordinal);
         Assert.DoesNotContain("y", result, StringComparison.Ordinal);
     }
@@ -208,7 +208,7 @@ public sealed class SafeDisplayTextTests
     {
         string result = SafeDisplayText.Shorten(new string('x', 400_000), 500);
 
-        Assert.True(result.Length <= 501, $"length {result.Length}");
+        Assert.Equal(501, result.Length);
         Assert.EndsWith(Ellipsis, result, StringComparison.Ordinal);
     }
 

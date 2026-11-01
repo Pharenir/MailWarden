@@ -349,7 +349,7 @@ public sealed class ReadingPaneViewModelTests
         MailMessage message = harness.ReadModel.AddMessage(inbox);
         MailContent huge = TestContent.Plain(new string('s', 365 * 1024), "text") with
         {
-            From = "N" + new string(' ', 5_000) + "M" + new string('x', 5_000),
+            From = "N" + new string(' ', 5_000) + "M" + new string('x', 5_000) + " <sender_a@example.test>",
             To = [.. Enumerable.Range(0, 5_000).Select(index => $"Recipient {index} <recipient_{index}@example.test>")],
             Cc = [.. Enumerable.Range(0, 5_000).Select(index => $"Copy {index} <copy_{index}@example.test>")],
         };
@@ -360,7 +360,9 @@ public sealed class ReadingPaneViewModelTests
         ReadingPaneViewModel reading = harness.Shell.Reading;
         Assert.Equal(ReadingState.Ready, reading.State);
         Assert.True(reading.Subject.Length <= 501, $"subject has {reading.Subject.Length} characters");
-        Assert.True(reading.From.Length <= 101, $"from has {reading.From.Length} characters");
+        Assert.True(reading.From.Length < 300, $"from has {reading.From.Length} characters");
+        Assert.Contains("sender_a@example.test", reading.From, StringComparison.Ordinal);
+        Assert.StartsWith("N M", reading.From, StringComparison.Ordinal);
         Assert.True(reading.To.Length <= 2_001, $"to has {reading.To.Length} characters");
         Assert.True(reading.Cc.Length <= 2_001, $"cc has {reading.Cc.Length} characters");
         Assert.Contains("recipient_0@example.test", reading.To, StringComparison.Ordinal);
