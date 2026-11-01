@@ -94,6 +94,7 @@ public partial class App : Application
         shell = new ShellViewModel(
             runtime.ReadModel,
             new MailboxServiceController(runtime),
+            runtime.Actions,
             dispatcher,
             new UiSettingsFile(Path.Combine(paths.Root, UiSettingsFile.FileName)),
             criticalLog,

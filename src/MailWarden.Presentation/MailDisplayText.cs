@@ -21,6 +21,9 @@ internal static class MailDisplayText
     /// <summary>Maximum length of a preview.</summary>
     public const int MaxPreviewCharacters = 200;
 
+    /// <summary>Maximum length of a link target under the mouse.</summary>
+    public const int MaxLinkCharacters = 500;
+
     /// <summary>Attachment names listed before "und N weitere".</summary>
     public const int MaxAttachmentNames = 50;
 

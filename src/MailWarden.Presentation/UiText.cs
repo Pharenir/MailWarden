@@ -1,4 +1,5 @@
 using System.Globalization;
+using MailWarden.Core.Commands;
 using MailWarden.Core.Model;
 using MailWarden.Infrastructure.Background;
 using MailWarden.Infrastructure.Sync;
@@ -37,6 +38,51 @@ public static class UiText
 
     /// <summary>Theme choice: dark.</summary>
     public static string ThemeDark => "Dunkel";
+
+    /// <summary>Toolbar and menu: mark as read.</summary>
+    public static string MarkRead => "Gelesen";
+
+    /// <summary>Toolbar and menu: mark as unread.</summary>
+    public static string MarkUnread => "Ungelesen";
+
+    /// <summary>Toolbar and menu: set or remove the flag.</summary>
+    public static string ToggleFlag => "Kennzeichnen";
+
+    /// <summary>Toolbar and menu: move to the Trash.</summary>
+    public static string Delete => "Löschen";
+
+    /// <summary>Menu: delete permanently.</summary>
+    public static string DeletePermanently => "Endgültig löschen";
+
+    /// <summary>Toolbar and menu: move to another folder.</summary>
+    public static string Move => "Verschieben";
+
+    /// <summary>Toolbar and menu: empty the Trash or Junk folder.</summary>
+    public static string EmptyFolder => "Ordner leeren";
+
+    /// <summary>Toolbar: settings.</summary>
+    public static string Settings => "Einstellungen";
+
+    /// <summary>Setting: selecting a mail marks it as read.</summary>
+    public static string MarkReadOnSelect => "Beim Anzeigen als gelesen markieren";
+
+    /// <summary>Toolbar: failed actions.</summary>
+    public static string FailedActionsTitle => "Fehlgeschlagene Aktionen";
+
+    /// <summary>List of failed actions: discard one.</summary>
+    public static string DiscardFailedAction => "Verwerfen";
+
+    /// <summary>Placeholder of the search box.</summary>
+    public static string SearchPlaceholder => "Suchen";
+
+    /// <summary>Confirmation dialog: title.</summary>
+    public static string ConfirmationTitle => "Bitte bestätigen";
+
+    /// <summary>Confirmation dialog: the button that goes on.</summary>
+    public static string ConfirmationAccept => "Endgültig löschen";
+
+    /// <summary>Confirmation dialog: the button that stops.</summary>
+    public static string ConfirmationCancel => "Abbrechen";
 
     /// <summary>Reading header: sender label.</summary>
     public static string FromLabel => "Von:";
@@ -101,6 +147,69 @@ public static class UiText
             $"Spamfilter seit dem Start: nicht bewertet {evaluationFailed}, von der Bremse zurückgehalten {brakeHeld}. Diese Mails bleiben in ihrem Ordner.");
     }
 
+    /// <summary>Banner: the queued actions could not be read.</summary>
+    public static string BannerActionsReadFailed => "Die offenen Aktionen konnten nicht gelesen werden.";
+
+    /// <summary>Banner: an action could not be stored for another reason than a refusal; details are in the log.</summary>
+    public static string BannerActionFailed => "Die Aktion konnte nicht gespeichert werden.";
+
+    /// <summary>Banner: the target of a move is not possible for the selected mails.</summary>
+    public static string BannerMoveTargetRefused => "Diese Mails können nicht in diesen Ordner verschoben werden.";
+
+    /// <summary>Banner: a permanent delete has only reached the Trash, because the server did not name the new UIDs.</summary>
+    public static string BannerDeleteReachedTrash =>
+        "Eine endgültig gelöschte Mail liegt noch im Papierkorb, der Server hat sie nur dorthin verschoben. Sie kann dort gelöscht werden.";
+
+    /// <summary>Banner: actions have failed and wait to be discarded.</summary>
+    /// <param name="count">Number of failed commands.</param>
+    /// <returns>The banner text.</returns>
+    public static string BannerFailedActions(int count)
+    {
+        return count == 1
+            ? "1 Aktion ist fehlgeschlagen."
+            : string.Create(CultureInfo.InvariantCulture, $"{count} Aktionen sind fehlgeschlagen.");
+    }
+
+    /// <summary>Fixed text of a failed action; never the stored error.</summary>
+    /// <param name="kind">Kind of the command; an unreadable command can hold any value.</param>
+    /// <returns>The text.</returns>
+    public static string FailedAction(MailCommandKind kind) => kind switch
+    {
+        MailCommandKind.SetFlags => "Gelesen- oder Kennzeichnungsstatus konnte nicht geändert werden.",
+        MailCommandKind.Move => "Verschieben ist fehlgeschlagen.",
+        MailCommandKind.MoveToTrash => "Löschen in den Papierkorb ist fehlgeschlagen.",
+        MailCommandKind.DeletePermanently => "Endgültiges Löschen ist fehlgeschlagen.",
+        _ => "Eine Aktion ist fehlgeschlagen.",
+    };
+
+    /// <summary>Confirmation of a permanent delete; only a count, never sender or subject.</summary>
+    /// <param name="count">Number of mails.</param>
+    /// <returns>The text.</returns>
+    internal static string ConfirmDeletePermanently(int count)
+    {
+        return $"{CountOfMails(count)} endgültig löschen? Das kann nicht rückgängig gemacht werden.";
+    }
+
+    /// <summary>Confirmation of Del on mails in the Trash; only counts, never sender or subject.</summary>
+    /// <param name="trashCount">Mails in the Trash, deleted permanently.</param>
+    /// <param name="otherCount">Other selected mails, moved to the Trash.</param>
+    /// <returns>The text.</returns>
+    internal static string ConfirmDeleteFromTrash(int trashCount, int otherCount)
+    {
+        string text = $"{CountOfMails(trashCount)} im Papierkorb endgültig löschen? Das kann nicht rückgängig gemacht werden.";
+        return otherCount == 0 ? text : $"{text} {CountOfMails(otherCount)} außerhalb gehen in den Papierkorb.";
+    }
+
+    /// <summary>Confirmation of "Ordner leeren"; the words of the folder role and the count, never a folder name from the server.</summary>
+    /// <param name="role">Role of the folder, Trash or Junk.</param>
+    /// <param name="count">Number of local mails right now.</param>
+    /// <returns>The text.</returns>
+    internal static string ConfirmEmptyFolder(FolderRole role, int count)
+    {
+        string folderWords = role == FolderRole.Trash ? "Papierkorb" : "Junk-Ordner";
+        return $"{folderWords} leeren: {CountOfMails(count)} endgültig löschen? Das kann nicht rückgängig gemacht werden.";
+    }
+
     /// <summary>Error window: title.</summary>
     public static string StartErrorTitle => "MailWarden kann nicht starten";
 
@@ -127,6 +236,11 @@ public static class UiText
     public static string StartErrorInvalidClassifierFile(string fileName)
     {
         return $"Die Datei {fileName} im Datenordner ist ungültig. Korrigiere sie und starte erneut.";
+    }
+
+    private static string CountOfMails(int count)
+    {
+        return count == 1 ? "1 Mail" : string.Create(CultureInfo.InvariantCulture, $"{count} Mails");
     }
 
     /// <summary>Navigation label of a folder role.</summary>
