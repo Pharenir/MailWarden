@@ -180,3 +180,35 @@ dotnet build MailWarden.sln -warnaserror
 - ob `mailto:` und der Standardbrowser sich öffneten
 - ob eine Mail unerwartet nur als Text oder mit Hinweis erschien (wie viele von etwa wie vielen)
 - wenn vorhanden: die letzten Zeilen von `$env:MAILWARDEN_DATA_DIR\logs\mailwarden.log` (enthalten nur Typnamen)
+
+## 7 – Spamfilter in der laufenden App (AP-07d Fall 17)
+Gleiche Datenkopie wie in Teil 6 (`K:\Projekte\_private\MailWarden\probe-copy-2026-11-01`), eigenes PowerShell-Terminal.
+Der Filter läuft jetzt nach jedem Abgleich und **protokolliert nur**, solange es keine Datei `classification-policy.json`
+im Datenordner gibt. Öffne die Datenbank nicht; geprüft wird nur, was du in der App siehst.
+
+Vorbereitung und Start (Zeilen wie in Teil 6, aber der Ordner von AP-07d):
+```powershell
+cd K:\Projekte\Windows-Tools\MailWarden
+Get-Content _scratch\auth-spike\spike.env | Where-Object { $_ -match '^\s*(MAILWARDEN_[A-Z_]+)\s*=\s*(.+?)\s*$' } | ForEach-Object { Set-Item "env:$($Matches[1])" $Matches[2] }
+$env:MAILWARDEN_DATA_DIR = 'K:\Projekte\_private\MailWarden\probe-copy-2026-11-01'
+Test-Path "$env:MAILWARDEN_DATA_DIR\classification-policy.json"    # muss False sein
+cd K:\Projekte\Windows-Tools\MailWarden\.worktrees\feat-ap-07d
+dotnet build MailWarden.sln -warnaserror
+& .\src\MailWarden.App\bin\x64\Debug\net9.0-windows10.0.19041.0\win-x64\MailWarden.App.exe
+```
+- [ ] Build grün (0 Warnungen, 0 Fehler); `Test-Path` gibt `False` aus (sonst die Datei nicht anlegen und melden)
+
+**Fall 17 – neue Mail, nichts wandert** (App läuft, Kopie, keine Richtliniendatei)
+- [ ] Notiere im Webmail für Konto 1, 2 und 3 die Zahl der Mails im Posteingang und in Junk
+- [ ] Schicke von außen eine Mail an ein Konto. Sie erscheint im Posteingang der App wie in Teil 6 (Fall 46)
+- [ ] Nichts wandert: die Mail bleibt im Posteingang, im Webmail ändert sich nichts in Junk, Screener oder Quarantäne
+- [ ] Es erscheint **kein** Hinweis in der Infoleiste („Spamfilter seit dem Start …“ oder „… wartet auf das Adressbuch“)
+- [ ] Der Abgleich ist nicht merklich langsamer als in Teil 6 (Kontostatus wechselt von „Wird abgeglichen …“ zu „Aktuell“ in etwa derselben Zeit)
+- [ ] Fenster schließen beendet den Prozess (`Get-Process MailWarden.App -ErrorAction SilentlyContinue` gibt nichts aus)
+
+**Das meldest du an Claude**
+- bestanden oder nicht; bei Abweichung die Beobachtung in einem Satz
+- Wortlaut eines Hinweises in der Infoleiste, falls einer erschien (ohne Betreff und Adresse)
+- wenn vorhanden: die letzten Zeilen von `$env:MAILWARDEN_DATA_DIR\logs\mailwarden.log` (nur Typnamen und Zahlen)
+
+Fall 18 (Modus `act`) macht der Planer; dafür brauchst du nichts zu tun, außer vorher die Freigabe zu geben.
