@@ -35,3 +35,9 @@ dangerous element (34 wrappers tested), it can only cost time and memory.
 | N3 | Low | `SanitizeMailto` leaves two spellings | fix.3 L9 |
 
 Untested: WebView2 behaviour (real click, redirects, `DeleteAllCookies`, InPrivate in the WinUI control).
+
+# secure.3 (2026-11-01, `691cc5e`)
+
+**Result: 0 Critical, 0 High, 2 Medium, 2 Low.** M3, N1, N2, N3 closed. New: M1 `<!--!>` keeps scan and parser apart (7.4 s for
+259 KB) → fix.4 M2. M2 formatting counter counts down on end tags the parser ignores (172 KB mail, over 5 GB) → fix.4 M1.
+N1 hidden content without a notice → M5. N2 `multipart` without a usable boundary → M6.

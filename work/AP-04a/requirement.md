@@ -608,3 +608,60 @@ lose the last image; a public name resolving to a private address after "Bilder 
 | 75 | `SenderLine`: long name + address; two mailboxes; long name then address only; name containing `<a@b>` with a long real address; address over 100 characters without a name | first mailbox + "+1 weitere"; the real domain always at the end of the address part; never the second mailbox's address as the sender |
 | 76 | `AllowRequest` with approval: `router`, `fritz.box`, `nas.local`, `x.home.arpa`, `100.64.0.1`, `224.0.0.1`, `[ff02::1]`, `[::127.0.0.1]`, `[2002:c0a8:101::]`; positive control: `images.example.test`, `8.8.8.8` | false; true |
 | 77 | `SanitizeMailto`: `mailto:a@example.test&attach=c:/y`; `mailto:a@example.test?subject=x?attach=c:/y` | no `attach` parameter left; `?` inside the value encoded |
+
+## Decisions fix.4 (planner, 2026-11-01, last round in the budget; after verify.3 1618/1623, review.3 BLOCK, secure.3 0/0/2/2)
+Binding; they change L1–L6 and D3. Three rounds show that predicting the parser from outside keeps finding new gaps
+(`<!--!>`, end tags the parser ignores). So the limit moves **into the parser**, where nothing has to be predicted (M1). The
+pre-scan stays for what happens inside a single token. Real data (`limiter-probe`, 2,664 mails): none reduced, longest build
+882 ms, largest HTML 313,586 characters, so the budgets below leave plenty of room.
+
+### Must fix
+- **M1 (secure M2, also the backstop for secure M1).** Hard budget during parsing. `MailHtmlSanitizer` parses with its own
+  AngleSharp parser and sanitizes the resulting document; a callback counts every created element (`HtmlParserOptions.OnCreated`
+  or the equivalent of the installed version) and aborts above **100,000 elements** or after **3 s** (`Stopwatch`). On abort
+  the result is the sanitized text without markup: `SanitizedHtml` holds the encoded plain text and `WasReduced` is true. First
+  check with the probes that the callback also fires for reconstructed formatting elements (`fmtObject`, `fmtTable`,
+  `formatBomb`). If it does not, or the API does not exist: stop and report with the evidence; do not invent a replacement.
+- **M2 (secure M1).** Comment end: search `--!>` from `start + 4`, `-->` from `start + 2`, as the parser does. A tag is dropped
+  when one attribute value is over 64 KB and contains `<`, also for `data:`.
+- **M3 (review B3).** Same mail during its own build: keep waiting for the same task, no second build, its own time limit, and
+  no text version unless that limit really passed. A running rebuild with a different `allowRemoteImages` counts as another
+  mail. Text version and notice appear only after a real timeout.
+- **M4 (verify.3).** Corrections in the product:
+  - An opaque `message/rfc822` part below the depth limit is not listed as an attachment.
+  - `SenderLine`: the name keeps up to 100 characters, the address up to 60 next to it (a name of exactly 100 stays unchanged).
+- **M5 (review S9, secure N1, changes L1).**
+  - `svg` and `math`, self-closing or without an end tag: only the tag goes, the content is scanned normally.
+  - `noscript`, `textarea`, `iframe`, `noembed`, `noframes` without an end tag: the rest goes as before, and `WasReduced` is true.
+  - With an end tag: unchanged and no notice. `style`, `script`, `title` never cause a notice.
+
+### Should fix
+- **M6 (secure N2).** A `Multipart` without child parts but with non-empty content (no or unusable boundary) counts as opaque
+  (`HasOpaqueParts`).
+- **M7 (review NIT).** `HasOpaqueParts` only for `multipart/*`, `message/rfc822` and `message/partial`. Other `message/*` parts
+  are normal attachments.
+- **M8 (review NIT).** `a` and `nobr` do not count for the formatting limit of L2: the parser closes an open one itself.
+
+### Decided by the planner, no product change
+- The plain-text document keeps the strict CSP even after "Bilder laden" (`img-src data:`): text has no images. This is a test
+  change (D3 note).
+- **Stop rule for this AP.** After this round, findings of Medium or below in the pre-scan go to `TODO.md` as long as the parser
+  budget of M1 holds and a hostile mail costs at most its budget. Anything High or a breach of M1 goes to Dennis, because the
+  round budget is used up.
+
+### Additional test cases (fix.4)
+| # | Case | Expected |
+|---|---|---|
+| 78 | `<!--!><a x="-->` + `<div` with 100,000 attributes + `">`; same with `<!---!>`; same with `<a src="data:-->` | done within the test timeout, no dangerous element |
+| 79 | `<div>` + 1,000 × `<span><b aI=1><object></b></object></span>` + `</div>` + 16,000 × `<p>x</p>`; same with `<table><tr><td>` instead of `<object>` | done within the test timeout, allocation guard as in case 68, `WasReduced` true |
+| 80 | Over 100,000 elements through plain nesting-free markup | text stays without markup, `WasReduced` true, no dangerous element |
+| 81 | Positive controls: `<!---->`, `<!-->`, `<!----!>` stay comments; 500 balanced `<b>x</b>`; 2,000 `<a>` links; 20,000 ordinary tags; base64 `src` over 64 KB | unchanged, `WasReduced` false |
+| 82 | Same mail selected again during its build (blocked builder, clock not advanced), then the build ends | the HTML document, no notice, one build |
+| 83 | Same mail selected again, clock past the limit | text version with notice |
+| 84 | Rebuild with images running, same mail selected | no document with the wrong approval |
+| 85 | `<p>A</p><svg/><p>B</p>`, `<p>A</p><math/><p>B</p>`, `<p>A</p><svg><p>B</p>`; `<svg><title>x</title></svg>` with end tag | B stays; no notice |
+| 86 | `<p>A</p><noscript>B`, `<textarea>B`: without an end tag; with an end tag | A stays, `WasReduced` true; `WasReduced` false |
+| 87 | `multipart/mixed` without a boundary and with text; with a boundary that never occurs | `HasOpaqueParts` true, notice set |
+| 88 | `message/feedback-report` part; opaque `message/rfc822` at depth 40 | listed as an attachment, no notice; not listed, notice |
+| 89 | `SenderLine` with a name of exactly 100, 101 characters | unchanged and address visible; cut and address visible |
+| 90 | 200 unclosed `<a name=x>` followed by a link | the link stays |

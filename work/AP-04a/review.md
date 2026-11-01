@@ -26,3 +26,8 @@ Unsure, only a run can tell (cases 42–45): tree selection before containers ex
 100,000 `<div>`: 32 s; quoted value variants over 45 s, measured) → fix.3 L1, L3. S8 `DeleteAllCookies` in error paths → L7.
 NITs → L10. P5 count on real data → L11. P6 notice → L4. False-positive limits (synthetic, measured): newsletter about 2.0 MB,
 Word about 1.1 MB, plain table about 264 KB.
+
+# review.3 (2026-11-01, `691cc5e`)
+
+**Verdict: BLOCK**, only for B3: the same mail selected during its build ends in the text version with a wrong message → fix.4
+M3. B2 closed (32 s → 232 ms, measured). S9: `<svg/>` drops the rest of the mail without a notice → M5. NITs → M7, M8.
