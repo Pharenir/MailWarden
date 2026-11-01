@@ -61,6 +61,12 @@ internal static class HtmlNestingLimiter
     /// <summary>A style value with more declarations is dropped; the tag stays. The parser is quadratic in them.</summary>
     internal const int MaxStyleDeclarations = 256;
 
+    /// <summary>
+    /// A style value with more <c>(</c> or more <c>&amp;</c> is dropped; the tag stays. The CSS parser recurses on nested
+    /// parentheses (a 3.6 KB mail overflowed the stack), and <c>&amp;#40</c> without a semicolon becomes <c>(</c> in the parser.
+    /// </summary>
+    internal const int MaxStyleNestingCharacters = 256;
+
     /// <summary>Characters of all kept tags together, without <c>data:</c> values of <c>src</c>.</summary>
     internal const int MaxTagTextChars = 2_000_000;
 
@@ -507,7 +513,10 @@ internal static class HtmlNestingLimiter
 
     private static bool IsOversizedStyle(ReadOnlySpan<char> value)
     {
-        return value.Length > MaxStyleValueChars || value.Count(';') > MaxStyleDeclarations;
+        return value.Length > MaxStyleValueChars
+            || value.Count(';') > MaxStyleDeclarations
+            || value.Count('(') > MaxStyleNestingCharacters
+            || value.Count('&') > MaxStyleNestingCharacters;
     }
 
     /// <summary>Result of reading one tag.</summary>

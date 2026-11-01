@@ -45,6 +45,10 @@ public static partial class MailHtmlSanitizer
     // Largest of 2,664 real mails: 313,586 characters and 882 ms for the whole build.
     private const long MaxParserAllocationBytes = 256L * 1024 * 1024;
 
+    // Estimate of the output: the parser shares attribute values between copies of an element, the serializer writes each of
+    // them out, so a 1 MB mail could become over a billion characters. This holds the images of InlineImageBudget.
+    private const long MaxOutputChars = 64_000_000;
+
     private const string DocumentPrefix = "<!doctype html><html><body>";
 
     // Removed with their content; a tag that is merely unknown (e.g. o:p) or form only loses the tag, because some mailers
@@ -121,8 +125,8 @@ public static partial class MailHtmlSanitizer
     /// embed, applet, input, button, select, textarea, link, meta, base, svg, math, video, audio, source, template; form
     /// loses only its tag. Remote images and remote style URLs stay only when <paramref name="allowRemoteImages"/> is
     /// true; otherwise they are removed and counted. Inserted inline images use at most 34,000,000 characters per document;
-    /// images over this budget are removed. When parsing exceeds 256 MB of allocation or 3 s, the result is the encoded text
-    /// of the HTML without any markup.
+    /// images over this budget are removed. When parsing exceeds 256 MB of allocation or 3 s, or the output would exceed
+    /// 64,000,000 characters, the result is the encoded text of the HTML without any markup.
     /// </summary>
     /// <param name="html">Raw HTML of a mail body.</param>
     /// <param name="inlineImages">Content-ID → data URI, the targets of <c>cid:</c> image sources.</param>
@@ -138,7 +142,7 @@ public static partial class MailHtmlSanitizer
         using IHtmlDocument? document = ParseWithinBudget(DocumentPrefix + limited.Html);
         if (document is null)
         {
-            return new SanitizedHtml(WebUtility.HtmlEncode(MimeBodyText.ExtractFromHtml(limited.Html)), 0, true);
+            return ToTextOnly(limited);
         }
 
         IHtmlElement? body = document.Body;
@@ -151,10 +155,55 @@ public static partial class MailHtmlSanitizer
         PackageSanitizer.SanitizeDom(document, body);
         var inlineImageBudget = new InlineImageBudget();
         int blockedCount = ApplyUrlRules(body, inlineImages, inlineImageBudget, allowRemoteImages);
+        if (ExceedsOutputBudget(body))
+        {
+            return ToTextOnly(limited);
+        }
+
         return new SanitizedHtml(
             body.ChildNodes.ToHtml(PackageSanitizer.OutputFormatter),
             blockedCount,
             limited.WasReduced || wasFlattened || inlineImageBudget.WasExhausted);
+    }
+
+    private static SanitizedHtml ToTextOnly(LimitedHtml limited)
+    {
+        return new SanitizedHtml(WebUtility.HtmlEncode(MimeBodyText.ExtractFromHtml(limited.Html)), 0, true);
+    }
+
+    // Sum of the attribute values of all elements and the text, stopping at the budget. Iterative like PruneElements.
+    private static bool ExceedsOutputBudget(IElement body)
+    {
+        long estimatedChars = 0;
+        var pending = new Stack<INode>();
+        pending.Push(body);
+        while (pending.Count > 0)
+        {
+            INode node = pending.Pop();
+            if (node is IText text)
+            {
+                estimatedChars += text.Data.Length;
+            }
+            else if (node is IElement element)
+            {
+                foreach (IAttr attribute in element.Attributes)
+                {
+                    estimatedChars += attribute.Value.Length;
+                }
+            }
+
+            if (estimatedChars > MaxOutputChars)
+            {
+                return true;
+            }
+
+            foreach (INode child in node.ChildNodes)
+            {
+                pending.Push(child);
+            }
+        }
+
+        return false;
     }
 
     // Returns null when the budget ran out. ParseDocument works on the calling thread and so does the callback, so the
@@ -172,7 +221,8 @@ public static partial class MailHtmlSanitizer
             }
         }
 
-        var options = new HtmlParserOptions { OnToken = CheckBudget };
+        // IsScripting as in the parser factory of the package; everything else keeps its default there as well.
+        var options = new HtmlParserOptions { IsScripting = true, OnToken = CheckBudget };
         try
         {
             return new HtmlParser(options, BrowsingContext.New(ParserConfiguration)).ParseDocument(html);
