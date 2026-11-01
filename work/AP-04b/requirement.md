@@ -194,7 +194,7 @@ Dennis tested cases 21, 22, 32: everything as expected, with one wish: "Ordner l
 |---|---|---|
 | X-a | Trash and Junk of one account | Entry can be emptied |
 | X-b | Inbox, Sent, Archive, a custom folder, account node, tree parent | Entry cannot be emptied |
-| X-c | Group Junk or Trash with one account that has this folder | Entry can be emptied |
+| X-c | Group Junk with one account that has this folder (the tree has no group entry for Trash; for Trash the rule is tested on `MailView.Group(FolderRole.Trash)`) | Entry can be emptied |
 | X-d | Group Junk or Trash with two accounts having this folder | Entry cannot be emptied |
 | X-e | View of Konto 2 Inbox selected, empty requested for Junk of Konto 3 | Question names Konto 3 and its count; the command holds the UIDs of that Junk; the current list and selection stay |
 | X-f | Empty requested while a search is active | Same path, command stored |
