@@ -208,16 +208,21 @@ Vollständiger Schnittstellenvertrag: `work\AP-03d\requirement.md`.
 ### AP-04a Oberfläche, nur lesen
 Parallel zu AP-07c (Dennis 2026-11-01). HTML-Bereinigung mit HtmlSanitizer (Freigabe Dennis 2026-11-01). AP-04b folgt:
 Konten-UI (AP-02b), Aktionen, Suche, Anhänge.
+
+Stand: verify.5 S3 **1700/1700** (Core 430, Infrastructure 947, Presentation 323), review.5 APPROVE; die Sicherheitsbefunde
+aus secure.4 sind in fix.5 behoben, eine weitere Sicherheitsprüfung gibt es nach Entscheidung Dennis nicht. Fälle 1–41 und
+die Zusatzfälle 49–95 sind automatisiert. **Die Oberfläche selbst (Fenster, XAML, WebView2-Control) wurde nie ausgeführt**:
+was nur der manuelle Test belegt, steht als „manuell Dennis – offen“ (Fälle 42–48, `work\manual-tests.md` Teil 6).
 | # | Sollverhalten | Umgesetzt | Getestet |
 |---|---|---|---|
-| 1 | App startet Laufzeit und Hintergrunddienst; Sperre vor dem Öffnen der DB; Fehler beim Start (ungültiger Datenordner, „in Benutzung“) zeigen ein Fenster statt stillem Ende | | |
-| 2 | Gruppenansichten Posteingang/Gesendet/Postausgang/Screener/Junk/Quarantäne über alle Konten, dieselben je Konto, übrige Ordner als Baum, Ungelesen-Zähler | | |
-| 3 | Mail-Liste neueste zuerst, seitenweise, Konto in jeder Zeile; neue Mails erscheinen nach dem Abgleich ohne Benutzeraktion | | |
-| 4 | Liste und Lesebereich umschaltbar nebeneinander/untereinander, Navigation immer links; Wahl und Größen bleiben erhalten | | |
-| 5 | Lesebereich: HTML bereinigt, kein Skript, externe Inhalte blockiert bis „Bilder laden“ je Mail; Links öffnen nur im Standardbrowser | | |
-| 6 | Fremdtexte ohne Steuer-/Bidi-Zeichen; Logs enthalten nur Typnamen und feste Texte | | |
-| 7 | Keine Änderung am Server durch die Oberfläche (auch Lesen setzt kein `\Seen`) | | |
-| 8 | Hell/Dunkel/System umschaltbar; Mail-Inhalt immer auf hellem Grund | | |
+| 1 | App startet Laufzeit und Hintergrunddienst; Sperre vor dem Öffnen der DB; Fehler beim Start (ungültiger Datenordner, „in Benutzung“) zeigen ein Fenster statt stillem Ende | ✅ `Infrastructure\Composition\MailWardenRuntime.cs` (Sperre vor `InitializeAsync`), `AccountPipelines.cs`, `RuntimeConnections.cs` (eine Verbindung je Ablauf), `MailboxService` mit `heldLock`, `App\App.xaml.cs` (Fehlerfenster, Beenden schließt die Laufzeit) | ✅ Fälle 24–28 (Sperre, Öffnen/Schließen, `heldLock`, parallele Schreiber, kritisches Log). Ungetestet: **Fenster bei Startfehler, Start und Beenden mit echten Daten – manuell Dennis – offen** (Fälle 42, 47) |
+| 2 | Gruppenansichten Posteingang/Gesendet/Postausgang/Screener/Junk/Quarantäne über alle Konten, dieselben je Konto, übrige Ordner als Baum, Ungelesen-Zähler | ✅ `Presentation\MailView.cs`, `FolderTree.cs`, `NavigationViewModel.cs`, `IMessageStore.CountUnreadAsync`; `App\MainWindow.xaml` | ✅ Fälle 20–22, 29, 30. Ungetestet: **Baum, Vorauswahl „Posteingang“ und Zähler im echten Fenster – manuell Dennis – offen** (Fall 42) |
+| 3 | Mail-Liste neueste zuerst, seitenweise, Konto in jeder Zeile; neue Mails erscheinen nach dem Abgleich ohne Benutzeraktion | ✅ `Presentation\MessageListViewModel.cs`, `ShellViewModel.cs` (Statusbeobachtung, Aktualisieren) | ✅ Fälle 31–34, 38, 39. Ungetestet: **Nachladen beim Scrollen und neue Mail im laufenden Betrieb – manuell Dennis – offen** (Fall 46) |
+| 4 | Liste und Lesebereich umschaltbar nebeneinander/untereinander, Navigation immer links; Wahl und Größen bleiben erhalten | ✅ `Presentation\UiSettings.cs`, `UiSettingsFile.cs` (`ui-settings.json`), `App\PaneSplitter.cs`, `MainWindow.xaml` | ✅ Fälle 23, 40 (Datei, Speichern, Fehler). Ungetestet: **Umschalten, Splitter, Größen nach Neustart – manuell Dennis – offen** (Fall 43) |
+| 5 | Lesebereich: HTML bereinigt, kein Skript, externe Inhalte blockiert bis „Bilder laden“ je Mail; Links öffnen nur im Standardbrowser | ✅ `Infrastructure\Mime\MailContentReader.cs`, `MailHtmlSanitizer.cs`, `HtmlNestingLimiter.cs`, `ReadingDocumentBuilder.cs`; `Presentation\WebContentPolicy.cs`, `ReadingPaneViewModel.cs` (Hinweis `ContentNotice`); `App\MailWebViewHost.cs`. Schutz gegen präparierte Mails (Grenzen, Parser-Budget, Aufbau im eigenen Thread), Restpunkte in `TODO.md` | ✅ Fälle 2–19, 36, 37 und Zusatzfälle 49–95. Ungetestet: **WebView2-Verdrahtung im WinUI-Control (nur per Probe mit dem WinForms-Control belegt), „Bilder laden“, Klick auf Links, Hinweis bei gekürzten Mails, `mailto:` – manuell Dennis – offen** (Fall 45) |
+| 6 | Fremdtexte ohne Steuer-/Bidi-Zeichen; Logs enthalten nur Typnamen und feste Texte | ✅ `Core\Text\SafeDisplayText.cs`, `Presentation\MailDisplayText.cs`, `Infrastructure\Logging\CriticalFileLog.cs` | ✅ Fälle 1, 7, 22, 28, 36, 38 (Markertext erscheint nie in Anzeige oder Log) |
+| 7 | Keine Änderung am Server durch die Oberfläche (auch Lesen setzt kein `\Seen`) | ✅ `IMailboxReadModel` (nur Lesemember), `IMailboxController` (nur Trigger/Retry) | ✅ Fall 41 (Reflexion, aufgezeichnete Aufrufe, Lesen setzt kein `\Seen`). Ungetestet: **Webmail nach dem Lesen unverändert – manuell Dennis – offen** (Fall 48) |
+| 8 | Hell/Dunkel/System umschaltbar; Mail-Inhalt immer auf hellem Grund | ✅ `Presentation\UiSettings.cs` (`AppTheme`), `MainWindow.xaml` (`RequestedTheme`), `ReadingDocumentBuilder` (heller Grund) | ✅ Fall 40 (Wechsel, Speichern). Ungetestet: **Aussehen beider Designs – manuell Dennis – offen** (Fall 44) |
 
 Vollständiger Schnittstellenvertrag: `work\AP-04a\requirement.md`.
 

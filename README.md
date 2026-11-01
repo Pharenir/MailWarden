@@ -11,13 +11,49 @@ Status: early development (see `PLAN.md`). Implemented so far: solution skeleton
 database and EML file store), the core of the spam classifier (a library in `MailWarden.Core`, calibrated against real
 message headers and with a settings file loader; not yet connected to any mail), account and sign-in library (OAuth for
 Outlook.com and Gmail, encrypted token storage, provider profiles with a connection check), the one-way sync from the
-server to the local store (folders, messages, flags, deletions; read-only towards the server) and an empty WinUI 3 main
-window. The sync is a library only: it has no user interface and it never changes anything on the server. It fetches missing messages in batches (50 by default), reports progress per folder (number, role,
+server to the local store (folders, messages, flags, deletions; read-only towards the server) and a read-only WinUI 3 user interface (see
+"Using the app"). The sync never changes anything on the server. It fetches missing messages in batches (50 by default), reports progress per folder (number, role,
 processed/missing; no names), reconnects within a pass if the connection was lost (at most 3 times) and does not sync
 the Gmail folder "Important". A command queue (local to server: flags, move, trash, delete, empty folder; see
 "Command queue") and a background service with schedule and IDLE (see "Background service") are implemented as
-libraries as well. Account setup in the app comes with AP-04; there is no inbox view
-yet, and the classifier does not sort or move any mail yet.
+libraries; the app starts the background service. The app only reads: accounts are still added with the AuthProbe
+tool, and actions, search and attachments come with AP-04b. The classifier does not sort or move any mail yet.
+
+## Using the app
+The app shows the mail of all accounts and keeps it current through the background service. It is read-only: opening
+a message does not mark it as read, and nothing is deleted, moved or flagged on the server.
+
+- **Accounts:** they cannot be added in the app yet. Add them with the AuthProbe tool (see `docs\auth-setup.md`).
+  Without accounts the window shows a notice.
+- **Navigation (left, always):** six group views over all accounts (Posteingang, Gesendet, Postausgang, Screener,
+  Junk, Quarantäne) with the number of unread messages. Below, each account has the same six views and its other
+  folders as a tree. Until the classifier is connected, Screener and Quarantäne stay empty.
+- **Message list:** newest first, with sender, subject, date, a preview and the account. Unread messages are bold;
+  icons mark attachments and flags. It loads 100 messages at a time and more when you scroll to the end. New mail
+  appears after the next sync without any action. "Aktualisieren" starts a sync at once and retries accounts that
+  wait after an error.
+- **Reading pane:** subject, Von, An, Cc, Datum and the names of the attachments, then the message. Attachments can
+  only be listed, not opened or saved yet. A message that is not downloaded yet says so.
+- **Layout:** "Ansicht wechseln" puts the list and the reading pane side by side or the list above the reading
+  pane. The parts can be resized with the splitters. Layout, sizes and theme are kept in `ui-settings.json` in the
+  data folder.
+- **Design:** System, Hell or Dunkel changes the app. Mail content is always shown on a light background.
+- **Info bar:** shows notices, for example when the settings file is invalid (the defaults apply) or a list cannot be
+  loaded.
+
+Safe display of mail:
+- HTML is cleaned before it is shown. Scripts, forms and similar elements are removed.
+- Pictures and other content from the internet are blocked. The button "Bilder laden" shows how many were blocked
+  and loads them for this message only; the next message is blocked again. Loading pictures tells the sender that you
+  opened the mail.
+- Links open only in your default browser (web links and mailto), never inside the app.
+- Control and direction-changing characters are removed from names, subjects and folder names.
+- If a message is built unusually (very large, deeply nested or slow to prepare), it is shown in a simplified form or
+  as text only. A notice above the message says so. Pictures and links of such a message may be missing.
+
+If the app cannot start (invalid `MAILWARDEN_DATA_DIR`, data folder already in use, database from a newer version),
+it shows a window "MailWarden kann nicht starten" with the reason. Critical errors are logged in
+`logs\mailwarden.log` (type names and fixed texts only, no mail content).
 
 ## Command queue
 Actions that change the server (flags, move, move to Trash, permanent delete, empty folder) are never executed
@@ -39,10 +75,10 @@ Errors: after a network failure the command is tried again later. If the server 
 delay (1, 2, 4 ... at most 60 minutes) and marked "failed" after 5 attempts. A sign-in failure aborts the run without
 counting an attempt. The sync stays read-only towards the server.
 
-Not available yet: there is no user interface for this (AP-04). The background service executes the queue.
+Not available yet: there is no user interface for this (AP-04b). The background service executes the queue.
 
 ## Background service
-A service keeps all accounts current without user action. It is a library; the app does not start it yet (AP-04).
+A service keeps all accounts current without user action. The app starts it with the window and stops it when the window closes.
 
 - **Cycle:** per account, first the queued commands are executed, then the account is synced. Accounts run
   independently and in parallel; one account never blocks the others.
@@ -79,8 +115,8 @@ dotnet run --project src\MailWarden.App
 ```
 
 - Build: the first build restores NuGet packages and needs internet access.
-- Tests: `dotnet test` runs the unit tests of the storage layer, the account library, the sync (with a fake mail server connection) and the spam classifier core. They use temporary folders and artificial data only; no real server is contacted.
-- Start: `dotnet run` opens the main window (currently empty). Alternatively start the built
+- Tests: `dotnet test` runs the unit tests of the storage layer, the account library, the sync (with a fake mail server connection), the spam classifier core, the HTML cleaning and the view models of the user interface (the window itself is checked by hand). They use temporary folders and artificial data only; no real server is contacted.
+- Start: `dotnet run` opens the main window (see "Using the app"). Alternatively start the built
   `src\MailWarden.App\bin\x64\Debug\net9.0-windows10.0.19041.0\win-x64\MailWarden.App.exe`. The app is
   self-contained; no separate Windows App SDK runtime has to be installed.
 
@@ -98,22 +134,28 @@ Layout:
 | `mail\` | one `.eml` file per message, stored per account and folder |
 | `credentials\` | DPAPI-encrypted sign-in tokens, one `.bin` file per entry |
 | `auth-config.json` | optional OAuth client configuration (see Environment variables) |
+| `ui-settings.json` | optional window settings (layout, theme, sizes); written by the app when you change them |
+| `mailwarden.lock` | lock file while the app runs (one process per data folder) |
 | `classifier-settings.json` | optional spam classifier settings (thresholds, lists); the loader exists, the app does not read the file yet (see `docs\classifier.md`) |
-| `logs\` | log files |
+| `logs\` | log file `mailwarden.log` (critical errors only) |
 
-On start the app creates the data folder itself. The database, `mail\` and `logs\` are created by the storage layer
-as soon as it is used; the app does not start a sync yet, so a fresh start leaves the folder empty.
+On start the app creates the data folder, the database and the lock file itself. `mail\` appears with the first
+synced message and `logs\` with the first logged error. Without accounts nothing is synced.
 
 ## Project structure
 ```
 src\MailWarden.Core            domain model, storage interfaces, account service, sync interfaces (Sync) and the
-                               spam classifier core (no I/O, no packages)
+                               spam classifier core and the cleaning of displayed text (no I/O, no packages)
 src\MailWarden.Infrastructure  SQLite stores, EML file store, OAuth sign-in (Microsoft, Google), DPAPI credential
                                store, provider profiles and connection check, IMAP connection and sync engine
-                               (Sync), message text extraction for search and preview (Mime)
-src\MailWarden.App             WinUI 3 app (main window only)
+                               (Sync), message reading and HTML cleaning (Mime), runtime that opens
+                               the stores and starts the background service (Composition), critical log
+src\MailWarden.Presentation    view models, views and settings of the user interface (no WinUI reference)
+src\MailWarden.App             WinUI 3 app: main window, wiring of the view models, WebView2 for the message
 tests\MailWarden.Core.Tests             unit tests for the spam classifier core
-tests\MailWarden.Infrastructure.Tests   unit tests for the storage layer, the account library and the sync
+tests\MailWarden.Infrastructure.Tests   unit tests for the storage layer, the account library, the sync, message
+                                        reading and HTML cleaning
+tests\MailWarden.Presentation.Tests     unit tests for the view models and settings
 ```
 
 ## Environment variables
