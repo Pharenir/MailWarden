@@ -568,4 +568,34 @@ public sealed class ReadingDocumentThemeTests
         Assert.Contains("mark a", dark, StringComparison.Ordinal);
         Assert.DoesNotContain("mark a", light, StringComparison.Ordinal);
     }
+
+    // Case 15 (verify.3): values that paint nothing do not make a mail light.
+    [Theory(Timeout = TestTimeouts.PerTestMilliseconds)]
+    [InlineData("list-style:none")]
+    [InlineData("list-style:disc")]
+    [InlineData("list-style-image:none")]
+    [InlineData("content:normal")]
+    public async Task Declarations_with_values_that_paint_nothing_are_dark(string declaration)
+    {
+        await Task.Yield();
+        string html = $"<p style=\"{declaration}\">body_marker</p>";
+
+        Assert.False(Sanitize(html).HasOwnColors, declaration);
+        Assert.True(IsDark(BuildDark(html)), declaration);
+    }
+
+    // Case 14 (verify.3): a url() value still counts; box-shadow:none is an accepted no-op (stays light).
+    [Theory(Timeout = TestTimeouts.PerTestMilliseconds)]
+    [InlineData("list-style-image:url(https://images.example.test/a.png)")]
+    [InlineData("list-style:square url(https://images.example.test/a.png)")]
+    [InlineData("content:url(https://images.example.test/a.png)")]
+    [InlineData("box-shadow:none")]
+    public async Task Url_values_and_box_shadow_none_keep_the_light_sheet(string declaration)
+    {
+        await Task.Yield();
+        string html = $"<p style=\"{declaration}\">body_marker</p>";
+
+        Assert.True(Sanitize(html).HasOwnColors, declaration);
+        Assert.True(IsLight(BuildDark(html)), declaration);
+    }
 }

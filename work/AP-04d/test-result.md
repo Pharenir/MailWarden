@@ -37,3 +37,7 @@ Build `-warnaserror`: 0 Warnungen, 0 Fehler.
 New: Infrastructure +17 (case 14: 10 declarations incl. `border-image-source`, `border-image-slice`, upper case `FILTER : invert(1)`; case 14a; case 15: 5 declarations incl. `border-color`, `border-radius`; `mark a` rule in the dark style only). Presentation +2 (case 16: document stays, state `Ready`, no notice, no exception, log holds `InvalidOperationException` and not the exception text, next mail and next theme changes use the reported theme; failure while loading images still ends in `Error`).
 
 Changed tests: none. No earlier test expected the old behaviour (failed theme rebuild ending in `Error`, an F1 declaration being dark); `Failing_builder_during_a_theme_change_does_not_throw` only asserts that nothing is thrown and stays valid.
+
+## verify.3 (list-style/content/box-shadow values; merged with `feat/ap-04d-reading-theme`)
+S3 green: 2516 of 2516 (Core 536, Infrastructure 1598, Presentation 382), 15.6 s, build `-warnaserror` clean, no red test, no changed test.
+New (+8, Infrastructure): dark for `list-style:none`, `list-style:disc`, `list-style-image:none`, `content:normal`; light for `list-style-image:url(...)`, `list-style:square url(...)`, `content:url(...)` and the accepted no-op `box-shadow:none`.
