@@ -15,12 +15,18 @@ public sealed class NavigationItem : ObservableObject
     private int unreadCount;
     private string? statusText;
 
-    internal NavigationItem(string label, MailView? view, Guid? accountId, IReadOnlyList<NavigationItem> children)
+    internal NavigationItem(
+        string label,
+        MailView? view,
+        Guid? accountId,
+        IReadOnlyList<NavigationItem> children,
+        bool isAccountNode = false)
     {
         Label = label;
         View = view;
         AccountId = accountId;
         Children = children;
+        IsAccountNode = isAccountNode;
     }
 
     /// <summary>Text of the entry, cleaned for display.</summary>
@@ -57,6 +63,9 @@ public sealed class NavigationItem : ObservableObject
 
     /// <summary>Child entries.</summary>
     public IReadOnlyList<NavigationItem> Children { get; }
+
+    /// <summary>True only for the node of an account, not for its children and not for tree parents.</summary>
+    public bool IsAccountNode { get; }
 }
 
 /// <summary>
@@ -237,7 +246,7 @@ public sealed class NavigationViewModel : ObservableObject
         // Folders with a group role are reached through the role views above.
         IEnumerable<MailFolder> otherFolders = folders.Where(folder => !MailView.GroupRoles.Contains(folder.Role));
         children.AddRange(CreateFolderItems(FolderTree.Build(otherFolders), account.Id));
-        return new NavigationItem(AccountLabel(account), null, account.Id, children);
+        return new NavigationItem(AccountLabel(account), null, account.Id, children, isAccountNode: true);
     }
 
     private static List<NavigationItem> CreateFolderItems(IReadOnlyList<FolderTreeNode> nodes, Guid accountId)

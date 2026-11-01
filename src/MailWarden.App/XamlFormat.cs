@@ -10,10 +10,24 @@ namespace MailWarden.App;
 /// </summary>
 public static class XamlFormat
 {
+    // Body text of the theme, and the size of an account node in the tree: 2 larger.
+    private const double TreeLabelFontSize = 14;
+    private const double AccountNodeFontSize = 16;
+
     /// <summary>Bold for unread rows.</summary>
     /// <param name="isUnread">True when the row is unread.</param>
     /// <returns>The font weight.</returns>
     public static FontWeight RowWeight(bool isUnread) => isUnread ? FontWeights.Bold : FontWeights.Normal;
+
+    /// <summary>Bold for the node of an account in the tree.</summary>
+    /// <param name="isAccountNode">True for the node of an account.</param>
+    /// <returns>The font weight.</returns>
+    public static FontWeight TreeLabelWeight(bool isAccountNode) => isAccountNode ? FontWeights.Bold : FontWeights.Normal;
+
+    /// <summary>Larger size for the node of an account in the tree.</summary>
+    /// <param name="isAccountNode">True for the node of an account.</param>
+    /// <returns>The font size.</returns>
+    public static double TreeLabelSize(bool isAccountNode) => isAccountNode ? AccountNodeFontSize : TreeLabelFontSize;
 
     /// <summary>Visible when the text is not empty.</summary>
     /// <param name="text">Text or null.</param>
