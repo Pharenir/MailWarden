@@ -142,3 +142,34 @@ Binding additions to the contract:
 - `SetAsync` rejects a domain entry that is itself a public suffix (`co.uk`, `com`) through the built-in list (`DomainNames.IsPublicSuffix`), with `ArgumentException`.
 - Role addresses match the whole local part only: `person_a@noreply.example.test` is collected.
 - Accepted limits, in `TODO.md`: temporarily unreadable mails are not harvested again; vCard 2.1 quoted-printable in `FN` is not decoded; a suffix outside the built-in list is not recognised.
+
+## Result case 19 (planner, 2026-11-01, copy, counts only)
+1,000 sent mails read in about 2 s, 417 contacts (370 with a name), none skipped, no command. Simulation before: 418.
+
+## Decisions fix.2 (planner, 2026-11-01, after verify.1 PASS 2314/2314, review.1 APPROVE, secure.1 no High while `Act` is off)
+Binding. Secure rates S1 and S2 as High once `Act` runs, so they are fixed now and not left as conditions. **R1 changes PLAN AP-07 #6; Dennis can overrule it.**
+- **R1 (secure S1).** An allowed sender gets `TrustedContact` only when `AuthStatus` is `Authenticated`. With `Unknown` it gets at most `LikelyLegit`, as a contact does; with `Failed` as before. The text of the override says which case applied. PLAN #6 changes accordingly.
+- **R2 (secure S2).** In `AuthStatusEvaluator` the trust path for DKIM and SPF requires the same domain or a real parent or child relation to the From domain, not the approximated organisational domain. A DMARC pass stays as it is. `firma.com.pl` with `evil.com.pl` is then not aligned. Tests of AP-07a about sibling subdomains change.
+- **R3 (secure S3).** The harvest skips a mail, counted as `MailsSkipped`, when `From` is not exactly one own account address, when `Auto-Submitted` is present and not `no`, or when the top `Content-Type` is `multipart/report`. Aliases deliver no contacts, which is the safe side. Case 19 is run again.
+- **R4 (secure S4).** `Allowed` needs a well-formed sender whose raw domain part equals the normalised domain ignoring ASCII case. Blocked stays tolerant.
+- **R5 (secure S5, S6, S8; review SHOULD 2).** `AddressRules.ToLookupForm` removes quotes around a fully quoted local part. List entries and lookups normalise domains through `IdnMapping.GetUnicode` and lower case, so a Punycode entry works. `SetAsync` rejects `*`. Plus and dot variants stay exact, which is documented.
+- **R6 (review SHOULD 1).** An unterminated quote in a CSV row counts only that physical line as `Rejected`; reading goes on with the next line.
+- **R7 (review SHOULD 3).** `ContactBook.AddContactAsync` trims and checks the address with `AddressRules`, otherwise `ArgumentException`.
+- **R8 (review NIT).** `U+FFFD` written as an escape in `AddressRules.cs`; comments of `MailboxService` name the harvest.
+
+### Into `TODO.md` (documenter)
+- Before `Act`: check on real headers that every incoming mail carries a provider stamp of `Authentication-Results`; decide whether `AutoCollected` contacts may rescue from Junk.
+- AP-08: deleted contacts come back after a UIDVALIDITY change (block instead of delete, or a deletion mark); account removal and its contacts; warning for `FreemailDomains` as allow entries; confirmation with a count before an import.
+- UIDs fetched later below the harvest marker; temporarily unreadable mails; IDs in memory over the import limit; one commit per contact; `MailsSkipped` not visible; duplicates through non-ASCII case; a later CSV export must mask formula cells.
+- `PRIVACY.md`: contacts come from recipients of sent mail.
+
+### Additional test cases (fix.2)
+| # | Case | Expected |
+|---|---|---|
+| 20 | Allow list: `Authenticated`, `Unknown` without a header, `spf=softfail; dmarc=none`, `dmarc=fail` with `compauth=pass`, failed | `TrustedContact`; `LikelyLegit`; `LikelyLegit`; `LikelyLegit`; as before |
+| 21 | Contact `person_a@firma.com.pl`: `dkim=pass header.d=evil.com.pl`; `spf=pass smtp.mailfrom=evil.com.pl`; `dkim=pass header.d=firma.com.pl`; `header.d=mail.firma.com.pl`; From `a@mail.firma.com.pl` with `header.d=firma.com.pl`; DMARC pass | not authenticated; not; yes; yes; yes; yes |
+| 22 | Harvest: From another address; `Auto-Submitted: auto-replied`; `Auto-Submitted: no`; `multipart/report`; own address in another case | skipped; skipped; read; skipped; read |
+| 23 | Allow with Kelvin sign in the domain, trailing NBSP | no `Allowed`; Blocked still matches |
+| 24 | `"spam"@addr.example.test` against an address entry; Punycode entry and U-form sender; U-form entry and Punycode sender; `*.x.test` | match; match; match; rejected |
+| 25 | CSV with an unterminated quote in row 2 of 5 | 1 `Rejected`, the other rows read |
+| 26 | `AddContactAsync` with spaces around the address; `Hans <a@x.test>`; no domain | trimmed; `ArgumentException`; `ArgumentException` |
