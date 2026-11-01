@@ -98,6 +98,54 @@ public sealed class ContactHarvesterOriginTests
         Assert.Equal(new ContactHarvestReport(0, 0, 1), await HarvestOneAsync(extraHeader: header));
     }
 
+    // Decision: only exactly "no" is a normal mail; "no (x)" counts as not "no"
+    [Theory(Timeout = TestTimeouts.PerTestMilliseconds)]
+    [InlineData("Auto-Submitted: no (x)")]
+    [InlineData("Auto-Submitted: nobody")]
+    public async Task Auto_submitted_that_is_not_exactly_no_is_skipped(string header)
+    {
+        Assert.Equal(new ContactHarvestReport(0, 0, 1), await HarvestOneAsync(extraHeader: header));
+    }
+
+    // Case 31 (T5): further automatic-mail markers
+    [Theory(Timeout = TestTimeouts.PerTestMilliseconds)]
+    [InlineData("X-Autoreply: yes")]
+    [InlineData("X-Autorespond: yes")]
+    [InlineData("Precedence: auto_reply")]
+    [InlineData("Precedence: bulk")]
+    [InlineData("Precedence: junk")]
+    [InlineData("Precedence: BULK")]
+    [InlineData("Content-Class: urn:content-classes:calendarmessage")]
+    public async Task Automatic_mail_markers_are_skipped(string header)
+    {
+        Assert.Equal(new ContactHarvestReport(0, 0, 1), await HarvestOneAsync(extraHeader: header));
+    }
+
+    [Fact(Timeout = TestTimeouts.PerTestMilliseconds)]
+    public async Task Calendar_reply_is_skipped()
+    {
+        Assert.Equal(
+            new ContactHarvestReport(0, 0, 1),
+            await HarvestOneAsync(contentType: "text/calendar; method=REPLY; charset=utf-8"));
+    }
+
+    // Case 31: controls, similar but harmless headers are read
+    [Fact(Timeout = TestTimeouts.PerTestMilliseconds)]
+    public async Task Precedence_list_and_calendar_request_are_read()
+    {
+        Assert.Equal(new ContactHarvestReport(1, 1, 0), await HarvestOneAsync(extraHeader: "Precedence: list"));
+        Assert.Equal(
+            new ContactHarvestReport(1, 1, 0),
+            await HarvestOneAsync(contentType: "text/calendar; method=REQUEST; charset=utf-8"));
+    }
+
+    // Decision: the addresses of all accounts count as own (From of the other account in this account's Sent folder)
+    [Fact(Timeout = TestTimeouts.PerTestMilliseconds)]
+    public async Task From_with_the_address_of_another_account_is_read()
+    {
+        Assert.Equal(new ContactHarvestReport(1, 1, 0), await HarvestOneAsync("Second <second_own_a@example.test>"));
+    }
+
     // Case 22: "no" counts as a normal mail, in any letter case
     [Theory(Timeout = TestTimeouts.PerTestMilliseconds)]
     [InlineData("Auto-Submitted: no")]

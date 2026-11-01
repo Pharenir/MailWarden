@@ -262,6 +262,38 @@ public sealed class ContactImportCsvTests
         Assert.NotNull(Find(contacts, "contact_e@example.test"));
     }
 
+    // Decision: text after a closing quote makes the field malformed: only that line is Rejected
+    [Fact(Timeout = TestTimeouts.PerTestMilliseconds)]
+    public async Task Text_after_a_closing_quote_rejects_that_line_only()
+    {
+        string text =
+            "Name,Email\r\n" +
+            "Contact A,contact_a@example.test\r\n" +
+            "\"a\"b,contact_x@example.test\r\n" +
+            "Contact C,contact_c@example.test\r\n";
+
+        (ContactImportReport report, IReadOnlyList<Contact> contacts) = await ImportAsync(Utf8(text));
+
+        Assert.Equal(1, report.Rejected);
+        Assert.Equal(2, report.Added);
+        Assert.DoesNotContain(contacts, contact => contact.EmailAddress.StartsWith("contact_x", StringComparison.OrdinalIgnoreCase));
+    }
+
+    // Decision: a quote that only closes cleanly in a later line is one multi-line field (control)
+    [Fact(Timeout = TestTimeouts.PerTestMilliseconds)]
+    public async Task Quote_that_closes_in_a_later_line_is_a_multi_line_field()
+    {
+        string text =
+            "Name,Email\r\n" +
+            "\"Line one\r\nLine two\",contact_a@example.test\r\n" +
+            "Contact C,contact_c@example.test\r\n";
+
+        (ContactImportReport report, _) = await ImportAsync(Utf8(text));
+
+        Assert.Equal(0, report.Rejected);
+        Assert.Equal(2, report.Added);
+    }
+
     // Case 25: control, the same file with the quote closed rejects nothing
     [Fact(Timeout = TestTimeouts.PerTestMilliseconds)]
     public async Task Closed_quote_in_the_same_position_rejects_nothing()

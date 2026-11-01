@@ -100,6 +100,29 @@ public sealed class AllowListAndAlignmentTests
         Assert.Equal(SpamTier.TrustedContact, result.Tier);
     }
 
+    // Case 29 (T3): the DMARC path needs the same domain or a real parent or child relation too
+    [Fact]
+    public void Dmarc_pass_for_another_domain_below_the_same_suffix_is_not_authenticated()
+    {
+        ClassificationResult result = ClassifyFirma("mx.test; dmarc=pass header.from=evil.com.pl");
+
+        Assert.NotEqual(AuthStatus.Authenticated, result.AuthStatus);
+        Assert.NotEqual(SpamTier.TrustedContact, result.Tier);
+    }
+
+    // Case 29: positive controls, same domain, child, and From on a child with header.from on the parent
+    [Theory]
+    [InlineData("mx.test; dmarc=pass header.from=firma.com.pl", "person_a@firma.com.pl")]
+    [InlineData("mx.test; dmarc=pass header.from=mail.firma.com.pl", "person_a@firma.com.pl")]
+    [InlineData("mx.test; dmarc=pass header.from=firma.com.pl", "a@mail.firma.com.pl")]
+    public void Dmarc_pass_for_a_related_domain_is_authenticated(string header, string from)
+    {
+        ClassificationResult result = ClassifyFirma(header, from);
+
+        Assert.Equal(AuthStatus.Authenticated, result.AuthStatus);
+        Assert.Equal(SpamTier.TrustedContact, result.Tier);
+    }
+
     // Case 21: two sibling sub-domains are not related
     [Fact]
     public void Dkim_pass_for_a_sibling_sub_domain_is_not_authenticated()
