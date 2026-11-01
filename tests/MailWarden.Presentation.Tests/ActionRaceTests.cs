@@ -408,4 +408,117 @@ public sealed class ActionRaceTests
 
         await WaitForCallsAsync(harness, "MoveToTrash");
     }
+
+    // ---- fix.2 additions: follow row during saving, ActionRowsRemoved after Dispose -------------------------
+
+    /// <summary>Gate that blocks only the first mutating call; later calls pass.</summary>
+    private static (TaskCompletionSource Release, Func<int> Entered) BlockFirstCall(ShellHarness harness)
+    {
+        var release = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        int entered = 0;
+        harness.Actions.Gate = async () =>
+        {
+            if (Interlocked.Increment(ref entered) == 1)
+            {
+                await release.Task;
+            }
+        };
+        return (release, () => Volatile.Read(ref entered));
+    }
+
+    private static async Task<(ShellHarness Harness, MessageRowViewModel[] Rows, MailFolder Archive, TaskCompletionSource Release, Func<int> Entered)> DeletingAsync()
+    {
+        (ShellHarness harness, Account account, _, _) = await InitializedAsync(3);
+        MailFolder archive = harness.ReadModel.AddFolder(account, FolderRole.Archive, "Archive");
+        MessageRowViewModel[] rows = [.. harness.Shell.Messages.Items];
+        (TaskCompletionSource release, Func<int> entered) = BlockFirstCall(harness);
+        await SelectAsync(harness, rows[0]);
+        harness.Shell.DeleteCommand.Execute(null);
+        await Wait.UntilAsync(() => entered() == 1, "delete is being saved");
+        await Wait.UntilAsync(
+            () => harness.Shell.Messages.SelectedRows.Count == 1 && harness.Shell.Messages.SelectedRows[0].Message.Id == rows[1].Message.Id,
+            "follow row selected");
+        return (harness, rows, archive, release, entered);
+    }
+
+    // Read, unread and flag on the automatically selected follow row act normally while the delete is still being saved.
+    [Fact(Timeout = TestTimeouts.PerTestMilliseconds)]
+    public async Task Read_and_flag_on_the_follow_row_work_while_the_delete_is_being_saved()
+    {
+        (ShellHarness harness, MessageRowViewModel[] rows, _, TaskCompletionSource release, _) = await DeletingAsync();
+
+        harness.Shell.MarkReadCommand.Execute(null);
+        await WaitForCallsAsync(harness, "SetSeen");
+        harness.Shell.ToggleFlagCommand.Execute(null);
+        await WaitForCallsAsync(harness, "SetFlagged");
+        harness.Shell.MarkUnreadCommand.Execute(null);
+        await WaitForCallsAsync(harness, "SetSeen", 2);
+
+        Assert.Equal(new[] { rows[1].Message.Id }, harness.Actions.CallsNamed("SetSeen")[0].MessageIds.ToArray());
+        Assert.Equal(new[] { rows[1].Message.Id }, harness.Actions.CallsNamed("SetFlagged")[0].MessageIds.ToArray());
+        Assert.Empty(harness.Actions.CallsNamed("MoveToTrash")); // the blocked delete has not been stored yet
+        release.SetResult();
+        await WaitForCallsAsync(harness, "MoveToTrash");
+    }
+
+    // Delete, permanent delete and move leave the follow row alone while the delete is being saved.
+    [Fact(Timeout = TestTimeouts.PerTestMilliseconds)]
+    public async Task Delete_permanent_and_move_skip_the_follow_row_while_the_delete_is_being_saved()
+    {
+        (ShellHarness harness, MessageRowViewModel[] rows, MailFolder archive, TaskCompletionSource release, Func<int> entered) = await DeletingAsync();
+        int confirmationsBefore = harness.ConfirmationTexts.Count;
+
+        harness.Shell.DeleteCommand.Execute(null);
+        harness.Shell.DeletePermanentlyCommand.Execute(null);
+        harness.Shell.MoveCommand.Execute(archive.Id);
+        await Wait.NegativeWindowAsync();
+
+        Assert.Equal(1, entered());
+        Assert.Equal(confirmationsBefore, harness.ConfirmationTexts.Count);
+        Assert.Empty(harness.Actions.Calls);
+        release.SetResult();
+        await WaitForCallsAsync(harness, "MoveToTrash");
+        await Wait.NegativeWindowAsync();
+        Assert.Single(harness.Actions.Calls);
+
+        // Positive control: once the delete is stored, Del on the follow row works again.
+        harness.Shell.DeleteCommand.Execute(null);
+        await WaitForCallsAsync(harness, "MoveToTrash", 2);
+        Assert.Equal(new[] { rows[1].Message.Id }, harness.Actions.CallsNamed("MoveToTrash")[1].MessageIds.ToArray());
+    }
+
+    // ActionRowsRemoved does not fire after Dispose; positive control: it fires without Dispose.
+    [Theory(Timeout = TestTimeouts.PerTestMilliseconds)]
+    [InlineData(true)]
+    [InlineData(false)]
+    public async Task ActionRowsRemoved_fires_only_while_the_shell_is_alive(bool dispose)
+    {
+        (ShellHarness harness, _, _, _) = await InitializedAsync(3);
+        (TaskCompletionSource release, Func<int> entered) = BlockFirstCall(harness);
+        await SelectAsync(harness, harness.Shell.Messages.Items[0]);
+        int fired = 0;
+        harness.Shell.ActionRowsRemoved += (_, _) => Interlocked.Increment(ref fired);
+        harness.Shell.DeleteCommand.Execute(null);
+        await Wait.UntilAsync(() => entered() == 1, "delete is being saved");
+        int firedBeforeRelease = Volatile.Read(ref fired);
+
+        if (dispose)
+        {
+            harness.Shell.Dispose();
+        }
+
+        release.SetResult();
+        await Wait.NegativeWindowAsync();
+        await Wait.NegativeWindowAsync();
+
+        if (dispose)
+        {
+            Assert.Equal(firedBeforeRelease, Volatile.Read(ref fired));
+            Assert.Empty(harness.Log.Entries);
+        }
+        else
+        {
+            Assert.True(Volatile.Read(ref fired) >= 1, "the event must fire when rows are removed");
+        }
+    }
 }

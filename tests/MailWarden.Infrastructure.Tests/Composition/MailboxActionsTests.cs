@@ -685,4 +685,84 @@ public sealed class MailboxActionsTests
         Assert.Equal(stored > 0, mixed.Message == MailboxActions.PartlyDoneText);
         AssertFixedText(mixed);
     }
+
+    // ---- fix.2 additions: lower-UID arrival, StorageException after a stored group --------------------------
+
+    // A mail with a LOWER uid that was loaded after the preview raises the count above the confirmed count: refused, queue stays empty.
+    [Fact(Timeout = TestTimeouts.PerTestMilliseconds)]
+    public async Task A_late_loaded_mail_with_a_lower_uid_refuses_the_empty_and_leaves_the_queue_empty()
+    {
+        await using ActionsHarness harness = await ActionsHarness.CreateAsync();
+        Account account = await harness.AddAccountAsync();
+        await harness.AddFolderAsync(account, FolderRole.Inbox);
+        MailFolder junk = await harness.AddFolderAsync(account, FolderRole.Junk, "Junk");
+        await harness.AddMessagesAsync(junk, 3, firstUid: 2);
+        EmptyFolderPreview preview = await harness.Actions.PreviewEmptyAsync(junk.Id);
+        Assert.Equal(new EmptyFolderPreview(3, 4), preview);
+        await harness.AddMessagesAsync(junk, 1, firstUid: 1);
+
+        MailActionException refusal = await Assert.ThrowsAsync<MailActionException>(() => harness.Actions.EmptyFolderAsync(junk.Id, preview));
+
+        AssertFixedText(refusal);
+        Assert.Equal(0, await harness.CommandCountAsync(account));
+        Assert.Empty(harness.Triggered);
+    }
+
+    // Positive control: fewer mails than confirmed (the highest UID unchanged) is allowed.
+    [Fact(Timeout = TestTimeouts.PerTestMilliseconds)]
+    public async Task Fewer_mails_than_confirmed_with_the_same_highest_uid_are_emptied()
+    {
+        await using ActionsHarness harness = await ActionsHarness.CreateAsync();
+        Account account = await harness.AddAccountAsync();
+        MailFolder junk = await harness.AddFolderAsync(account, FolderRole.Junk, "Junk");
+        await harness.AddMessagesAsync(junk, 3, firstUid: 2);
+        EmptyFolderPreview preview = await harness.Actions.PreviewEmptyAsync(junk.Id);
+        await harness.Messages.DeleteByUidsAsync(junk.Id, [2u]);
+
+        await harness.Actions.EmptyFolderAsync(junk.Id, preview);
+
+        Assert.Equal(new uint[] { 3, 4 }, Assert.Single(await harness.CommandsAsync(account)).Uids);
+    }
+
+    private static async Task InstallFailOnSecondCommandAsync(ActionsHarness harness)
+    {
+        await using Microsoft.Data.Sqlite.SqliteCommand command = harness.SeedDatabase.Connection.CreateCommand();
+        command.CommandText =
+            "CREATE TRIGGER fail_on_second_command BEFORE INSERT ON mail_commands " +
+            "WHEN (SELECT COUNT(*) FROM mail_commands) >= 1 BEGIN SELECT RAISE(ABORT, 'marker_storage_failure'); END;";
+        await command.ExecuteNonQueryAsync();
+    }
+
+    // A storage failure after one stored group reports the partly-done text (a trigger makes the second insert fail).
+    [Fact(Timeout = TestTimeouts.PerTestMilliseconds)]
+    public async Task A_storage_failure_after_a_stored_group_reports_the_partly_done_text()
+    {
+        await using ActionsHarness harness = await ActionsHarness.CreateAsync();
+        Account account = await harness.AddAccountAsync();
+        MailFolder inbox = await harness.AddFolderAsync(account, FolderRole.Inbox);
+        MailFolder junk = await harness.AddFolderAsync(account, FolderRole.Junk, "Junk");
+        IReadOnlyList<MailMessage> mails = [.. await harness.AddMessagesAsync(inbox, 1), .. await harness.AddMessagesAsync(junk, 1)];
+        await InstallFailOnSecondCommandAsync(harness);
+
+        MailActionException failure = await Assert.ThrowsAsync<MailActionException>(() => harness.Actions.SetFlaggedAsync(mails, flagged: true));
+
+        Assert.Equal(MailboxActions.PartlyDoneText, failure.Message);
+        Assert.DoesNotContain("marker_storage_failure", failure.Message, StringComparison.Ordinal);
+        Assert.Equal(1, await harness.CommandCountAsync(account));
+    }
+
+    // Positive control: with a single group the same trigger does not fire (first insert) and nothing is reported.
+    [Fact(Timeout = TestTimeouts.PerTestMilliseconds)]
+    public async Task The_same_trigger_does_not_affect_a_single_group()
+    {
+        await using ActionsHarness harness = await ActionsHarness.CreateAsync();
+        Account account = await harness.AddAccountAsync();
+        MailFolder inbox = await harness.AddFolderAsync(account, FolderRole.Inbox);
+        IReadOnlyList<MailMessage> mails = await harness.AddMessagesAsync(inbox, 2);
+        await InstallFailOnSecondCommandAsync(harness);
+
+        await harness.Actions.SetFlaggedAsync(mails, flagged: true);
+
+        Assert.Equal(1, await harness.CommandCountAsync(account));
+    }
 }
