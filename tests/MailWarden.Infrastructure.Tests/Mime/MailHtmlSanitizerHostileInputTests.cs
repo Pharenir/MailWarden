@@ -235,4 +235,28 @@ public sealed class MailHtmlSanitizerHostileInputTests
         Assert.Contains("word0 ", result.Html, StringComparison.Ordinal);
         Assert.Contains("word19999", result.Html, StringComparison.Ordinal);
     }
-}
+
+    // ---- Case 93 (N3) --------------------------------------------------------------------------------------
+
+    // Case 93: reconstructed formatting elements copy their attributes into every paragraph; the output size is estimated
+    // before serialising and a too large result falls back to the text.
+    [Theory(Timeout = TestTimeouts.PerTestMilliseconds)]
+    [InlineData(1_048_576, 1_000)]
+    [InlineData(102_400, 2_000)]
+    public async Task Attribute_values_multiplied_by_reconstruction_fall_back_to_the_text(int valueLength, int repeats)
+    {
+        string html = $"<p><b title=\"{new string('x', valueLength)}\">" + Repeat("</p><p>x", repeats);
+
+        (SanitizedHtml Result, long AllocatedBytes) outcome = await Task.Run(() =>
+        {
+            long before = GC.GetAllocatedBytesForCurrentThread();
+            SanitizedHtml sanitized = MailHtmlSanitizer.Sanitize(html, new Dictionary<string, string>(), allowRemoteImages: false);
+            return (sanitized, GC.GetAllocatedBytesForCurrentThread() - before);
+        });
+
+        AssertNoDangerousElement(outcome.Result);
+        Assert.True(outcome.Result.WasReduced);
+        Assert.True(outcome.Result.Html.Length < 64_000_000, $"output has {outcome.Result.Html.Length} characters");
+        Assert.True(outcome.AllocatedBytes < 1_500_000_000L, $"allocated {outcome.AllocatedBytes / 1_000_000} MB on the calling thread");
+        Assert.Contains("x", outcome.Result.Html, StringComparison.Ordinal);
+    }}
