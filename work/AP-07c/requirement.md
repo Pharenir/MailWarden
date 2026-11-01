@@ -480,4 +480,4 @@ sender. Retention 0, deleting impossible in these probes.
 
 **Result: the top `Received` survives a MOVE on both providers.** Not tested: a move to Screener or Quarantine on Outlook.com; a
 move to Junk or Quarantine on Gmail; moving back in the webmail itself (the probe uses a server MOVE, the same IMAP operation);
-whether the other clients show the new folders (Dennis). `Act` on real accounts still needs AP-06 (empty address book) and D8.
+Dennis confirmed on 2026-11-01 that mails and folders appear in the web and in the Outlook app. `Act` on real accounts still needs AP-06 (empty address book) and D8.
