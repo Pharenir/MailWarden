@@ -24,6 +24,7 @@ internal sealed class MailWebViewHost
     private byte[]? documentBytes;
     private string? documentHtml;
     private bool allowRemoteImages;
+    private Windows.UI.Color defaultBackground = Microsoft.UI.Colors.White;
     private bool isInitializing;
     private bool isClosed;
 
@@ -93,13 +94,26 @@ internal sealed class MailWebViewHost
         }
     }
 
-    /// <summary>Sets the color the browser shows until a document has painted; also before the browser has started.</summary>
+    /// <summary>
+    /// Sets the color the browser shows until a document has painted. Before the browser starts it is only kept, the start
+    /// applies it. A failure here is only logged: it runs in theme handlers, and a wrong background must not end anything.
+    /// </summary>
     /// <param name="color">The page background of the current theme.</param>
     public void SetDefaultBackground(Windows.UI.Color color)
     {
-        if (!isClosed)
+        defaultBackground = color;
+        if (!isInitializing || isClosed)
+        {
+            return;
+        }
+
+        try
         {
             webView.DefaultBackgroundColor = color;
+        }
+        catch (Exception exception) when (exception is not OutOfMemoryException)
+        {
+            log.Write(CriticalLogLevel.Critical, "MailWebViewHost.SetDefaultBackground", $"Setting the background failed: {exception.GetType().Name}");
         }
     }
 
@@ -137,6 +151,7 @@ internal sealed class MailWebViewHost
     {
         try
         {
+            webView.DefaultBackgroundColor = defaultBackground;
             environment = await CoreWebView2Environment.CreateWithOptionsAsync(
                 string.Empty,
                 userDataFolder,

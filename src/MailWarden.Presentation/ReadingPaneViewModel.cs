@@ -87,8 +87,9 @@ public sealed class ReadingPaneViewModel : ObservableObject
     }
 
     /// <summary>
-    /// Longest wait for the document of a message; afterwards it is shown as plain text. It is the backstop for what the
-    /// limits of the sanitizer do not foresee: its work cannot be interrupted. Measured on the time provider of the shell.
+    /// Longest wait for the document of a message in one theme; afterwards it is shown as plain text. It is the backstop for
+    /// what the limits of the sanitizer do not foresee: its work cannot be interrupted. Measured on the time provider of the
+    /// shell.
     /// </summary>
     public static TimeSpan BuildTimeLimit { get; } = TimeSpan.FromSeconds(5);
 
@@ -232,9 +233,10 @@ public sealed class ReadingPaneViewModel : ObservableObject
     /// A failure ends in <see cref="ReadingState.Error"/> with a fixed text and
     /// a critical log line with the type name. At most one document build runs at a time. While the build of another mail
     /// runs, the pane stays in <see cref="ReadingState.Loading"/> and waits for its end, at most
-    /// <see cref="BuildTimeLimit"/> from this call; only the newest call survives the wait and then builds normally. The
-    /// same mail with the same image approval and theme waits for the running build instead of starting a second one. When a
-    /// wait exceeds the limit, the plain text is shown with a notice, and a later result of that build is ignored.
+    /// <see cref="BuildTimeLimit"/> from this call or from the last theme change during it; only the newest call survives the
+    /// wait and then builds normally. The same mail with the same image approval and theme waits for the running build instead
+    /// of starting a second one. When a wait exceeds the limit, the plain text is shown with a notice, and a later result of
+    /// that build is ignored.
     /// </summary>
     /// <param name="message">Message to show, or null.</param>
     /// <param name="ct">Cancellation token.</param>
@@ -329,10 +331,12 @@ public sealed class ReadingPaneViewModel : ObservableObject
     /// Takes over the theme the application actually shows. The shown document is built again from the content already held,
     /// off the UI thread and without a read from the store or the server; message, image approval and state stay, and the old
     /// document stays visible until the new one is there. Without a shown document nothing is built. A show or image load that
-    /// is running builds for the new theme by itself. A document that replaced a build over the limit stays plain text.
+    /// is running builds for the new theme by itself. A document that replaced a build over the limit stays plain text. When
+    /// the build fails, the readable document stays in <see cref="ReadingState.Ready"/> with a critical log line with the type
+    /// name. The reported theme still counts: the next build of any kind uses it, the same report again starts none.
     /// </summary>
     /// <param name="newTheme">The theme the window reports.</param>
-    /// <returns>A task that completes when the new document is shown or a newer call replaced it; it never fails.</returns>
+    /// <returns>A task that completes when the build has ended or a newer call replaced it; it never fails.</returns>
     public Task ApplyThemeAsync(ReadingTheme newTheme)
     {
         if (newTheme == theme)
@@ -343,7 +347,7 @@ public sealed class ReadingPaneViewModel : ObservableObject
         theme = newTheme;
         bool isDocumentIdle = !isClosed && showCancellation is null && State == ReadingState.Ready;
         return isDocumentIdle && currentContent is MailContent content && CurrentMessage is MailMessage message
-            ? RebuildAsync(message.Id, content, currentApproval, isCurrentDocumentFallback, "ReadingPaneViewModel.ApplyThemeAsync")
+            ? RebuildAsync(message.Id, content, currentApproval, isThemeChange: true)
             : Task.CompletedTask;
     }
 
@@ -376,7 +380,8 @@ public sealed class ReadingPaneViewModel : ObservableObject
             TaskScheduler.Default);
     }
 
-    // A theme change during the build makes its result stale; it builds again, so the old theme is never shown.
+    // A theme change during the build makes its result stale; it builds again, so the old theme is never shown. Each round has
+    // its own time limit; the number of rounds is bounded by the changes of the user.
     private async Task<BuiltDocument> BuildForCurrentThemeAsync(long messageId, MailContent content, ImageApproval approval, CancellationToken ct)
     {
         while (true)
@@ -546,13 +551,13 @@ public sealed class ReadingPaneViewModel : ObservableObject
         {
             // At once, so the button is gone and cannot start a second build.
             AreRemoteImagesAllowed = true;
-            _ = RebuildAsync(message.Id, content, new ImageApproval(Remote: true, Embedded: true), keepPlainText: false, "ReadingPaneViewModel.LoadRemoteImagesAsync");
+            _ = RebuildAsync(message.Id, content, new ImageApproval(Remote: true, Embedded: true), isThemeChange: false);
         }
     }
 
     // A new document for the message already shown, from the content already held. Same guard as ShowAsync: the next message
     // makes this result stale. Never throws, nobody has to await it.
-    private async Task RebuildAsync(long messageId, MailContent content, ImageApproval approval, bool keepPlainText, string logSource)
+    private async Task RebuildAsync(long messageId, MailContent content, ImageApproval approval, bool isThemeChange)
     {
         int generation = ++showGeneration;
         CancelPreviousShow();
@@ -561,7 +566,7 @@ public sealed class ReadingPaneViewModel : ObservableObject
         try
         {
             // A mail that went over the limit once does not get a second long build for another color.
-            BuiltDocument document = keepPlainText
+            BuiltDocument document = isThemeChange && isCurrentDocumentFallback
                 ? new BuiltDocument(ReadingDocumentBuilder.BuildFromPlainText(content, theme), IsPlainTextFallback: true)
                 : await BuildForCurrentThemeAsync(messageId, content, approval, cancellation.Token);
             if (generation == showGeneration)
@@ -575,9 +580,14 @@ public sealed class ReadingPaneViewModel : ObservableObject
         }
         catch (Exception exception)
         {
-            if (generation == showGeneration)
+            if (generation == showGeneration && isThemeChange)
             {
-                ShowFailure(logSource, exception);
+                // The document on screen is still readable, only in the previous theme. That is better than an error.
+                log.Write(CriticalLogLevel.Critical, "ReadingPaneViewModel.ApplyThemeAsync", $"Building for the new theme failed: {exception.GetType().Name}");
+            }
+            else if (generation == showGeneration)
+            {
+                ShowFailure("ReadingPaneViewModel.LoadRemoteImagesAsync", exception);
             }
         }
         finally

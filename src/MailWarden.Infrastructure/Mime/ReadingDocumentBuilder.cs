@@ -36,7 +36,10 @@ public static class ReadingDocumentBuilder
         "html{color-scheme:dark;}"
         + "html,body{background:" + DarkPageBackground + ";color:#f0f0f0;}"
         + CommonStyle
-        + "a:link,a:visited{color:#8ab4f8;}";
+        + "a:link,a:visited{color:#8ab4f8;}"
+
+        // The browser keeps the yellow background of mark in the dark scheme.
+        + "mark a:link,mark a:visited{color:#0b57d0;}";
 
     /// <summary>
     /// Builds the document. With <see cref="MailContent.Html"/> non-null it contains the sanitized HTML, otherwise
