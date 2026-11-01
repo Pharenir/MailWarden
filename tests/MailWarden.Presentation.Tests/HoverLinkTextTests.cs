@@ -66,19 +66,58 @@ public sealed class HoverLinkTextTests
         Assert.StartsWith("https://www.example.test/", shown, StringComparison.Ordinal);
     }
 
-    // Case 19: 10,000 characters are shortened to at most 501 (500 plus the ellipsis).
+    // Case 19 / 29: a non-URL text of 10,000 characters is shortened to at most 501 characters.
     [Fact]
-    public void A_10000_character_target_is_shortened_to_at_most_501_characters()
+    public void A_10000_character_text_is_shortened_to_at_most_501_characters()
     {
         ReadingPaneViewModel reading = NewReading();
-        string host = "https://www.example.test/";
 
-        reading.HoverLinkText = host + new string('a', 10_000 - host.Length);
+        reading.HoverLinkText = new string('a', 10_000);
 
         string shown = reading.HoverLinkText ?? string.Empty;
         Assert.True(shown.Length <= MaxLength, $"length was {shown.Length}");
         Assert.True(shown.Length > 100);
-        Assert.StartsWith(host, shown, StringComparison.Ordinal);
+    }
+
+    // Case 19 / 29 (U5): a long absolute target shows the host first, then the cut text; the length stays bounded.
+    [Fact]
+    public void A_long_absolute_target_shows_the_host_first_and_stays_bounded()
+    {
+        ReadingPaneViewModel reading = NewReading();
+        string target = "https://www.example.test/" + new string('a', 10_000 - 25);
+
+        reading.HoverLinkText = target;
+
+        string shown = reading.HoverLinkText ?? string.Empty;
+        Assert.StartsWith("www.example.test", shown, StringComparison.Ordinal);
+        Assert.Contains("aaaa", shown, StringComparison.Ordinal);
+        Assert.True(shown.Length <= MaxLength + 100, $"length was {shown.Length}");
+        Assert.True(shown.Length > 100);
+    }
+
+    // Case 29 (U5): user info cannot put a foreign host in front; the real host (after the @) comes first.
+    [Fact]
+    public void User_info_cannot_put_a_foreign_host_in_front_of_the_real_host()
+    {
+        ReadingPaneViewModel reading = NewReading();
+        string target = "https://trusted.example.test:pw@evil.example.test/" + new string('b', 2_000);
+
+        reading.HoverLinkText = target;
+
+        string shown = reading.HoverLinkText ?? string.Empty;
+        Assert.StartsWith("evil.example.test", shown, StringComparison.Ordinal);
+        Assert.DoesNotMatch(@"^\W*trusted\.example\.test", shown);
+    }
+
+    // Case 29 positive control: a short target with user info is not rewritten into something that hides the real host.
+    [Fact]
+    public void A_short_target_with_user_info_still_contains_the_real_host()
+    {
+        ReadingPaneViewModel reading = NewReading();
+
+        reading.HoverLinkText = "https://trusted.example.test@evil.example.test/x";
+
+        Assert.Contains("evil.example.test", reading.HoverLinkText ?? string.Empty, StringComparison.Ordinal);
     }
 
     // Case 19: a target of exactly 500 characters is not touched.

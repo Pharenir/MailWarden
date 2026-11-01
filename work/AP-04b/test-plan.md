@@ -56,3 +56,23 @@ Test support added/changed (all under `tests\`): `Presentation.Tests\TestSupport
 - Q5 Case 13: the requirement says "Queue-Aufrufe" for case 13; no view-model test reaches the real queue (D2-D4 run against fakes). Fake calls and controller calls are checked instead.
 - Q6 AP-04a case 41 test `View_models_expose_no_write_style_methods` forbids method names with Delete/Move/Mark/Flag/Empty on the four view models. The new members are commands (properties), so it should still pass, but any public method the builder adds with such a name breaks it (the test was written for read-only AP-04a and may need a deliberate update).
 - Q7 `EnqueueEmptyFolderAsync` kind is not specified; the test only checks folder, UIDs and coverage, not `Kind`.
+
+## fix.2 (author.1): cases 23-31
+
+Not compiled here: the test branch has no fix.2 product code yet (`EmptyFolderPreview`, `PreviewEmptyAsync` are missing, expected compile errors until merged with the builder's fix.2).
+
+| Case | Tests |
+|---|---|
+| 4 (changed) | `MailboxActionsTests`: preview theory (Count, HighestUid), preview follows local state, Inbox/unknown refused, empty without mails, 2,500 mails use `PreviewEmptyAsync` + `EmptyFolderAsync(id, preview)`; `FakeMailboxActions` has the same two-step API and refuses when a mail above `HighestUid` exists |
+| 23 | `ActionRaceTests`: theory (MarkRead, MarkUnread, ToggleFlag, Delete) with gate in the fake; move; permanent delete with open confirmation; positive control in each (no call while gated / unanswered) |
+| 24 | `ActionRaceTests.Delete_twice...` (gated and ungated) incl. positive control for a later Del |
+| 25 | `MailboxActionsTests`: pending Move, pending MoveToTrash, Move in backoff block preview and empty; other pending commands (Move elsewhere, SetFlags here) do not |
+| 26 | D1: mail arrives after preview (refused, fresh preview works), mail disappears (theory 1, 3); UI: asks again with new count, no on the second question, disappearing mail goes ahead after one question |
+| 27 | D1: "teilweise" in the message exactly when a group was stored; UI: banner shows the wording of the exception |
+| 28 | `ActionRaceTests`: 4+1 mails over 2 accounts name "2" and "5", one account does not, empty folder names cleaned label (bidi removed), no sender/subject |
+| 29 | `HoverLinkTextTests`: long absolute target host first and bounded (<= 601), user info (`evil` host first), short target with user info keeps the real host; 10,000-char plain text still <= 501 |
+| 30 | `ActionRaceTests.CanEmptyFolder_follows_a_search...`: true, false while searching and after, true after blank query, `CanExecuteChanged` raised |
+| 31 | `ActionRaceTests`: Dispose while the delete waits in the role lookup (read-model `RoleGate`) stores nothing; control without Dispose stores |
+| U8, U9 | not automatable here (key repeat and window placement live in `App`); manual |
+
+New questions: Q8 Case 27 UI: the fake throws `MailActionException` whose text contains "teilweise"; if the view model derives the wording from a flag on the exception instead, tell me the member. Q9 Case 31 assumes the delete awaits `GetFolderRoleAsync` after the keystroke; if not, the test times out waiting for the gate (then the await point differs). Q10 The length bound after "host first" (U5) is not fixed; tests allow 501 + 100.

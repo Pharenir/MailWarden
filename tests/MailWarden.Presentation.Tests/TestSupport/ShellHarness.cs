@@ -34,6 +34,9 @@ internal sealed class ShellHarness
     /// </summary>
     public bool? ConfirmationAnswer { get; set; } = true;
 
+    /// <summary>Called with the 1-based request number just before a request is answered (to change data between preview and answer).</summary>
+    public Action<int>? BeforeAnswer { get; set; }
+
     /// <summary>Texts of all confirmation requests, in order.</summary>
     public List<string> ConfirmationTexts { get; } = [];
 
@@ -90,6 +93,13 @@ internal sealed class ShellHarness
             ConfirmationTexts.Add(request.Text);
         }
 
+        int number;
+        lock (ConfirmationTexts)
+        {
+            number = ConfirmationTexts.Count;
+        }
+
+        BeforeAnswer?.Invoke(number);
         if (ConfirmationAnswer is { } answer)
         {
             request.Answer.TrySetResult(answer);
