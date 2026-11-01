@@ -3,16 +3,175 @@
     x:Class="MailWarden.App.MainWindow"
     xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
     xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+    xmlns:local="using:MailWarden.App"
+    xmlns:presentation="using:MailWarden.Presentation"
     Title="MailWarden">
   <Window.SystemBackdrop>
     <MicaBackdrop />
   </Window.SystemBackdrop>
 
-  <Grid>
-    <TextBlock
-        HorizontalAlignment="Center"
-        VerticalAlignment="Center"
-        Style="{StaticResource SubtitleTextBlockStyle}"
-        Text="MailWarden – AP-01 skeleton" />
+  <Grid x:Name="RootGrid">
+    <Grid.RowDefinitions>
+      <RowDefinition Height="Auto" />
+      <RowDefinition Height="Auto" />
+      <RowDefinition Height="*" />
+    </Grid.RowDefinitions>
+
+    <!-- Toolbar: layout toggle, refresh, theme. -->
+    <StackPanel Grid.Row="0" Margin="8" Orientation="Horizontal" Spacing="8">
+      <Button x:Name="ToggleLayoutButton" Command="{x:Bind ViewModel.ToggleLayoutCommand}" />
+      <Button x:Name="RefreshButton" Command="{x:Bind ViewModel.RefreshCommand}" />
+      <TextBlock x:Name="ThemeLabel" VerticalAlignment="Center" />
+      <ComboBox x:Name="ThemeChoice" SelectionChanged="OnThemeChoiceChanged" />
+    </StackPanel>
+
+    <InfoBar
+        Grid.Row="1"
+        IsClosable="False"
+        IsOpen="{x:Bind local:XamlFormat.HasText(ViewModel.Banner), Mode=OneWay}"
+        Message="{x:Bind local:XamlFormat.TextOrEmpty(ViewModel.Banner), Mode=OneWay}"
+        Severity="Warning" />
+
+    <Grid Grid.Row="2">
+      <Grid.ColumnDefinitions>
+        <ColumnDefinition x:Name="NavigationColumn" Width="280" />
+        <ColumnDefinition Width="6" />
+        <ColumnDefinition Width="*" />
+      </Grid.ColumnDefinitions>
+
+      <!-- Navigation: always on the left. -->
+      <TreeView
+          x:Name="NavigationTree"
+          Grid.Column="0"
+          ItemInvoked="OnNavigationItemInvoked"
+          ItemsSource="{x:Bind ViewModel.Navigation.Items}"
+          SelectionMode="Single">
+        <TreeView.ItemTemplate>
+          <DataTemplate x:DataType="presentation:NavigationItem">
+            <TreeViewItem IsExpanded="True" ItemsSource="{x:Bind Children}">
+              <Grid ColumnSpacing="8">
+                <Grid.ColumnDefinitions>
+                  <ColumnDefinition Width="*" />
+                  <ColumnDefinition Width="Auto" />
+                </Grid.ColumnDefinitions>
+                <StackPanel Grid.Column="0">
+                  <TextBlock Text="{x:Bind Label}" TextTrimming="CharacterEllipsis" />
+                  <TextBlock
+                      Style="{StaticResource CaptionTextBlockStyle}"
+                      Opacity="0.7"
+                      Text="{x:Bind local:XamlFormat.TextOrEmpty(StatusText), Mode=OneWay}"
+                      TextTrimming="CharacterEllipsis"
+                      Visibility="{x:Bind local:XamlFormat.VisibleWhenText(StatusText), Mode=OneWay}" />
+                </StackPanel>
+                <TextBlock
+                    Grid.Column="1"
+                    FontWeight="SemiBold"
+                    Text="{x:Bind local:XamlFormat.UnreadText(UnreadCount), Mode=OneWay}" />
+              </Grid>
+            </TreeViewItem>
+          </DataTemplate>
+        </TreeView.ItemTemplate>
+      </TreeView>
+
+      <local:PaneSplitter x:Name="NavigationSplitter" Grid.Column="1" />
+
+      <!-- List and reading pane: columns or rows; the code-behind moves them without recreating the browser control. -->
+      <Grid x:Name="MessagePanes" Grid.Column="2">
+        <Grid.ColumnDefinitions>
+          <ColumnDefinition x:Name="PaneColumnFirst" />
+          <ColumnDefinition x:Name="PaneColumnSplitter" />
+          <ColumnDefinition x:Name="PaneColumnLast" />
+        </Grid.ColumnDefinitions>
+        <Grid.RowDefinitions>
+          <RowDefinition x:Name="PaneRowFirst" />
+          <RowDefinition x:Name="PaneRowSplitter" />
+          <RowDefinition x:Name="PaneRowLast" />
+        </Grid.RowDefinitions>
+
+        <ListView
+            x:Name="MessageList"
+            ItemsSource="{x:Bind ViewModel.Messages.Items}"
+            Loaded="OnMessageListLoaded"
+            SelectionChanged="OnMessageListSelectionChanged"
+            SelectionMode="Single">
+          <ListView.ItemTemplate>
+            <DataTemplate x:DataType="presentation:MessageRowViewModel">
+              <Grid Margin="0,6" ColumnSpacing="8">
+                <Grid.ColumnDefinitions>
+                  <ColumnDefinition Width="*" />
+                  <ColumnDefinition Width="Auto" />
+                </Grid.ColumnDefinitions>
+                <StackPanel Grid.Column="0">
+                  <TextBlock
+                      FontWeight="{x:Bind local:XamlFormat.RowWeight(IsUnread)}"
+                      Text="{x:Bind Sender}"
+                      TextTrimming="CharacterEllipsis" />
+                  <TextBlock
+                      FontWeight="{x:Bind local:XamlFormat.RowWeight(IsUnread)}"
+                      Text="{x:Bind Subject}"
+                      TextTrimming="CharacterEllipsis" />
+                  <TextBlock
+                      Style="{StaticResource CaptionTextBlockStyle}"
+                      Opacity="0.7"
+                      Text="{x:Bind Preview}"
+                      TextTrimming="CharacterEllipsis"
+                      TextWrapping="NoWrap" />
+                </StackPanel>
+                <StackPanel Grid.Column="1" HorizontalAlignment="Right">
+                  <TextBlock HorizontalAlignment="Right" Text="{x:Bind DateText}" />
+                  <TextBlock
+                      HorizontalAlignment="Right"
+                      Style="{StaticResource CaptionTextBlockStyle}"
+                      Opacity="0.7"
+                      Text="{x:Bind AccountLabel}" />
+                  <StackPanel HorizontalAlignment="Right" Orientation="Horizontal" Spacing="4">
+                    <FontIcon FontSize="12" Glyph="&#xE723;" Visibility="{x:Bind HasAttachments}" />
+                    <FontIcon FontSize="12" Glyph="&#xE7C1;" Visibility="{x:Bind IsFlagged}" />
+                  </StackPanel>
+                </StackPanel>
+              </Grid>
+            </DataTemplate>
+          </ListView.ItemTemplate>
+        </ListView>
+
+        <local:PaneSplitter x:Name="ListSplitter" />
+
+        <Grid x:Name="ReadingPane" Margin="8,0,8,8">
+          <Grid.RowDefinitions>
+            <RowDefinition Height="Auto" />
+            <RowDefinition Height="*" />
+          </Grid.RowDefinitions>
+
+          <StackPanel Grid.Row="0" Margin="0,0,0,8" Spacing="2">
+            <TextBlock
+                IsTextSelectionEnabled="True"
+                Style="{StaticResource SubtitleTextBlockStyle}"
+                Text="{x:Bind ViewModel.Reading.Subject, Mode=OneWay}"
+                TextWrapping="Wrap" />
+            <TextBlock IsTextSelectionEnabled="True" Text="{x:Bind local:XamlFormat.FromLine(ViewModel.Reading.From), Mode=OneWay}" TextWrapping="Wrap" Visibility="{x:Bind local:XamlFormat.VisibleWhenText(ViewModel.Reading.From), Mode=OneWay}" />
+            <TextBlock IsTextSelectionEnabled="True" Text="{x:Bind local:XamlFormat.ToLine(ViewModel.Reading.To), Mode=OneWay}" TextWrapping="Wrap" Visibility="{x:Bind local:XamlFormat.VisibleWhenText(ViewModel.Reading.To), Mode=OneWay}" />
+            <TextBlock IsTextSelectionEnabled="True" Text="{x:Bind local:XamlFormat.CcLine(ViewModel.Reading.Cc), Mode=OneWay}" TextWrapping="Wrap" Visibility="{x:Bind local:XamlFormat.VisibleWhenText(ViewModel.Reading.Cc), Mode=OneWay}" />
+            <TextBlock Opacity="0.7" Text="{x:Bind local:XamlFormat.DateLine(ViewModel.Reading.DateText), Mode=OneWay}" Visibility="{x:Bind local:XamlFormat.VisibleWhenText(ViewModel.Reading.DateText), Mode=OneWay}" />
+            <TextBlock
+                IsTextSelectionEnabled="True"
+                Text="{x:Bind local:XamlFormat.AttachmentsLine(ViewModel.Reading.AttachmentNames), Mode=OneWay}"
+                TextWrapping="Wrap"
+                Visibility="{x:Bind local:XamlFormat.VisibleWhenAny(ViewModel.Reading.AttachmentNames), Mode=OneWay}" />
+            <Button
+                Command="{x:Bind ViewModel.Reading.LoadRemoteImagesCommand}"
+                Content="{x:Bind local:XamlFormat.LoadImagesText(ViewModel.Reading.BlockedRemoteResourceCount), Mode=OneWay}"
+                Visibility="{x:Bind ViewModel.Reading.CanLoadRemoteImages, Mode=OneWay}" />
+          </StackPanel>
+
+          <TextBlock
+              x:Name="ReadingStatusText"
+              Grid.Row="1"
+              HorizontalAlignment="Center"
+              VerticalAlignment="Center"
+              TextWrapping="Wrap" />
+          <WebView2 x:Name="ReadingWebView" Grid.Row="1" Visibility="Collapsed" />
+        </Grid>
+      </Grid>
+    </Grid>
   </Grid>
 </Window>

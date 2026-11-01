@@ -1,11 +1,17 @@
+using MailWarden.Core.Storage;
+using MailWarden.Infrastructure.Composition;
+using MailWarden.Infrastructure.Logging;
 using MailWarden.Infrastructure.Storage;
+using MailWarden.Presentation;
 using Microsoft.UI.Xaml;
+using Microsoft.UI.Xaml.Controls;
 
 namespace MailWarden.App;
 
 /// <summary>
-/// Application entry point. On launch it resolves the data directory, makes sure it exists and opens the main window.
-/// No database access from the UI in AP-01.
+/// Application entry point and composition of the user interface: resolves the data folder, opens the runtime, creates
+/// the shell, starts the service and shows the main window. A failure on this way shows an error window instead of ending
+/// silently. Closing the main window disposes the runtime.
 /// </summary>
 public partial class App : Application
 {
@@ -16,25 +22,42 @@ public partial class App : Application
     public const string DataDirectoryVariable = "MAILWARDEN_DATA_DIR";
 
     private const string DefaultDataDirectoryName = "data";
+    private const string LogLevel = "CRITICAL";
 
-    private Window? mainWindow;
+    // Stopping waits for running cycles; the operating system releases everything else when the process ends.
+    private static readonly TimeSpan ShutdownTimeout = TimeSpan.FromSeconds(15);
+
+    private Window? openWindow;
+    private ICriticalLog? criticalLog;
+    private MailWardenRuntime? runtime;
+    private ShellViewModel? shell;
+    private bool isShuttingDown;
 
     /// <summary>Creates the application and loads App.xaml.</summary>
     public App()
     {
         InitializeComponent();
+        UnhandledException += OnUnhandledException;
     }
 
-    /// <summary>Prepares the data directory and shows the main window.</summary>
+    /// <summary>Starts the application.</summary>
     /// <param name="args">Launch details (unused).</param>
-    protected override void OnLaunched(LaunchActivatedEventArgs args)
+    protected override async void OnLaunched(LaunchActivatedEventArgs args)
     {
-        // Data directory: MAILWARDEN_DATA_DIR or <exe dir>\data; invalid values fail fast.
-        DataPaths dataPaths = ResolveDataPaths();
-        Directory.CreateDirectory(dataPaths.Root);
+        // async void is the only form of this override, so nothing may escape from here.
+        try
+        {
+            await StartAsync();
+        }
+        catch (Exception exception) when (exception is not OutOfMemoryException)
+        {
+            WriteLog("App.OnLaunched", $"Start failed: {exception.GetType().Name}");
 
-        mainWindow = new MainWindow();
-        mainWindow.Activate();
+            // The error window opens first: closing the last window would end the application.
+            Window? windowOfFailedStart = openWindow;
+            ShowErrorWindow(DescribeStartFailure(exception));
+            await ReleaseAfterFailedStartAsync(windowOfFailedStart);
+        }
     }
 
     private static DataPaths ResolveDataPaths()
@@ -44,5 +67,116 @@ public partial class App : Application
             ? Path.Combine(AppContext.BaseDirectory, DefaultDataDirectoryName)
             : overrideDirectory;
         return new DataPaths(rootDirectory);
+    }
+
+    private static string DescribeStartFailure(Exception exception) => exception switch
+    {
+        DataFolderInUseException => UiText.StartErrorInUse,
+        SchemaVersionException => UiText.StartErrorSchemaTooNew,
+        ArgumentException or IOException or UnauthorizedAccessException or NotSupportedException => UiText.StartErrorInvalidDataFolder,
+        _ => UiText.StartErrorOther,
+    };
+
+    private async Task StartAsync()
+    {
+        DataPaths paths = ResolveDataPaths();
+        criticalLog = new CriticalFileLog(paths.LogRoot, TimeProvider.System);
+
+        runtime = await MailWardenRuntime.OpenAsync(paths);
+        var dispatcher = new DispatcherQueueUiDispatcher(Microsoft.UI.Dispatching.DispatcherQueue.GetForCurrentThread());
+        shell = new ShellViewModel(
+            runtime.ReadModel,
+            new MailboxServiceController(runtime.Service),
+            dispatcher,
+            new UiSettingsFile(Path.Combine(paths.Root, UiSettingsFile.FileName)),
+            criticalLog,
+            TimeProvider.System);
+
+        var mainWindow = new MainWindow(shell, paths, criticalLog);
+        mainWindow.Closed += OnMainWindowClosed;
+        openWindow = mainWindow;
+        mainWindow.Activate();
+
+        await shell.InitializeAsync();
+        await runtime.Service.StartAsync();
+    }
+
+    // Keeps the message loop alive until the runtime is disposed; the window is gone for the user at once.
+    private async void OnMainWindowClosed(object sender, WindowEventArgs args)
+    {
+        if (isShuttingDown)
+        {
+            return;
+        }
+
+        isShuttingDown = true;
+        args.Handled = true;
+        try
+        {
+            openWindow?.AppWindow.Hide();
+            (openWindow as MainWindow)?.CloseReadingView();
+            shell?.Dispose();
+            if (runtime is not null)
+            {
+                await runtime.DisposeAsync().AsTask().WaitAsync(ShutdownTimeout);
+            }
+        }
+        catch (Exception exception) when (exception is not OutOfMemoryException)
+        {
+            WriteLog("App.OnMainWindowClosed", $"Shutdown failed: {exception.GetType().Name}");
+        }
+
+        Exit();
+    }
+
+    private async Task ReleaseAfterFailedStartAsync(Window? windowOfFailedStart)
+    {
+        try
+        {
+            shell?.Dispose();
+            if (runtime is not null)
+            {
+                await runtime.DisposeAsync().AsTask().WaitAsync(ShutdownTimeout);
+            }
+        }
+        catch (Exception exception) when (exception is not OutOfMemoryException)
+        {
+            WriteLog("App.ReleaseAfterFailedStartAsync", $"Release failed: {exception.GetType().Name}");
+        }
+
+        // An already opened main window must not stay around without a runtime behind it.
+        if (windowOfFailedStart is MainWindow mainWindow)
+        {
+            isShuttingDown = true;
+            mainWindow.CloseReadingView();
+            mainWindow.Close();
+        }
+    }
+
+    // Fixed text only: exception messages may hold paths or account data. The application ends with this window.
+    private void ShowErrorWindow(string text)
+    {
+        var message = new TextBlock
+        {
+            Text = text,
+            TextWrapping = TextWrapping.Wrap,
+            Margin = new Thickness(24),
+            VerticalAlignment = VerticalAlignment.Center,
+        };
+        var errorWindow = new Window { Title = UiText.StartErrorTitle, Content = message };
+        errorWindow.AppWindow.Resize(new Windows.Graphics.SizeInt32(640, 240));
+        openWindow = errorWindow;
+        errorWindow.Activate();
+    }
+
+    private void OnUnhandledException(object sender, Microsoft.UI.Xaml.UnhandledExceptionEventArgs args)
+    {
+        WriteLog("App.OnUnhandledException", $"Unhandled exception: {args.Exception.GetType().Name}");
+    }
+
+    // Before the data folder is known there is no log folder; the failure then only shows in the error window.
+    private void WriteLog(string source, string message)
+    {
+        criticalLog?.Write(LogLevel, source, message);
     }
 }
