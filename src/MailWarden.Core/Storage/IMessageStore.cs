@@ -45,8 +45,8 @@ public interface IMessageStore
     Task<IReadOnlyList<MailMessage>> ListAsync(MessageQuery query, CancellationToken ct = default);
 
     /// <summary>
-    /// Number of messages without <see cref="MessageFlags.Seen"/> matching Role/AccountId/FolderId of the query (same
-    /// filter meaning as <see cref="ListAsync"/>); Limit and Offset are ignored.
+    /// Number of messages without <see cref="MessageFlags.Seen"/> matching Role/AccountId/FolderId/ExcludedMessageIds of the
+    /// query (same filter meaning as <see cref="ListAsync"/>); Limit and Offset are ignored.
     /// </summary>
     /// <param name="query">Filter; its paging values are ignored.</param>
     /// <param name="ct">Cancellation token.</param>
