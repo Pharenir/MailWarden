@@ -202,22 +202,20 @@ public sealed class WebContentPolicyTests
         Assert.Empty(QueryKeys(result));
     }
 
-    // Case 58: what is not a mailto link is never turned into one (the call must not throw).
+    // Case 58 (planner): input that is not a mailto link comes back unchanged and the call does not throw.
     [Theory]
     [InlineData("https://example.test/?attach=x")]
     [InlineData("")]
     [InlineData("garbage ::: %%%")]
-    public void Sanitize_mailto_of_something_else_does_not_throw_and_does_not_produce_a_mailto(string uri)
+    public void Sanitize_mailto_of_something_else_returns_it_unchanged(string uri)
     {
         string result = string.Empty;
 
         Exception? failure = Record.Exception(() => result = WebContentPolicy.SanitizeMailto(uri));
 
         Assert.Null(failure);
-        Assert.False(result.StartsWith("mailto:", StringComparison.OrdinalIgnoreCase));
-        Assert.DoesNotContain("attach", result, StringComparison.OrdinalIgnoreCase);
+        Assert.Equal(uri, result);
     }
-
     // ---- Case 59 (K13) -------------------------------------------------------------------------------------
 
     // Case 59
