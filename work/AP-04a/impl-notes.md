@@ -364,7 +364,7 @@ Regression: `spanDiv` 1,707, `aDiv` 1,250, `bDiv` 1,175 ms; 20,000 unknown sibli
 | **inline-styled `span`, `i` or `td` x 19,000–20,000, about 500 KB** | 270 MB up to the abort | **text without markup** |
 | `<td>a` outside a table x 20,000, `a</x>` x 20,000 (97 KB) | 262 MB up to the abort | text without markup |
 
-Parsing an inline `style` allocates about 14 KB per element, and text split many times into pieces allocates quadratically. So a mail with **about 19,000 or more inline-styled tags** now falls back to plain text, below the 20,000 tags of the pre-scan. Consequence of the budget of 256 MB, built as decided. The real data (2,664 mails, largest 313,586 characters) should stay far below; `limiter-probe` shows it, its code did not need a change.
+Parsing an inline `style` allocates memory per element, and text split many times into pieces allocates quadratically. **Correction (N5, review.4 S11):** the about 19,000 styled tags measured here hold only very short styles. Word and Outlook mails, with longer styles, reach the budget at **about 12,000 styled tags (976 KB)**. A budget abort is not a small loss: the mail is shown as text and **loses all its links and images**; the notice appears. Consequence of the budget of 256 MB, built as decided. The real data (2,664 mails, largest 313,586 characters) stay far below it.
 
 ### Deviations and open points
 - **M1a:** "the CSS configuration of the package" is copied, because `HtmlParser` does not expose its context. Checked by the same output for one styled case and unchanged results of the 57 payloads of `secprobe` (only the changes of L1 show in a comparison with the fix.2 state: `xmp` and `plaintext`).
@@ -372,3 +372,64 @@ Parsing an inline `style` allocates about 14 KB per element, and text split many
 - **Case 80:** as decided, over the pre-scan limits the text stays with `WasReduced` true and the first 20,000 tags keep their markup. `<p>x</p>` x 100,001 ends so, without an abort.
 - **M3:** the running build no longer stops when its caller is cancelled before it has started, so that the same mail selected again can use it. A selection that is already outdated when the build would start throws before starting.
 - `secprobe2 sync`, `secprobe3`: older binaries must be rebuilt, because `MailContent` got new constructor parameters since fix.2.
+
+## fix.5 (N1–N5)
+All implemented, base `6a9d5e3`. **No test was run**, and the GUI was not started. "Probe" means a self-check under `_scratch\`, no proof. Deep cases each ran in a process of their own, because an overflow ends the process.
+
+| N | State | Checked by probe | Only built or read |
+|---|---|---|---|
+| N1 | done: `IsOversizedStyle` also counts `(` and `&`, at most 256 each; the style goes, the tag stays, `WasReduced` true | all of `secprobe8`, table below; 256 `(` kept, 257 dropped; 256 `&` not reduced, 257 reduced; `calc(100% - 10px)` and 20 `rgb()` kept | |
+| N2 | done: `StartBuild` uses a thread with a 256 MB stack, background, named; `Task.Run` is gone only for the build | fake builder: not a pool thread, background; `OutOfMemoryException` from the builder ends in `Error`; all `l3-probe` flows as before; real path through `ShellViewModel` in `calc-probe` | that the process ends while a build runs (background thread) |
+| N3 | done: iterative estimate before `ToHtml`, above 64,000,000 characters the same text fallback as a parser abort | table below; repeated attributes of a newsletter keep markup; one image of 33 million characters stays | |
+| N4 | done: `IsScripting = true` | `secprobe7 parserDiff` lists the options of the factory: `IsScripting` True, all others False or unset | |
+| N5 | done, see the correction in section fix.4 | | numbers of the review, not measured again |
+
+**All parser options now:** `IsScripting` true, `OnToken` the budget; default as in the package factory: `IsEmbedded`, `IsAcceptingCustomElementsEverywhere`, `IsPreservingAttributeNames`, `IsNotSupportingFrames`, `IsStrictMode`, `IsSupportingProcessingInstructions`, `IsKeepingSourceReferences`, `IsNotConsumingCharacterReferences`, `DisableElementPositionTracking`, `SkipComments`, `SkipPlaintext`, `SkipRCDataText`, `SkipCDATA`, `SkipProcessingInstructions`, `SkipDataText`, `SkipScriptText`, `SkipRawText` false; `OnCreated`, `ShouldEmitAttribute` unset. CSS: `IsIncludingUnknownDeclarations`, `IsIncludingUnknownRules`, `IsToleratingInvalidSelectors` true. `noscript` as raw text does not reach the parser, the limiter removes it (L1).
+
+### How deep `calc` survives without N1
+Parser and CSS parser directly on a thread of the given stack, past the limiter (`_scratch\calcdepth-probe`):
+
+| Form | 1 MB stack | 256 MB stack |
+|---|---|---|
+| `calc(` + n × `(`, open | overflow at 3,500 | **800,000 survives (375 ms), 900,000 overflows** |
+| closed `calc((((1px))))` | overflow at 3,500 | 100,000 survives (11.9 s, quadratic); higher not tried |
+| `calc(calc(…` | overflow at 3,500 | 100,000 survives (12.7 s, quadratic); higher not tried |
+
+The limiter cuts a style at 64 KB, so at most 64,000 levels can reach the CSS parser without N1 at all: N2 alone has a margin of about factor 12. Real path with N2 and without N1 (`calc-probe`, before N1 was added): `calcParenOpen` 3,500 to 65,000 and `calcParen` 3,500 to 32,000 (2.6 s), `calcCalc`, `calcComment`, `calcEntity`, `calcEntityNoSemicolon`, `calcLpar`: all exit 0, no overflow.
+
+### Measurements
+`DOTNET_GCHeapHardLimit` 4 GB for `secprobe7`, Debug build, 1.5 MB stack in `secprobe7`, one machine.
+
+`secprobe8`, with N1, on a pool thread as the old build (one process each, all exit 0, `reduced=True`): `calcParenOpen` 3,500 and 12,000; `calcParen` 3,500 and 12,000; `calcCalc` 3,500 and 12,000; `calcComment` 3,500 and 12,000; `calcEntity` 3,500; `calcLpar` 3,500.
+`calc-probe`, with N1, on the build thread: 181–191 ms, peak 55 MB, text kept, style gone, notice set; also `calc(` + 5,000 × `&#40`.
+
+| `secprobe7` | ms | Reduced | Allocated MB | Peak MB |
+|---|---|---|---|---|
+| `titleCopy` 1,000,000 × 1,000 (secure.4: 1 billion characters, 4.9 GB) | **487** | yes, text | **28** | **122** |
+| `titleCopy` 100,000 × 2,000 | 317 | yes, text | 14 | 116 |
+| `titleCopy` 1,000,000 × 18,000 | 1,312 | yes, text | 110 | 175 |
+| `titleCopyObj` 10,000 16,000 | 1,034 | yes, text | 269 | 338 |
+| `styleCopy` 1,000 16,000 | 992 | yes, text | 269 | 171 |
+| `styleCopyLong` 200 18,000 | 1,180 | yes, text | 266 | 158 |
+| `attrCopy` 200 18,000 | 1,007 | yes, text | 266 | 271 |
+| `styled` 20,000 | 878 | yes, text | 272 | 181 |
+| `styledLong` 2,000 10 | 470 | no | 100 | 113 |
+| `bigTextOne` / `spaces` 20,000,000 | 546 / 581 | no | 383 | 370 |
+| `ampLong` / `numLong` 2,000,000 | 221 / 193 | no | 39 / 29 | 89 / 83 |
+| `ampMany` 50,000 / `attrAmp` 20,000 | 449 / 303 | no | 42 / 21 | 92 / 72 |
+| `tableText` / `colgroupText` / `trText` 300,000 | 189 / 190 / 193 | no | 13 | 64 |
+| `tableSpace` 2,000,000 | 225 | no | 39 | 89 |
+| `selectText` / `templateText` 300,000 | 185 / 185 | no | 8 | 59 |
+| `afterBodyText` / `framesetText` 300,000 | 186 / 188 | no | 13 | 64 |
+| `nulText` 2,000,000 | 194 | no | 13 | 63 |
+| `preNewline` 100,000 | 256 | yes | 38 | 86 |
+| `cssNest` calc / rgb / min, `cssRaw` `(` 3,500 | 171–182 | yes | 1 | 53 |
+| `cssRaw` `[` / `{`, `cssBrace` `{` / `}` 20,000 | 188–200 | no | 2 | 55 |
+
+`abortSafe`: no angle bracket in the fallback or the body. `mxss`: 9 of 9 ok. `parserDiff`: 22 inputs, 0 differences.
+Regression: `formatBomb` 1000 18000 1,456 ms, 194 MB; `fmtObject` 1,180 ms, 315 MB; `fmtTable` 1,113 ms, 293 MB; `attrs` 185 ms; `bangStart` 195 ms; `safety` 34 of 34; fuzz 470,000 inputs without exception or suspicious output; 40,000 parallel runs identical.
+
+### Deviations and open points
+- **N2, for the tester:** read `IsBackground` inside the fake builder. After the thread ended, reading it throws `ThreadStateException` (happened in my probe).
+- **N3:** the limit counts values and text only, as decided; markup and encoding come on top.
+- **N1:** `&amp;` counts as well, so a style with more than 256 `&` of any kind is dropped; not seen in practice.
