@@ -1,4 +1,4 @@
-STEP-RESULT: done (fix.4: W1-W6 done, see section "fix.4"; fix.3: V1-V4; fix.2: U1-U9; implement.1 with the coordinator's precisions of 2026-11-01)
+STEP-RESULT: done (X1, X2: see section "After the manual test"; fix.4: W1-W6 done, see section "fix.4"; fix.3: V1-V4; fix.2: U1-U9; implement.1 with the coordinator's precisions of 2026-11-01)
 
 # AP-04b - Implementation notes (Builder, implement.1)
 
@@ -182,3 +182,20 @@ A new exception `EmptyFolderChangedException` in `MailWarden.Core.Commands`, and
 ### Getting a result
 **Tested (self-check, no proof; `_scratch\ap04bprobe`, artificial data):** W-a to W-e on the real queue through `MailboxActions`, W-f and W-g on fakes, and the ordering check on two connections to a file database in `_scratch`. All passed.
 **Not run:** S1-S3, tests, GUI. `tests\` not read, not built.
+
+## After the manual test (X1, X2 of `requirement.md`)
+| # | Where | What |
+|---|---|---|
+| X1 | `MailView.FindEmptyTarget`, `NavigationItem.CanEmptyFolder`, `MainWindow.OnNavigationItemContextRequested` | The rule moved out of the shell into one place, `MailView`; the shell and the tree both use it. The tree has all folders at hand when it refreshes, and sets the property in place like the unread number, because a change of a role does not change the structure of the tree. |
+| X2 | `ShellViewModel.EmptyFolderOfViewCommand` | Parameter `MailView`, through `StartUserAction` into the existing `EmptyFolderAsync(view)`. A command and no method, because view models have no public method with "Empty" in the name. |
+
+### Deviations and decisions
+1. **`ActionRowsRemoved` no longer fires when no row went.** When the emptied folder is not the one in the list, the focus would otherwise jump to the list (X-e: list and selection stay). The toolbar path removes rows whenever the list holds them, so it does not notice.
+2. **`TreeView.ItemFromContainer` instead of `DataContext`** to find the entry of the menu.
+3. **X-c, group Trash:** the tree has no group entry for Trash; `MailView.GroupRoles` does not list it, and a Trash folder appears below its account as a folder entry. The rule itself works for `MailView.Group(FolderRole.Trash)`, and the command takes it.
+4. **`FindEmptyTarget` also filters by `folder.AccountId`**, which the old code got from reading per account. A fake with a wrong account id in its folders now finds nothing.
+
+### Getting a result
+**Tested (self-check, no proof; `_scratch\ap04bprobe`, artificial data, fakes):** X-a to X-g except for the real queue behind X-e; the queue path is unchanged since fix.4.
+**Untested, only Dennis can see it (X-h):** the flyout: whether the `TreeViewItem` raises `ContextRequested` on right click and context key, its position, that the tree selection stays, and that no menu shows on other entries. **Ich bin mir unsicher:** that `ItemFromContainer` answers for child entries; I expect it, since the tree holds its items flat, but it is not checked at runtime. If it answers null, no menu appears at all, never a wrong one.
+**Not run:** S1-S3, tests, GUI.
