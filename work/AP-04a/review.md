@@ -19,3 +19,10 @@ Questions: P1 queue of the copy → checked, empty. P2 reload on errors → K15.
 P4 list size per layout → K9.
 
 Unsure, only a run can tell (cases 42–45): tree selection before containers exist; `AsRandomAccessStream` as response stream.
+
+# review.2 (2026-11-01, `74a5313`)
+
+**Verdict: BLOCK.** B1, S1-S7 fixed. New: B2, the limiter can be bypassed through raw-text elements (`<style><!--</style>` +
+100,000 `<div>`: 32 s; quoted value variants over 45 s, measured) → fix.3 L1, L3. S8 `DeleteAllCookies` in error paths → L7.
+NITs → L10. P5 count on real data → L11. P6 notice → L4. False-positive limits (synthetic, measured): newsletter about 2.0 MB,
+Word about 1.1 MB, plain table about 264 KB.

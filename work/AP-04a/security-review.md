@@ -19,3 +19,19 @@ Checked without finding: no script, no form, no network connection without appro
 limited to one message; logs, error window and settings hold no mail data; attachment names never used as paths.
 
 Manual test notes: check that the queue of the copy is empty; end the app before using the AuthProbe.
+
+# secure.2 (2026-11-01, `5b18527`)
+
+**Result: 0 Critical, 0 High, 3 Medium, 3 Low.** H1, old M1, N1, N4 closed, old M2 and M3 not fully. The limiter cannot keep a
+dangerous element (34 wrappers tested), it can only cost time and memory.
+
+| Id | Level | Finding | Decision |
+|---|---|---|---|
+| M1 | Medium | Short prefix bypasses the limiter (23-30 s; over 60 s with attributes) | fix.3 L1, L3 |
+| M2 | Medium | Reconstructed formatting elements: 154 KB mail, over 5 GB, then `OutOfMemoryException` | fix.3 L2 |
+| M3 | Medium | Sender can stay hidden in the header line (`MailDisplayText.cs:56-60`) | fix.3 L6 |
+| N1 | Low | Content below depth 32 invisible without a notice; also unseen by the classifier | fix.3 L5; signal → TODO AP-08 |
+| N2 | Low | K13 holds for IP literals, not for names and some ranges | fix.3 L8; the rest documented |
+| N3 | Low | `SanitizeMailto` leaves two spellings | fix.3 L9 |
+
+Untested: WebView2 behaviour (real click, redirects, `DeleteAllCookies`, InPrivate in the WinUI control).

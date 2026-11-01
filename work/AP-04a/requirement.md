@@ -550,3 +550,61 @@ the `StartAsync` summary. Builder question 3 (image with `attachment` and Conten
 | 63 | `Dispose` during a slow reload | no further read-model call after the running one, no critical log line |
 | 64 | `LoadRemoteImagesCommand` on a slow rebuild, then the next message | the old result does not overwrite the new message |
 | 65 | `OutOfMemoryException` from the reader | state `Error`, log line with the type name |
+
+## Decisions fix.3 (planner, 2026-11-01, after verify.2 PASS 1488/1488, review.2 BLOCK, secure.2 0/0/3/3)
+Binding; they change D2, D3, D10, K6, K7, K12, K13. Two independent reviews show that budgets alone do not hold: the
+pre-scan and the parser disagree about raw text. So the root cause is removed (L1), and a backstop covers what a scan cannot
+foresee (L3). Accepted as they are: bodies below depth 32 stay opaque (with a notice, L5); inline images over about 24.3 MB
+lose the last image; a public name resolving to a private address after "Bilder laden".
+
+### Must fix
+- **L1 (review B2, secure M1).** The limiter removes raw-text elements so that the parser never enters a raw-text state:
+  `script`, `style`, `title`, `textarea`, `iframe`, `noembed`, `noframes`, `noscript`, `svg`, `math` with their content up to
+  the first matching end tag (without an end tag: the rest of the input, as the parser would). `xmp`, `plaintext`, `listing`:
+  only the tag. In held attribute values **every** `<` counts. A comment with more than 20,000 `<` inside is not skipped but
+  scanned normally. The D3 list of removed elements does not change; this only happens earlier.
+- **L2 (secure M2, 154 KB mail → over 5 GB).** The limiter keeps a per-document counter: start tags of `a`, `b`, `big`,
+  `code`, `em`, `font`, `i`, `nobr`, `s`, `small`, `strike`, `strong`, `tt`, `u` count up, only their own end tag counts down.
+  Above 64 the start tag is dropped. The open-tag estimate is not used for this.
+- **L3 (backstop).** `ReadingPaneViewModel` builds the document with at most one running build at a time and a time limit of
+  5 s (constant, injectable through `TimeProvider`-based waiting so tests need no real wait). On timeout, or while another
+  build is still running, it shows the document built from `PlainText` with the notice from L4. A later result of a timed-out
+  build is ignored. Selecting the same mail again does not start a second build while one runs.
+- **L4 (review P6).** `SanitizedHtml` and `ReadingDocument` get a last member `bool WasReduced`: true when the limiter dropped
+  anything or the image budget was hit. `ReadingPaneViewModel` gets `string? ContentNotice`, a fixed German text from
+  `UiText`, and the XAML shows it above the document. Without a notice it is null.
+- **L5 (secure N1).** `MailContent` gets a last member `bool HasOpaqueParts`: true when a `MimePart` of type `multipart/*` or
+  `message/*` could not be parsed further (depth limit). It also sets `ContentNotice`. Such a part is not listed as an
+  unnamed attachment.
+- **L6 (secure M3).** `MailDisplayText.SenderLine` shows only the first mailbox of the From header, then "+N weitere" from
+  `UiText`, working on the parsed mailboxes instead of searching in joined text (add what `MailContent` needs). A long address
+  is cut in the middle so that the end with the domain stays visible (`aaa…@evil.test`). The name stays cut at 100.
+
+### Should fix
+- **L7 (review S8).** `DeleteAllCookies` in `try`/`catch` (type name to the log). In `OnMainWindowClosed`, a failure of
+  `CloseReadingView` must not skip `runtime.DisposeAsync()`.
+- **L8 (secure N2, changes K13).** `AllowRequest` also rejects hosts without a dot, the endings `.local`, `.lan`, `.internal`,
+  `.home.arpa`, `.localdomain`, the host `fritz.box`, and the ranges `100.64.0.0/10`, `198.18.0.0/15`, `192.0.0.0/24`,
+  `224.0.0.0/3`, `ff00::/8`, `::/96`, `::ffff:0:0/96`, `64:ff9b::/96`, `2002::/16`.
+- **L9 (secure N3).** `SanitizeMailto` cuts the address part at the first `&`, and a raw `?` inside a value becomes `%3F`.
+- **L10 (NITs).** `MaxHeight` of the reading header 160 (below the 200 px minimum of the reading pane); the misplaced comment
+  in `MailHtmlSanitizer.cs:73-76`. Case 45 also clicks a `mailto:` link.
+- **L11 (probe, planner runs it on a copy).** `_scratch\limiter-probe <dataRoot>`, read-only: for all stored mails with HTML it
+  builds the reading document and prints only counts: mails, with `WasReduced`, with `HasOpaqueParts`, longest and p95 build
+  time, largest HTML size. No subjects, addresses, domains or folder names. It answers review P5.
+
+### Additional test cases (fix.3)
+| # | Case | Expected |
+|---|---|---|
+| 66 | `<script><!--</script>`, `<style><!--</style>`, `<title><!--</title>`, `<textarea><!--</textarea>`, each + 100,000 `<div>` + `-->` | done within the test timeout, no dangerous element, `WasReduced` true |
+| 67 | `<script><a title="</script><div` + 100,000 attributes; `<script><img src="data:</script>` + 100,000 `<div>` + `">`; `<style><a x="</style>` + `x</a>` × 380,000; + `<1` × 900,000; + `<!---->` × 280,000 | done within the test timeout, no dangerous element |
+| 68 | `<p>` + 1,000 × `<b aI=1>` + 18,000 × `</p><p>x` | done within the test timeout without a large memory rise (GC allocated bytes per thread as a guard) |
+| 69 | Positive controls: 500 balanced `<b>x</b>`; comment with `<` inside a normal mail; `alt="<b>Logo</b>"`; `<!--[if !mso]><!-- -->` | unchanged, `WasReduced` false |
+| 70 | `script` or `svg` without an end tag, then text | nothing after it survives as markup; no exception |
+| 71 | `xmp`, `plaintext`, `listing` around text | tag gone, no element; no exception |
+| 72 | A slow build (fake via an internal seam, or a large document with a very short limit): timeout; selecting again during a run; a late result | plain-text document + notice; no second build; the late result is ignored |
+| 73 | `WasReduced`: over the budget, image budget hit, normal mail | true, true, false; `ContentNotice` set or null |
+| 74 | Body at depth 40 below harmless text | `HasOpaqueParts` true, notice set, not listed as an attachment; depth 5 false |
+| 75 | `SenderLine`: long name + address; two mailboxes; long name then address only; name containing `<a@b>` with a long real address; address over 100 characters without a name | first mailbox + "+1 weitere"; the real domain always at the end of the address part; never the second mailbox's address as the sender |
+| 76 | `AllowRequest` with approval: `router`, `fritz.box`, `nas.local`, `x.home.arpa`, `100.64.0.1`, `224.0.0.1`, `[ff02::1]`, `[::127.0.0.1]`, `[2002:c0a8:101::]`; positive control: `images.example.test`, `8.8.8.8` | false; true |
+| 77 | `SanitizeMailto`: `mailto:a@example.test&attach=c:/y`; `mailto:a@example.test?subject=x?attach=c:/y` | no `attach` parameter left; `?` inside the value encoded |
