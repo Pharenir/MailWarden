@@ -64,7 +64,16 @@ internal sealed class MailboxServiceHarness : IAsyncDisposable
     private int _accountListCalls;
     private int _delaySequence;
 
-    public MailboxServiceHarness(IEnumerable<Account> accounts, MailboxServiceOptions? options = null)
+    /// <param name="accounts">Accounts the fake account store returns.</param>
+    /// <param name="options">Service options; defaults when null.</param>
+    /// <param name="heldLockFactory">
+    /// AP-04a: when given, the factory acquires the data-folder lock for the harness' data root and the service gets it
+    /// as <c>heldLock</c> (it then neither takes nor releases the lock). The test owns and disposes the lock.
+    /// </param>
+    public MailboxServiceHarness(
+        IEnumerable<Account> accounts,
+        MailboxServiceOptions? options = null,
+        Func<DataPaths, DataFolderLock?>? heldLockFactory = null)
     {
         _accountList = [.. accounts];
         Options = options ?? MailboxServiceOptions.Default;
@@ -72,6 +81,7 @@ internal sealed class MailboxServiceHarness : IAsyncDisposable
         Directory.CreateDirectory(RootPath);
         Paths = new DataPaths(RootPath);
         Time = new FixedTimeProvider(new DateTimeOffset(2026, 1, 15, 10, 0, 0, TimeSpan.Zero));
+        HeldLock = heldLockFactory?.Invoke(Paths);
         Service = new MailboxService(
             Paths,
             new FakeAccountStore(this),
@@ -80,7 +90,8 @@ internal sealed class MailboxServiceHarness : IAsyncDisposable
             new FakeIdleWatcherFactory(this),
             Options,
             new FakeServiceDelay(this),
-            Time);
+            Time,
+            heldLock: HeldLock);
         Service.StatusChanged += (_, status) =>
         {
             lock (_gate)
@@ -95,6 +106,9 @@ internal sealed class MailboxServiceHarness : IAsyncDisposable
     public string RootPath { get; }
 
     public DataPaths Paths { get; }
+
+    /// <summary>The externally held lock handed to the service (AP-04a), or null.</summary>
+    public DataFolderLock? HeldLock { get; }
 
     public FixedTimeProvider Time { get; }
 

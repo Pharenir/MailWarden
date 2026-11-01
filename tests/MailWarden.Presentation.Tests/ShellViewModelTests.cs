@@ -1,0 +1,435 @@
+using System.ComponentModel;
+using System.Reflection;
+using MailWarden.Infrastructure.Background;
+using MailWarden.Infrastructure.Composition;
+using MailWarden.Infrastructure.Sync;
+
+namespace MailWarden.Presentation.Tests;
+
+/// <summary>AP-04a cases 38-41 (D10): status handling, refresh, settings and the read-only guarantee.</summary>
+[Trait("Category", "feature:ui")]
+public sealed class ShellViewModelTests
+{
+    private const string MarkerSecret = "marker_secret_text";
+
+    private static async Task<(ShellHarness Harness, Account Account, MailFolder Inbox)> InitializedAsync(int messageCount = 3)
+    {
+        var harness = new ShellHarness();
+        (Account account, MailFolder inbox) = harness.SeedInbox("Account_A", messageCount);
+        harness.SetStatuses(FakeMailboxController.Status(account.Id, AccountSyncState.Idle));
+        await harness.Shell.InitializeAsync();
+        await Wait.UntilAsync(() => harness.Shell.Messages.Items.Count == messageCount, "inbox listed");
+        await Wait.NegativeWindowAsync();
+        return (harness, account, inbox);
+    }
+
+    private static SyncProgress ProgressOf(Account account, MailFolder inbox) =>
+        new(account.Id, inbox.Id, FolderRole.Inbox, 1, 3, 10, 100);
+
+    // ---- Case 38 -------------------------------------------------------------------------------------------
+
+    // Case 38
+    [Fact(Timeout = TestTimeouts.PerTestMilliseconds)]
+    public async Task Progress_only_update_changes_the_status_text_but_does_not_reload()
+    {
+        (ShellHarness harness, Account account, MailFolder inbox) = await InitializedAsync();
+        string? idleText = harness.AccountNode(account.Id).StatusText;
+        await harness.Controller.RaiseOnPoolAsync(FakeMailboxController.Status(account.Id, AccountSyncState.Running));
+        await Wait.NegativeWindowAsync();
+        int listCalls = harness.ReadModel.ListMessagesCalls;
+        int countCalls = harness.ReadModel.CountUnreadCalls;
+        int accountCalls = harness.ReadModel.ListAccountsCalls;
+
+        await harness.Controller.RaiseOnPoolAsync(FakeMailboxController.Status(account.Id, AccountSyncState.Running, ProgressOf(account, inbox)));
+        await Wait.NegativeWindowAsync();
+
+        Assert.False(string.IsNullOrWhiteSpace(harness.AccountNode(account.Id).StatusText));
+        Assert.NotEqual(idleText, harness.AccountNode(account.Id).StatusText);
+        Assert.Equal(listCalls, harness.ReadModel.ListMessagesCalls);
+        Assert.Equal(countCalls, harness.ReadModel.CountUnreadCalls);
+        Assert.Equal(accountCalls, harness.ReadModel.ListAccountsCalls);
+        Assert.Empty(harness.Log.Entries);
+    }
+
+    // Case 38
+    [Fact(Timeout = TestTimeouts.PerTestMilliseconds)]
+    public async Task Status_of_an_unknown_account_is_ignored()
+    {
+        (ShellHarness harness, _, _) = await InitializedAsync();
+        Guid stranger = Guid.NewGuid();
+        int listCalls = harness.ReadModel.ListMessagesCalls;
+        int countCalls = harness.ReadModel.CountUnreadCalls;
+        string?[] textsBefore = [.. harness.Shell.Navigation.Items.Select(item => item.StatusText)];
+
+        await harness.Controller.RaiseOnPoolAsync(FakeMailboxController.Status(stranger, AccountSyncState.Running));
+        await harness.Controller.RaiseOnPoolAsync(FakeMailboxController.Status(stranger, AccountSyncState.Idle));
+        await Wait.NegativeWindowAsync();
+
+        Assert.Equal(listCalls, harness.ReadModel.ListMessagesCalls);
+        Assert.Equal(countCalls, harness.ReadModel.CountUnreadCalls);
+        Assert.Equal(textsBefore, harness.Shell.Navigation.Items.Select(item => item.StatusText).ToArray());
+        Assert.Empty(harness.Log.Entries);
+    }
+
+    // Case 38
+    [Fact(Timeout = TestTimeouts.PerTestMilliseconds)]
+    public async Task Transition_from_running_to_idle_reloads_navigation_and_list()
+    {
+        (ShellHarness harness, Account account, MailFolder inbox) = await InitializedAsync();
+        await harness.Controller.RaiseOnPoolAsync(FakeMailboxController.Status(account.Id, AccountSyncState.Running));
+        await Wait.NegativeWindowAsync();
+        int listCalls = harness.ReadModel.ListMessagesCalls;
+        int countCalls = harness.ReadModel.CountUnreadCalls;
+        Assert.Equal(3, harness.Shell.Navigation.Items[0].UnreadCount);
+        harness.ReadModel.AddMessage(inbox, "arrived_during_sync");
+
+        await harness.Controller.RaiseOnPoolAsync(FakeMailboxController.Status(account.Id, AccountSyncState.Idle));
+
+        await Wait.UntilAsync(() => harness.Shell.Messages.Items.Count == 4, "list reloaded with the new message");
+        await Wait.UntilAsync(() => harness.Shell.Navigation.Items[0].UnreadCount == 4, "navigation reloaded with the new count");
+        Assert.True(harness.ReadModel.ListMessagesCalls > listCalls);
+        Assert.True(harness.ReadModel.CountUnreadCalls > countCalls);
+    }
+
+    // Case 38
+    [Fact(Timeout = TestTimeouts.PerTestMilliseconds)]
+    public async Task Burst_of_idle_transitions_during_a_running_reload_coalesces_into_one_more_reload()
+    {
+        (ShellHarness harness, Account account, _) = await InitializedAsync();
+        int baseline = harness.ReadModel.ListMessagesCalls;
+        var releaseFirst = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        harness.ReadModel.ListGate = (_, callNumber) => callNumber == baseline + 1 ? releaseFirst.Task : Task.CompletedTask;
+
+        await harness.Controller.RaiseOnPoolAsync(FakeMailboxController.Status(account.Id, AccountSyncState.Running));
+        await harness.Controller.RaiseOnPoolAsync(FakeMailboxController.Status(account.Id, AccountSyncState.Idle));
+        await Wait.UntilAsync(() => harness.ReadModel.ListMessagesCalls == baseline + 1, "first reload started and is blocked");
+        for (int round = 0; round < 4; round++)
+        {
+            await harness.Controller.RaiseOnPoolAsync(FakeMailboxController.Status(account.Id, AccountSyncState.Running));
+            await harness.Controller.RaiseOnPoolAsync(FakeMailboxController.Status(account.Id, AccountSyncState.Idle));
+        }
+
+        await Wait.NegativeWindowAsync();
+        Assert.Equal(baseline + 1, harness.ReadModel.ListMessagesCalls);
+
+        releaseFirst.SetResult();
+        await Wait.UntilAsync(() => harness.ReadModel.ListMessagesCalls >= baseline + 2, "one more reload ran");
+        await Wait.NegativeWindowAsync();
+        await Wait.NegativeWindowAsync();
+
+        Assert.Equal(baseline + 2, harness.ReadModel.ListMessagesCalls);
+        Assert.Empty(harness.Log.Entries);
+    }
+
+    // Case 38: the event arrives on a thread-pool thread and is marshalled through the UI dispatcher.
+    [Fact(Timeout = TestTimeouts.PerTestMilliseconds)]
+    public async Task Status_event_is_marshalled_through_the_dispatcher()
+    {
+        (ShellHarness harness, Account account, _) = await InitializedAsync();
+        string? before = harness.AccountNode(account.Id).StatusText;
+        harness.Dispatcher.Queueing = true;
+        int postsBefore = harness.Dispatcher.PostCount;
+
+        await harness.Controller.RaiseOnPoolAsync(FakeMailboxController.Status(account.Id, AccountSyncState.NeedsSignIn));
+
+        Assert.True(harness.Dispatcher.PostCount > postsBefore);
+        Assert.Equal(before, harness.AccountNode(account.Id).StatusText);
+
+        harness.Dispatcher.Pump();
+
+        Assert.NotEqual(before, harness.AccountNode(account.Id).StatusText);
+    }
+
+    // Case 38 (G3 of AP-03d): an exception in the handler is logged by type name and never propagates.
+    [Fact(Timeout = TestTimeouts.PerTestMilliseconds)]
+    public async Task Exception_in_the_status_handler_is_logged_by_type_name_and_does_not_propagate()
+    {
+        (ShellHarness harness, Account account, _) = await InitializedAsync();
+        harness.Dispatcher.FailureOnPost = new InvalidOperationException(MarkerSecret);
+
+        Exception? failure = Record.Exception(() => harness.Controller.Raise(FakeMailboxController.Status(account.Id, AccountSyncState.Running)));
+
+        Assert.Null(failure);
+        Assert.Contains("InvalidOperationException", harness.Log.AllText, StringComparison.Ordinal);
+        Assert.DoesNotContain(MarkerSecret, harness.Log.AllText, StringComparison.Ordinal);
+    }
+
+    // Case 38: a failing reload after Idle is logged by type name as well.
+    [Fact(Timeout = TestTimeouts.PerTestMilliseconds)]
+    public async Task Failing_reload_after_idle_is_logged_by_type_name_and_never_shows_the_message_text()
+    {
+        (ShellHarness harness, Account account, _) = await InitializedAsync();
+        harness.ReadModel.ListGate = (_, _) => throw new InvalidOperationException(MarkerSecret);
+
+        await harness.Controller.RaiseOnPoolAsync(FakeMailboxController.Status(account.Id, AccountSyncState.Running));
+        Exception? failure = await Record.ExceptionAsync(() => harness.Controller.RaiseOnPoolAsync(FakeMailboxController.Status(account.Id, AccountSyncState.Idle)));
+
+        Assert.Null(failure);
+        await Wait.UntilAsync(() => harness.Log.AllText.Contains("InvalidOperationException", StringComparison.Ordinal), "failure logged");
+        Assert.DoesNotContain(MarkerSecret, harness.Log.AllText, StringComparison.Ordinal);
+        Assert.DoesNotContain(MarkerSecret, harness.Shell.Banner ?? string.Empty, StringComparison.Ordinal);
+    }
+
+    // ---- Case 39 -------------------------------------------------------------------------------------------
+
+    // Case 39
+    [Fact(Timeout = TestTimeouts.PerTestMilliseconds)]
+    public async Task Refresh_retries_accounts_needing_sign_in_or_waiting_after_error_and_triggers_the_others()
+    {
+        var harness = new ShellHarness();
+        Account idle = harness.ReadModel.AddAccount("Account_Idle");
+        Account needsSignIn = harness.ReadModel.AddAccount("Account_SignIn");
+        Account waiting = harness.ReadModel.AddAccount("Account_Waiting");
+        Account running = harness.ReadModel.AddAccount("Account_Running");
+        harness.SetStatuses(
+            FakeMailboxController.Status(idle.Id, AccountSyncState.Idle),
+            FakeMailboxController.Status(needsSignIn.Id, AccountSyncState.NeedsSignIn),
+            FakeMailboxController.Status(waiting.Id, AccountSyncState.WaitingAfterError, lastErrorType: "MailTransportException(Network)"),
+            FakeMailboxController.Status(running.Id, AccountSyncState.Running));
+        await harness.Shell.InitializeAsync();
+
+        Assert.True(harness.Shell.RefreshCommand.CanExecute(null));
+        harness.Shell.RefreshCommand.Execute(null);
+
+        await Wait.UntilAsync(() => harness.Controller.Calls.Count >= 4, "four controller calls");
+        await Wait.NegativeWindowAsync();
+        (string Kind, Guid AccountId)[] calls = [.. harness.Controller.Calls];
+        Assert.Equal(4, calls.Length);
+        Assert.Contains(("Trigger", idle.Id), calls);
+        Assert.Contains(("Retry", needsSignIn.Id), calls);
+        Assert.Contains(("Retry", waiting.Id), calls);
+        Assert.Contains(("Trigger", running.Id), calls);
+    }
+
+    // Case 39
+    [Fact(Timeout = TestTimeouts.PerTestMilliseconds)]
+    public async Task Refresh_without_accounts_does_nothing()
+    {
+        var harness = new ShellHarness();
+        await harness.Shell.InitializeAsync();
+
+        harness.Shell.RefreshCommand.Execute(null);
+        await Wait.NegativeWindowAsync();
+
+        Assert.Empty(harness.Controller.Calls);
+    }
+
+    // ---- Case 40 -------------------------------------------------------------------------------------------
+
+    // Case 40
+    [Fact(Timeout = TestTimeouts.PerTestMilliseconds)]
+    public async Task Stored_settings_are_applied_after_initialisation()
+    {
+        var harness = new ShellHarness(new UiSettings(ReadingPaneLayout.ListAbove, AppTheme.Dark, 300, 500));
+
+        await harness.Shell.InitializeAsync();
+
+        Assert.Equal(ReadingPaneLayout.ListAbove, harness.Shell.Layout);
+        Assert.Equal(AppTheme.Dark, harness.Shell.Theme);
+        Assert.Equal(300d, harness.Shell.NavigationWidth);
+        Assert.Equal(500d, harness.Shell.ListSize);
+    }
+
+    // Case 40
+    [Fact(Timeout = TestTimeouts.PerTestMilliseconds)]
+    public async Task Layout_and_theme_changes_raise_property_changed_and_save_all_four_values()
+    {
+        var harness = new ShellHarness();
+        harness.SeedInbox();
+        await harness.Shell.InitializeAsync();
+        List<string?> changed = [];
+        ((INotifyPropertyChanged)harness.Shell).PropertyChanged += (_, args) => changed.Add(args.PropertyName);
+
+        harness.Shell.Layout = ReadingPaneLayout.ListAbove;
+        harness.Shell.Theme = AppTheme.Dark;
+
+        Assert.Contains(nameof(ShellViewModel.Layout), changed);
+        Assert.Contains(nameof(ShellViewModel.Theme), changed);
+        Assert.Equal(ReadingPaneLayout.ListAbove, harness.Shell.Layout);
+        Assert.Equal(AppTheme.Dark, harness.Shell.Theme);
+        UiSettings saved = harness.Settings.Saved.Last();
+        Assert.Equal(new UiSettings(ReadingPaneLayout.ListAbove, AppTheme.Dark, UiSettings.Default.NavigationWidth, UiSettings.Default.ListSize), saved);
+        Assert.Null(harness.Shell.Banner);
+    }
+
+    // Case 40
+    [Fact(Timeout = TestTimeouts.PerTestMilliseconds)]
+    public async Task Size_changes_are_saved()
+    {
+        var harness = new ShellHarness();
+        await harness.Shell.InitializeAsync();
+
+        harness.Shell.NavigationWidth = 321;
+        harness.Shell.ListSize = 654;
+
+        Assert.Equal(321d, harness.Shell.NavigationWidth);
+        Assert.Equal(654d, harness.Shell.ListSize);
+        Assert.Equal(321d, harness.Settings.Saved.First(settings => settings.NavigationWidth == 321).NavigationWidth);
+        UiSettings last = harness.Settings.Saved.Last();
+        Assert.Equal(321d, last.NavigationWidth);
+        Assert.Equal(654d, last.ListSize);
+    }
+
+    // Case 40
+    [Fact(Timeout = TestTimeouts.PerTestMilliseconds)]
+    public async Task Toggle_layout_command_switches_between_the_two_layouts_and_saves_each_time()
+    {
+        var harness = new ShellHarness();
+        await harness.Shell.InitializeAsync();
+        Assert.Equal(ReadingPaneLayout.SideBySide, harness.Shell.Layout);
+        Assert.True(harness.Shell.ToggleLayoutCommand.CanExecute(null));
+
+        harness.Shell.ToggleLayoutCommand.Execute(null);
+        Assert.Equal(ReadingPaneLayout.ListAbove, harness.Shell.Layout);
+        Assert.Equal(ReadingPaneLayout.ListAbove, harness.Settings.Saved.Last().Layout);
+
+        harness.Shell.ToggleLayoutCommand.Execute(null);
+        Assert.Equal(ReadingPaneLayout.SideBySide, harness.Shell.Layout);
+        Assert.Equal(ReadingPaneLayout.SideBySide, harness.Settings.Saved.Last().Layout);
+    }
+
+    // Case 40
+    [Fact(Timeout = TestTimeouts.PerTestMilliseconds)]
+    public async Task Failed_save_sets_the_banner_and_logs_the_type_name_but_keeps_the_app_running()
+    {
+        var harness = new ShellHarness();
+        harness.SeedInbox();
+        await harness.Shell.InitializeAsync();
+        harness.Settings.SaveFailure = new IOException(MarkerSecret);
+
+        Exception? failure = Record.Exception(() => harness.Shell.Layout = ReadingPaneLayout.ListAbove);
+
+        Assert.Null(failure);
+        Assert.Equal(ReadingPaneLayout.ListAbove, harness.Shell.Layout);
+        Assert.False(string.IsNullOrWhiteSpace(harness.Shell.Banner));
+        Assert.DoesNotContain(MarkerSecret, harness.Shell.Banner, StringComparison.Ordinal);
+        Assert.Contains("IOException", harness.Log.AllText, StringComparison.Ordinal);
+        Assert.DoesNotContain(MarkerSecret, harness.Log.AllText, StringComparison.Ordinal);
+    }
+
+    // Case 40
+    [Fact(Timeout = TestTimeouts.PerTestMilliseconds)]
+    public async Task Failed_load_uses_the_defaults_and_sets_the_banner()
+    {
+        using var temp = new TempDirectory();
+        string path = Path.Combine(temp.RootPath, UiSettingsFile.FileName);
+        await File.WriteAllTextAsync(path, "{broken");
+        var readModel = new FakeMailboxReadModel();
+        readModel.AddFolder(readModel.AddAccount(), FolderRole.Inbox, "INBOX");
+        var log = new FakeCriticalLog();
+        var shell = new ShellViewModel(
+            readModel,
+            new FakeMailboxController(),
+            new FakeUiDispatcher(),
+            new UiSettingsFile(path),
+            log,
+            new FixedClock(ShellHarness.FixedNow));
+
+        await shell.InitializeAsync();
+
+        Assert.Equal(UiSettings.Default.Layout, shell.Layout);
+        Assert.Equal(UiSettings.Default.Theme, shell.Theme);
+        Assert.Equal(UiSettings.Default.NavigationWidth, shell.NavigationWidth);
+        Assert.Equal(UiSettings.Default.ListSize, shell.ListSize);
+        Assert.False(string.IsNullOrWhiteSpace(shell.Banner));
+        Assert.Equal(7, shell.Navigation.Items.Count);
+    }
+
+    // Case 40: both defaults and the failed-load banner survive a later change (the app keeps working).
+    [Fact(Timeout = TestTimeouts.PerTestMilliseconds)]
+    public async Task App_keeps_working_after_a_failed_load()
+    {
+        using var temp = new TempDirectory();
+        string path = Path.Combine(temp.RootPath, UiSettingsFile.FileName);
+        await File.WriteAllTextAsync(path, "{broken");
+        var shell = new ShellViewModel(
+            new FakeMailboxReadModel(),
+            new FakeMailboxController(),
+            new FakeUiDispatcher(),
+            new UiSettingsFile(path),
+            new FakeCriticalLog(),
+            new FixedClock(ShellHarness.FixedNow));
+        await shell.InitializeAsync();
+
+        Exception? failure = Record.Exception(() => shell.Theme = AppTheme.Light);
+
+        Assert.Null(failure);
+        Assert.Equal(AppTheme.Light, shell.Theme);
+    }
+
+    // ---- Case 41 -------------------------------------------------------------------------------------------
+
+    // Case 41
+    [Fact]
+    public void Read_model_interface_has_only_the_five_read_members()
+    {
+        string[] methods = [.. typeof(IMailboxReadModel).GetMethods().Select(method => method.Name).OrderBy(name => name, StringComparer.Ordinal)];
+
+        Assert.Equal(
+            new[] { "CountUnreadAsync", "ListAccountsAsync", "ListFoldersAsync", "ListMessagesAsync", "ReadContentAsync" },
+            methods);
+        Assert.Empty(typeof(IMailboxReadModel).GetProperties());
+        Assert.Empty(typeof(IMailboxReadModel).GetEvents());
+    }
+
+    // Case 41
+    [Fact]
+    public void Controller_interface_offers_only_trigger_and_retry_as_actions()
+    {
+        string[] actions = [.. typeof(IMailboxController).GetMethods().Where(method => !method.IsSpecialName).Select(method => method.Name).OrderBy(name => name, StringComparer.Ordinal)];
+
+        Assert.Equal(new[] { "RetryAccount", "TriggerAccount" }, actions);
+    }
+
+    // Case 41
+    [Fact]
+    public void View_models_expose_no_write_style_methods()
+    {
+        string[] forbidden = ["Delete", "Move", "Mark", "Flag", "Archive", "Seen", "Empty", "Send", "Save"];
+        Type[] types = [typeof(ShellViewModel), typeof(NavigationViewModel), typeof(MessageListViewModel), typeof(ReadingPaneViewModel)];
+
+        foreach (Type type in types)
+        {
+            foreach (MethodInfo method in type.GetMethods(BindingFlags.Public | BindingFlags.Instance | BindingFlags.DeclaredOnly).Where(method => !method.IsSpecialName))
+            {
+                Assert.DoesNotContain(forbidden, word => method.Name.Contains(word, StringComparison.OrdinalIgnoreCase));
+            }
+        }
+    }
+
+    // Case 41: a full reading session records no controller call and leaves every message unread.
+    [Fact(Timeout = TestTimeouts.PerTestMilliseconds)]
+    public async Task Reading_session_makes_no_controller_call_and_does_not_mark_messages_read()
+    {
+        (ShellHarness harness, Account account, MailFolder inbox) = await InitializedAsync(5);
+        int unreadBefore = await harness.ReadModel.CountUnreadAsync(new MessageQuery(Role: FolderRole.Inbox));
+
+        harness.Shell.Messages.SelectedRow = harness.Shell.Messages.Items[0];
+        await Wait.UntilAsync(() => harness.Shell.Reading.State == ReadingState.Ready, "first message shown");
+        harness.Shell.Messages.SelectedRow = harness.Shell.Messages.Items[1];
+        await Wait.UntilAsync(() => harness.ReadModel.ReadCalls >= 2, "second message read");
+        harness.Shell.Navigation.SelectedItem = harness.Shell.Navigation.Items[1];
+        await harness.Shell.Messages.ReloadAsync();
+        await harness.Controller.RaiseOnPoolAsync(FakeMailboxController.Status(account.Id, AccountSyncState.Running));
+        await harness.Controller.RaiseOnPoolAsync(FakeMailboxController.Status(account.Id, AccountSyncState.Idle));
+        await Wait.NegativeWindowAsync();
+
+        Assert.Empty(harness.Controller.Calls);
+        Assert.Equal(unreadBefore, await harness.ReadModel.CountUnreadAsync(new MessageQuery(Role: FolderRole.Inbox)));
+        Assert.Equal(5, await harness.ReadModel.CountUnreadAsync(new MessageQuery(FolderId: inbox.Id)));
+    }
+
+    // Case 41: only the refresh command talks to the controller, and only with the two documented actions.
+    [Fact(Timeout = TestTimeouts.PerTestMilliseconds)]
+    public async Task Only_refresh_calls_the_controller_with_trigger_or_retry()
+    {
+        (ShellHarness harness, Account account, _) = await InitializedAsync();
+
+        harness.Shell.RefreshCommand.Execute(null);
+        await Wait.UntilAsync(() => harness.Controller.Calls.Count >= 1, "refresh reached the controller");
+        await Wait.NegativeWindowAsync();
+
+        (string Kind, Guid AccountId) call = Assert.Single(harness.Controller.Calls);
+        Assert.Equal(("Trigger", account.Id), call);
+    }
+}

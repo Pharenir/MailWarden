@@ -21,6 +21,9 @@ internal sealed class FaultyMessageStore(IMessageStore inner) : IMessageStore
     public Task<IReadOnlyList<MailMessage>> ListAsync(MessageQuery query, CancellationToken ct = default) =>
         inner.ListAsync(query, ct);
 
+    public Task<int> CountUnreadAsync(MessageQuery query, CancellationToken ct = default) =>
+        inner.CountUnreadAsync(query, ct);
+
     public Task<IReadOnlyList<MailMessage>> SearchAsync(string text, int limit = 100, CancellationToken ct = default) =>
         inner.SearchAsync(text, limit, ct);
 
