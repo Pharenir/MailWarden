@@ -28,13 +28,23 @@ internal static class OwnColorDetector
     private static readonly FrozenSet<string> TextRepaintingProperties = new[]
     {
         "all", "filter", "backdrop-filter", "mix-blend-mode", "box-shadow",
-        // A remote image without <img>: after approval a logo with a transparent ground would land on the dark page.
+    }.ToFrozenSet(StringComparer.OrdinalIgnoreCase);
+
+    // A remote image without <img>: after approval a logo with a transparent ground would land on the dark page.
+    private static readonly FrozenSet<string> ImageProperties = new[]
+    {
         "content", "list-style-image",
+    }.ToFrozenSet(StringComparer.OrdinalIgnoreCase);
+
+    // The list-style shorthand reports list-style-image=initial without any image, and list-style:none is common in ordinary mail.
+    private static readonly FrozenSet<string> NoImageValues = new[]
+    {
+        "none", "normal", "initial",
     }.ToFrozenSet(StringComparer.OrdinalIgnoreCase);
 
     /// <summary>
     /// True when an element below <paramref name="body"/> is an <c>img</c> or a <c>style</c>, has the attribute <c>color</c>
-    /// or <c>bgcolor</c>, or a style attribute with a color or background declaration, a declaration that repaints the text,
+    /// or <c>bgcolor</c>, or a style attribute with a color or background declaration, a declaration that repaints the text or holds an image,
     /// or without any readable declaration. The element itself does not count: its attributes never reach the reading document.
     /// </summary>
     /// <param name="body">Body after the allow-lists and before the URL rules, so that the answer does not depend on the image approvals.</param>
@@ -76,7 +86,8 @@ internal static class OwnColorDetector
             if (string.Equals(declaration.Name, ColorProperty, StringComparison.OrdinalIgnoreCase)
                 || declaration.Name.StartsWith(BackgroundPropertyPrefix, StringComparison.OrdinalIgnoreCase)
                 || declaration.Name.StartsWith(BorderImagePropertyPrefix, StringComparison.OrdinalIgnoreCase)
-                || TextRepaintingProperties.Contains(declaration.Name))
+                || TextRepaintingProperties.Contains(declaration.Name)
+                || (ImageProperties.Contains(declaration.Name) && !NoImageValues.Contains(declaration.Value.Trim())))
             {
                 return true;
             }

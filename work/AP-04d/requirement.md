@@ -56,7 +56,9 @@ S3 green on the branch merged with `main`, reviewer APPROVE, security-reviewer w
 |---|---|---|
 | 14 | Each of `all:initial`, `filter:brightness(0)`, `mix-blend-mode:multiply`, `box-shadow:0 0 1px 9999px #fff`, `border-image:linear-gradient(#fff,#fff) 1 fill`, `list-style-image:url(https://images.example.test/a.png)`, `content:url(https://images.example.test/a.png)`, dark | Light sheet |
 | 14a | `backdrop-filter:blur(1px)`, dark | Dark style: the allow-list removes it, so it never reaches the browser; the name stays in the set in case the list grows |
-| 15 | `border:1px solid #ccc`, `outline:1px solid #ccc`, `text-shadow:1px 1px #ccc`, dark | Dark style |
+| 15 | `border:1px solid #ccc`, `outline:1px solid #ccc`, `text-shadow:1px 1px #ccc`, `list-style:none`, `list-style:disc`, `list-style-image:none`, `content:normal`, dark | Dark style |
 | 16 | The builder fails during a theme change with a readable mail open | The document stays, state stays `Ready`, type name in the log |
 
 Added by the planner after fix.1: `content` and `list-style-image` count too, for the reason of D3. `opacity`, `mask`, `visibility`, `clip`, `column-rule` and `text-decoration-color` do not: they hide or paint alike in both themes.
+
+After review.2 APPROVE (S1): `content` and `list-style-image` count only with a value other than `none`, `normal` or `initial`, because `list-style:none` is common in ordinary mail. Explicit no-ops of the other set, such as `box-shadow:none`, stay light (review.2 N3, accepted).
