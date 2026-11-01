@@ -192,6 +192,29 @@ public sealed class MessageKeyTests
         Assert.StartsWith("m:", Key(message, null), StringComparison.Ordinal);
     }
 
+    // Case 36: the key normalises whitespace of topReceived itself
+    [Theory]
+    [InlineData("  from   mx1.example.test\r\n\tby host.example.test   id 1 ")]
+    [InlineData("from mx1.example.test\tby host.example.test id 1")]
+    [InlineData("from mx1.example.test by host.example.test id 1\r\n")]
+    public void Received_with_different_whitespace_gives_the_same_key(string spaced)
+    {
+        MailMessage withId = Message("<msg_a@example.test>");
+        MailMessage withoutId = Message(null);
+        const string normalised = "from mx1.example.test by host.example.test id 1";
+
+        Assert.Equal(Key(withId, normalised), Key(withId, spaced));
+        Assert.Equal(Key(withoutId, normalised), Key(withoutId, spaced));
+    }
+
+    [Fact]
+    public void Whitespace_only_received_equals_no_received()
+    {
+        MailMessage message = Message("<msg_a@example.test>");
+
+        Assert.Equal(Key(message, null), Key(message, "  \t "));
+    }
+
     [Fact]
     public void Message_id_form_and_hash_form_never_collide()
     {
