@@ -151,7 +151,8 @@ public sealed class ReadingDocumentBuilderTests
 
         IElement referrer = Assert.Single(parsed.QuerySelectorAll("meta[name]"), meta => string.Equals(meta.GetAttribute("name"), "referrer", StringComparison.OrdinalIgnoreCase));
         Assert.Equal("no-referrer", referrer.GetAttribute("content"));
-        Assert.Equal(allowRemoteImages ? CspAllowed : CspBlocked, Assert.Single(CspValues(parsed)));
+        // Planner decision (D3 note): a plain-text document has no images and keeps the strict CSP even with approval.
+        Assert.Equal(withHtml && allowRemoteImages ? CspAllowed : CspBlocked, Assert.Single(CspValues(parsed)));
     }
 
     // Case 60: a referrer meta inside the mail cannot weaken the policy.
@@ -170,14 +171,14 @@ public sealed class ReadingDocumentBuilderTests
         Assert.DoesNotContain("unsafe-url", document.Html, StringComparison.Ordinal);
     }
 
-    // Case 17: the plain-text path also carries the allowed variant of the CSP.
+    // Case 17 (planner decision): the plain-text path keeps the strict CSP after "Bilder laden" - text has no images.
     [Fact(Timeout = TestTimeouts.PerTestMilliseconds)]
-    public async Task Plain_text_document_with_allowed_images_has_the_allowed_csp()
+    public async Task Plain_text_document_keeps_the_strict_csp_even_with_approved_images()
     {
         await Task.Yield();
 
         ReadingDocument document = ReadingDocumentBuilder.Build(ContentWith(null, "plain"), allowRemoteImages: true);
 
-        Assert.Equal(CspAllowed, Assert.Single(CspValues(Parse(document))));
+        Assert.Equal(CspBlocked, Assert.Single(CspValues(Parse(document))));
     }
 }
