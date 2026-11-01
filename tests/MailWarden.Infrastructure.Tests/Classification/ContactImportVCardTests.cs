@@ -76,7 +76,26 @@ public sealed class ContactImportVCardTests
             Card("FN:No Email A\r\nTEL:+100000000\r\n") + Card("FN:Contact C\r\nEMAIL:contact_c@example.test\r\n")));
 
         Assert.Equal(1, report.Added);
+        Assert.Equal(1, report.Rejected);
+        Assert.Equal(report.Read, report.Added + report.AlreadyKnown + report.Rejected);
         Assert.Equal("contact_c@example.test", Assert.Single(contacts).EmailAddress, ignoreCase: true);
+    }
+
+    // Case 16 (decision): entries over the limit of 50,000 are Rejected
+    [Fact(Timeout = TestTimeouts.PerTestMilliseconds * 2)]
+    public async Task Entries_over_the_limit_of_50000_are_rejected()
+    {
+        var text = new StringBuilder();
+        for (int index = 0; index < 50_001; index++)
+        {
+            text.Append("BEGIN:VCARD\r\nVERSION:3.0\r\nFN:Bad\r\nEMAIL:not_an_address\r\nEND:VCARD\r\n");
+        }
+
+        (ContactImportReport report, IReadOnlyList<Contact> contacts) = await ImportAsync(Utf8(text.ToString()));
+
+        Assert.Equal(0, report.Added);
+        Assert.Empty(contacts);
+        Assert.Equal(50_001, report.Rejected);
     }
 
     // Case 16: umlaut in FN, with and without BOM

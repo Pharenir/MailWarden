@@ -197,6 +197,19 @@ public sealed class ContactHarvesterTests
         Assert.Equal(ContactSource.Imported, only.Source);
     }
 
+    // Decision: an unknown account id is an ArgumentException and stores nothing
+    [Fact(Timeout = TestTimeouts.PerTestMilliseconds)]
+    public async Task Unknown_account_is_an_argument_exception_and_stores_nothing()
+    {
+        await using ClassificationHarness harness = await ClassificationHarness.CreateAsync(withContact: false, withSent: true);
+        await harness.AddSentAsync(harness.Sent!, 1, to: "recipient_a@example.test");
+
+        await Assert.ThrowsAnyAsync<ArgumentException>(() => harness.CreateHarvester().RunAsync(Guid.NewGuid()));
+
+        Assert.Empty(await harness.ContactsAsync());
+        Assert.Null(await harness.HarvestMarkers.GetAsync(harness.Sent!.Id));
+    }
+
     /// <summary>Contact store whose AddIfMissing fails like a broken database.</summary>
     private sealed class ThrowingContactStore(IContactStore inner) : IContactStore
     {
