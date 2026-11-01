@@ -281,11 +281,11 @@ number of open formatting elements to an estimate; above 100,000 every further s
 - `ReadingPaneViewModel.BuildTimeLimit` is a public static `TimeSpan`, 5 s. The wait is `Task.Delay(limit, timeProvider, token)`, so it needs `CreateTimer` of the given `TimeProvider`; a provider overriding only `GetUtcNow` waits for real.
 - `ShowAsync` completes when the document or the plain text is shown. With a blocked builder it stays pending until the clock passes the limit.
 - Fallback document: `ReadingDocumentBuilder.BuildFromPlainText(MailContent)` (public).
-- Plain text while another build runs comes at once, without waiting; `ContentNotice` is then set.
+- Addendum of the planner: while the build of **another** mail runs, the pane stays in `Loading` and waits at most `BuildTimeLimit` from its own call. Build ended in time: the current mail builds normally, intermediate selections build nothing. Not in time: plain text with `ContentNotice`. The **same** mail during its own build: plain text at once, no second build. At most one build at a time.
 - `ReadingPaneViewModel.ContentNotice`, `HasContentNotice`. Texts: `UiText.ContentReduced`, `ContentShownAsText`, `ContentHasOpaqueParts`, `MoreSenders(int)`.
 
 ### Deviations and open points
-- **Rapid clicking (question to the planner):** while any build runs, the next mail shows the plain text, as L3 says, and stays so until it is selected again. Builds normally take milliseconds, but a normal mail can then get the notice when mails are clicked quickly. Option: when the running build ends and the current mail is showing plain text only because of it, build that mail. Not built, because L3 and case 72 say no second build; it would only apply to a different mail.
+- **Rapid clicking:** decided by the addendum to L3, see the interface above. Self-check in `_scratch\l3-probe`, four flows: another mail in time; intermediate selections; not in time with the limit from the own call; same mail. A stuck build costs each later mail up to 5 s until it ends.
 - **L6:** without parsed `Senders` (content not from a parsed message, e.g. a fake) `From` is treated as one address. With a name beside it the address gets at most 60 characters, and the name the rest of the 100, so the name is usually cut earlier than at 100. "+N weitere" comes on top of the limit. The row in the list uses `ShortenAddress` as well when there is no name.
 - **L1:** text inside `<script>` without an end tag is gone with the rest of the mail, as the parser would read it. A stray `<` inside a scanned comment gets encoded; it stays a comment.
 - **L4:** comments dropped over the budget and flattening below depth 256 also set `WasReduced`. Attributes of end tags and `xmp`-like tags do not.
