@@ -58,7 +58,7 @@ Positive controls: case 8 (control recipient in each mail), 9 (Sent folder read)
 | 21 | same file | evil.com.pl via dkim and spf not authenticated; same domain, child, parent (From a@mail.firma.com.pl), DMARC pass authenticated and TrustedContact; sibling sub-domain not |
 | 22 | tests\MailWarden.Infrastructure.Tests\Classification\ContactHarvesterOriginTests.cs | other From, two From addresses, unusable From, auto-replied/auto-generated, multipart/report skipped; own address (any case, other account), Auto-Submitted: no, multipart/mixed read |
 | 23 | ...\ContactSenderDirectoryHardeningTests.cs | Kelvin sign and trailing NBSP: no Allowed, Blocked matches; ASCII case controls |
-| 24 | same file | quoted local part, Punycode vs U-form both ways, plus/dot variants exact, `*` rejected (4 forms) with plain-domain control, one store row for Punycode and U-form |
+| 24 | same file | quoted local part, Punycode vs U-form both ways, plus/dot variants exact, `*` rejected (4 forms) with plain-domain control |
 | 25 | ...\ContactImportCsvTests.cs | unterminated quote in row 2 of 5 -> 1 Rejected, 4 Added; control with closed quote |
 | 26 | ...\ContactBookTests.cs | trimmed address; `Hans <a@x.test>`, no domain, no `@`, empty -> ArgumentException |
 
