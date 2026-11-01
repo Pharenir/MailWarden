@@ -77,7 +77,31 @@ Original-Headern (Outlook.com); 1.870 ohne Header (vermutlich IMAP-/Gmail-Ordner
   zu secure M2 AP-03a und AP-02a-ACL-Punkt, 2026-10-31) → bewusst akzeptiert, keine Änderung
 
 ## Testzähler
-Testzähler: 0/4 seit letztem S3 (zuletzt 2026-11-01: S3 auf `feat/ap-04b-ui-actions` vor dem Merge nach `main`, 2655/2655, mit AP-06; seither nur Doku geändert, Code gleich dem Stand auf `main`)
+Testzähler: 0/4 seit letztem S3 (zuletzt 2026-11-01: S3 auf `feat/ap-04d-reading-theme` vor dem Merge nach `main`, 2772/2772 – Core 536, Presentation 559, Infrastructure 1677; seither nur Doku geändert)
+
+## Übergabe – so geht es weiter (Sessionende 2026-11-01)
+**Stand `main`:** AP-06, AP-04b und AP-04d gemergt und auf GitHub; von Dennis geprüft. Fall 18 (AP-07d) bestanden. `Act` ist nirgends eingeschaltet. Keine Worktrees offen.
+
+**Als Nächstes: AP-04e Nightshade-Thema (Wunsch Dennis 2026-11-01), noch nicht begonnen.**
+- Neben Hell, Dunkel und System ein Thema Nightshade, und zwar als Standard. Wer schon ein Thema gespeichert hat, behält es.
+- Farben aus dem Nightshade-Projekt, nicht aus dem Icon: `K:\Projekte\_private\themes.md` (Sammeldatei von Dennis), Quelle `K:\Projekte\Windows-Tools\nightshade\src\Nightshade.Core\themes\nightshade.json`. Fenster `#1A1626`, Flächen `#231E33`, Text `#ECE8F7`, Akzent `#FF8A3D`, Auswahl `#4A3B7A`.
+- Lesebereich: Mail ohne eigene Farben auf `#231E33` mit Text `#ECE8F7` und Links `#FF8A3D` (rechnerisch 13,4:1 und 6,9:1); Mail mit eigenen Farben helles Blatt unter dem Schleier wie im Dunkelmodus. `ReadingTheme` bekommt einen dritten Wert.
+- Zuerst klären: Wie weit lassen sich die WinUI-Standardfarben umfärben, und klappt das live beim Umschalten? Geht etwas nicht, Dennis fragen.
+- Sicherheitsprüfung nötig (WebView2, HTML-Ausgabe). Handtest durch Dennis.
+
+**Danach:** AP-04c (Konten-UI, Anhänge), AP-08 (Regeln, Warum-Ansicht, Oberfläche Adressbuch, Bilder bei `TrustedContact` direkt laden, zurückgehaltene Mails), AP-05 (Versand), AP-09 (Ordnergrenzen).
+
+**Entscheidungen von Dennis vor `Act`** (Abschnitt „Bedingungen vor `Act`“): Ordner leeren gegen Rettung aus Junk (Empfehlung: bestätigtes Löschen hat Vorrang); Junk kürzer abfragen, denn neue Mail dort löst keinen Zyklus aus und wartet bis zu 15 Minuten.
+
+**Offen zur Angleichung:** Der Dunkelmodus nutzt Links `#8ab4f8`, das Dunkel-Thema aus dem Nightshade-Projekt `#4CC2FF`; bleibt, bis Dennis es anders will.
+
+**Für den Koordinator:**
+- Lokale Kopie für Handtests: `K:\Projekte\_private\MailWarden\probe-copy-2026-11-01`, jetzt mit Adressbuch-Schema. Aktionen darin wirken auf dem echten Server. Testmails zwischen Konto 2 und Konto 3: Betreff beginnt mit `MailWarden test MWT`.
+- Probes unter `_scratch\` im Hauptordner (`case33-probe`, `runtime-probe`, `classification-probe`, `contact-probe`, `case18_run.py`); sie liegen nur lokal.
+- In Bash einem `cd` nicht trauen, wenn der Arbeitsordner wechselt: `git -C <Pfad>` und absolute Pfade (ein Commit landete so auf dem falschen Branch).
+- Doppelte Backslashes in Bash-Heredocs kommen einfach an. Patch-Skripte mit Backslashes im Text über das Write-Werkzeug anlegen, Text in einer eigenen Datei. Befehlsketten vor dem Merge mit `&&` trennen: Ein gescheitertes Skript hat den Merge sonst nicht aufgehalten.
+- Die Rolle `security-reviewer` kann nicht schreiben, ihr Bericht kommt vom Koordinator in `work\<AP>\security-review.md`.
+- Der Branch `chore/ap-06-04b-requirements` ist gemergt und noch vorhanden; Löschen nur nach Rückfrage.
 
 ## Session 4 (2026-11-01)
 - Entscheidungen Dennis: AP-04a und AP-07c **parallel**; HTML-Bereinigung mit Paket HtmlSanitizer; Liste und Lesebereich
