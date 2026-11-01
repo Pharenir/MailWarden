@@ -244,3 +244,10 @@ dotnet build MailWarden.sln -warnaserror
 
 **Fall 32 – Link-Ziel.** Eine Mail mit einem Link öffnen, dessen Text nicht das Ziel ist.
 - [ ] Beim Zeigen auf den Link erscheint das echte Ziel im Tooltip an der Maus **und** in der Statusleiste. Danach entscheidet Dennis, ob die Statusleiste ausgeschaltet wird.
+
+### 8b – Nachtrag aus dem ersten Test (AP-04b X und Y)
+Start wie in Teil 8. Nur Testmails anfassen (Betreff beginnt mit `MailWarden test MWT`).
+- [ ] **Link-Ziel ohne Statusleiste (Pflicht vor dem Merge):** Mail mit einem Link öffnen, dessen Text nicht das Ziel ist. Die Statusleiste unten erscheint nicht mehr, der Tooltip an der Maus zeigt das echte Ziel. Das Gleiche im schmalen Fenster: Der Tooltip bleibt ganz lesbar.
+- [ ] **Rechtsklick im Ordnerbaum:** Auf Junk von Konto 3 und auf den Papierkorb eines Kontos erscheint „Ordner leeren“, auf dem Posteingang und dem Kontoknoten nichts. Ebenso mit der Kontexttaste. Die Auswahl im Baum bleibt.
+- [ ] **Leeren über den Baum:** Eine Testmail nach Junk von Konto 3 verschieben, im Baum einen anderen Ordner auswählen, Rechtsklick auf Junk von Konto 3, „Ordner leeren“. **Die Rückfrage muss genau die Zahl der Testmails nennen, sonst „Nein“ wählen und melden.** Die aktuelle Liste bleibt unverändert, im Webmail ist der Spam leer.
+- [ ] **Ungelesen-Zahl:** Eine ungelesene Testmail mit Entf löschen: Die Zahl im Baum fällt im selben Moment wie die Zeile. Bei einer gelesenen Testmail bleibt sie gleich.
