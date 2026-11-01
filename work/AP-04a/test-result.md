@@ -1,14 +1,20 @@
-# AP-04a – Testergebnis (verify.5, nach fix.5)
+# AP-04a – Testergebnis (verify.6, nach fix.6)
 
 ```
 Stufe:        S3
 Auswahl nach: voll
-Ergebnis:     1700 von 1700 Tests grün (Core 430, Infrastructure 947, Presentation 323)
+Ergebnis:     1732 von 1732 Tests grün (Core 430, Infrastructure 958, Presentation 344)
 Fehlschläge:  –
 Nicht gelaufen: Fälle 42-48 (manuell, Dennis)
-Laufzeit:     15 s
+Laufzeit:     14,6 s
 Abbruch:      –
-Auffällig:    Fall 91 (CSS-Rekursion, calc mit bis zu 12.000 Klammern, &#40-Ketten) lief ohne Prozessende; Fälle 93 und 95 grün.
+Auffällig:    –
 ```
 
-Stand: `feat/ap-04a-ui-read` nach Merge von `test/ap-04a-ui-read` (Tests Fälle 91-95 in Commit dd66604), Build `-warnaserror` grün. Ergebnis: **PASS**, kein Fehlschlag, keine Testkorrektur nötig.
+Stand: `feat/ap-04a-ui-read` nach Merge von `test/ap-04a-ui-read`, Build `-warnaserror` grün. Ergebnis: **PASS**.
+
+## Verlauf
+Lauf 1: 1730 grün, 2 rot, beide Einordnung (a), eigener Testfehler.
+- `ShellViewModelTests.Read_model_interface_has_only_the_five_read_members` (Fall 41): erwartete die fünf alten Lese-Member; `GetFolderRoleAsync` ist ein weiteres reines Lese-Member (Fall 103). Erwartung auf sechs Lese-Member erweitert.
+- `MailHtmlSanitizerControlTests.Embedded_images_stay_with_the_default` (Fall 97): erwartete `data:image` in einem CSS-`url()` im Default. D3 entfernt jedes nicht-http(s)-`url()` ohnehin; die Zeile war falsch. Entfernt, die Bilder (`cid`/`data:` in `img`) und die Zählung bleiben geprüft.
+Lauf 2: alles grün.
