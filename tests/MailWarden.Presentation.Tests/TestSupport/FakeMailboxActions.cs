@@ -123,22 +123,64 @@ internal sealed class FakeMailboxActions(FakeMailboxReadModel readModel) : IMail
             readModel.MoveMessage(message.Id, target);
         });
 
-    public async Task<int> CountForEmptyAsync(long folderId, CancellationToken ct = default)
+    public async Task<EmptyFolderPreview> PreviewEmptyAsync(long folderId, CancellationToken ct = default)
     {
+        IReadOnlyList<MailMessage> stored = await readModel.ListMessagesAsync(new MessageQuery(FolderId: folderId, Limit: int.MaxValue), ct);
+        int count = stored.Count;
         lock (_gate)
         {
-            if (_countOverrides.TryGetValue(folderId, out int count))
+            _previewCalls++;
+            if (_countOverrides.TryGetValue(folderId, out int overridden))
             {
-                return count;
+                count = overridden;
             }
         }
 
-        return (await readModel.ListMessagesAsync(new MessageQuery(FolderId: folderId, Limit: int.MaxValue), ct)).Count;
+        return new EmptyFolderPreview(count, stored.Count == 0 ? 0u : stored.Max(message => message.Uid));
     }
 
-    public async Task EmptyFolderAsync(long folderId, CancellationToken ct = default)
+    /// <summary>Number of <see cref="PreviewEmptyAsync"/> calls.</summary>
+    public int PreviewCalls
+    {
+        get
+        {
+            lock (_gate)
+            {
+                return _previewCalls;
+            }
+        }
+    }
+
+    private int _previewCalls;
+
+    /// <summary>Previews passed to <see cref="EmptyFolderAsync"/>, in call order (also refused ones).</summary>
+    public IReadOnlyList<EmptyFolderPreview> ConfirmedPreviews
+    {
+        get
+        {
+            lock (_gate)
+            {
+                return [.. _confirmed];
+            }
+        }
+    }
+
+    private readonly List<EmptyFolderPreview> _confirmed = [];
+
+    /// <summary>Like the product: refuses with <see cref="MailActionException"/> when a mail above the confirmed highest UID arrived.</summary>
+    public async Task EmptyFolderAsync(long folderId, EmptyFolderPreview confirmed, CancellationToken ct = default)
     {
         IReadOnlyList<MailMessage> messages = await readModel.ListMessagesAsync(new MessageQuery(FolderId: folderId, Limit: int.MaxValue), ct);
+        lock (_gate)
+        {
+            _confirmed.Add(confirmed);
+        }
+
+        if (messages.Any(message => message.Uid > confirmed.HighestUid))
+        {
+            throw new MailActionException("fixed refusal: a new mail arrived");
+        }
+
         await RecordAsync("EmptyFolder", messages, folderId, null, MailCommandKind.DeletePermanently, message => readModel.RemoveMessage(message.Id));
     }
 

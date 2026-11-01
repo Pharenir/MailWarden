@@ -331,7 +331,7 @@ public sealed class MailboxActionsTests
     [Theory(Timeout = TestTimeouts.PerTestMilliseconds)]
     [InlineData(FolderRole.Trash)]
     [InlineData(FolderRole.Junk)]
-    public async Task CountForEmpty_equals_the_local_mails_and_EmptyFolder_enqueues_one_command(FolderRole role)
+    public async Task Preview_equals_the_local_mails_and_EmptyFolder_enqueues_one_command(FolderRole role)
     {
         await using ActionsHarness harness = await ActionsHarness.CreateAsync();
         Account account = await harness.AddAccountAsync();
@@ -339,10 +339,11 @@ public sealed class MailboxActionsTests
         MailFolder folder = await harness.AddFolderAsync(account, role, role.ToString());
         await harness.AddMessagesAsync(folder, 4);
 
-        int count = await harness.Actions.CountForEmptyAsync(folder.Id);
-        await harness.Actions.EmptyFolderAsync(folder.Id);
+        EmptyFolderPreview preview = await harness.Actions.PreviewEmptyAsync(folder.Id);
+        await harness.Actions.EmptyFolderAsync(folder.Id, preview);
 
-        Assert.Equal(4, count);
+        Assert.Equal(4, preview.Count);
+        Assert.Equal(4u, preview.HighestUid);
         MailCommand command = Assert.Single(await harness.CommandsAsync(account));
         Assert.Equal(folder.Id, command.FolderId);
         Assert.Equal(new uint[] { 1, 2, 3, 4 }, command.Uids);
@@ -351,18 +352,18 @@ public sealed class MailboxActionsTests
 
     // Case 4: the count follows the local mails right now.
     [Fact(Timeout = TestTimeouts.PerTestMilliseconds)]
-    public async Task CountForEmpty_follows_the_current_local_state()
+    public async Task Preview_follows_the_current_local_state()
     {
         await using ActionsHarness harness = await ActionsHarness.CreateAsync();
         Account account = await harness.AddAccountAsync();
         MailFolder junk = await harness.AddFolderAsync(account, FolderRole.Junk, "Junk");
-        Assert.Equal(0, await harness.Actions.CountForEmptyAsync(junk.Id));
+        Assert.Equal(new EmptyFolderPreview(0, 0), await harness.Actions.PreviewEmptyAsync(junk.Id));
         await harness.AddMessagesAsync(junk, 3);
-        Assert.Equal(3, await harness.Actions.CountForEmptyAsync(junk.Id));
+        Assert.Equal(new EmptyFolderPreview(3, 3), await harness.Actions.PreviewEmptyAsync(junk.Id));
 
         await harness.Messages.DeleteByUidsAsync(junk.Id, [1u]);
 
-        Assert.Equal(2, await harness.Actions.CountForEmptyAsync(junk.Id));
+        Assert.Equal(new EmptyFolderPreview(2, 3), await harness.Actions.PreviewEmptyAsync(junk.Id));
     }
 
     // Case 4
@@ -374,7 +375,7 @@ public sealed class MailboxActionsTests
         MailFolder inbox = await harness.AddFolderAsync(account, FolderRole.Inbox);
         await harness.AddMessagesAsync(inbox, 3);
 
-        MailActionException exception = await Assert.ThrowsAsync<MailActionException>(() => harness.Actions.EmptyFolderAsync(inbox.Id));
+        MailActionException exception = await Assert.ThrowsAsync<MailActionException>(() => harness.Actions.EmptyFolderAsync(inbox.Id, new EmptyFolderPreview(3, 3)));
 
         AssertFixedText(exception);
         Assert.Equal(0, await harness.CommandCountAsync(account));
@@ -388,7 +389,7 @@ public sealed class MailboxActionsTests
         await using ActionsHarness harness = await ActionsHarness.CreateAsync();
         await harness.AddAccountAsync();
 
-        await Assert.ThrowsAsync<MailActionException>(() => harness.Actions.EmptyFolderAsync(987_654));
+        await Assert.ThrowsAsync<MailActionException>(() => harness.Actions.EmptyFolderAsync(987_654, new EmptyFolderPreview(0, 0)));
     }
 
     // Case 4: nothing to delete is no command and no trigger.
@@ -399,7 +400,7 @@ public sealed class MailboxActionsTests
         Account account = await harness.AddAccountAsync();
         MailFolder junk = await harness.AddFolderAsync(account, FolderRole.Junk, "Junk");
 
-        await harness.Actions.EmptyFolderAsync(junk.Id);
+        await harness.Actions.EmptyFolderAsync(junk.Id, new EmptyFolderPreview(0, 0));
 
         Assert.Equal(0, await harness.CommandCountAsync(account));
         Assert.Empty(harness.Triggered);
@@ -414,8 +415,9 @@ public sealed class MailboxActionsTests
         MailFolder junk = await harness.AddFolderAsync(account, FolderRole.Junk, "Junk");
         await harness.AddMessagesAsync(junk, 2500);
 
-        Assert.Equal(2500, await harness.Actions.CountForEmptyAsync(junk.Id));
-        await harness.Actions.EmptyFolderAsync(junk.Id);
+        EmptyFolderPreview preview = await harness.Actions.PreviewEmptyAsync(junk.Id);
+        Assert.Equal(2500, preview.Count);
+        await harness.Actions.EmptyFolderAsync(junk.Id, preview);
 
         // AP-03c: EnqueueEmptyFolder has no 1,000 UID limit, so one command may carry all UIDs.
         IReadOnlyList<MailCommand> commands = await harness.CommandsAsync(account);
@@ -543,5 +545,144 @@ public sealed class MailboxActionsTests
         IReadOnlyList<MailCommand> commands = await harness.CommandsAsync(account);
         Assert.Equal(20, commands.Count);
         Assert.Equal(20, commands.SelectMany(command => command.Uids).Distinct().Count());
+    }
+
+    // ---- Cases 25-27 and 4 (fix.2: U2, U3, U4) --------------------------------------------------------------
+
+    private static async Task<(ActionsHarness Harness, Account Account, MailFolder Inbox, MailFolder Junk, MailFolder Archive)> JunkWithMailsAsync(int junkCount = 3)
+    {
+        ActionsHarness harness = await ActionsHarness.CreateAsync();
+        Account account = await harness.AddAccountAsync();
+        MailFolder inbox = await harness.AddFolderAsync(account, FolderRole.Inbox);
+        MailFolder junk = await harness.AddFolderAsync(account, FolderRole.Junk, "Junk");
+        MailFolder archive = await harness.AddFolderAsync(account, FolderRole.Archive, "Archive");
+        await harness.AddFolderAsync(account, FolderRole.Trash, "Trash");
+        await harness.AddMessagesAsync(junk, junkCount);
+        return (harness, account, inbox, junk, archive);
+    }
+
+    // Case 25: a pending Move out of the folder blocks preview and empty; nothing new is stored.
+    [Fact(Timeout = TestTimeouts.PerTestMilliseconds)]
+    public async Task A_pending_move_from_the_folder_blocks_preview_and_empty()
+    {
+        (ActionsHarness harness, Account account, _, MailFolder junk, MailFolder archive) = await JunkWithMailsAsync();
+        await using ActionsHarness owned = harness;
+        IReadOnlyList<MailMessage> stored = await harness.Messages.ListAsync(new MessageQuery(FolderId: junk.Id));
+        await harness.Actions.MoveAsync([stored[0]], archive.Id);
+        long commandsBefore = await harness.CommandCountAsync(account);
+
+        MailActionException previewFailure = await Assert.ThrowsAsync<MailActionException>(() => harness.Actions.PreviewEmptyAsync(junk.Id));
+        MailActionException emptyFailure = await Assert.ThrowsAsync<MailActionException>(() => harness.Actions.EmptyFolderAsync(junk.Id, new EmptyFolderPreview(3, 3)));
+
+        AssertFixedText(previewFailure);
+        AssertFixedText(emptyFailure);
+        Assert.Equal(commandsBefore, await harness.CommandCountAsync(account));
+    }
+
+    // Case 25: the same for MoveToTrash.
+    [Fact(Timeout = TestTimeouts.PerTestMilliseconds)]
+    public async Task A_pending_move_to_trash_from_the_folder_blocks_empty()
+    {
+        (ActionsHarness harness, Account account, _, MailFolder junk, _) = await JunkWithMailsAsync();
+        await using ActionsHarness owned = harness;
+        IReadOnlyList<MailMessage> stored = await harness.Messages.ListAsync(new MessageQuery(FolderId: junk.Id));
+        await harness.Actions.MoveToTrashAsync([stored[0]]);
+
+        await Assert.ThrowsAsync<MailActionException>(() => harness.Actions.EmptyFolderAsync(junk.Id, new EmptyFolderPreview(3, 3)));
+
+        Assert.Equal(1, await harness.CommandCountAsync(account));
+    }
+
+    // Case 25: also while the failed attempt waits in backoff (status stays Pending with a later next attempt).
+    [Fact(Timeout = TestTimeouts.PerTestMilliseconds)]
+    public async Task A_pending_move_in_backoff_still_blocks_empty()
+    {
+        (ActionsHarness harness, Account account, _, MailFolder junk, MailFolder archive) = await JunkWithMailsAsync();
+        await using ActionsHarness owned = harness;
+        IReadOnlyList<MailMessage> stored = await harness.Messages.ListAsync(new MessageQuery(FolderId: junk.Id));
+        await harness.Actions.MoveAsync([stored[0]], archive.Id);
+        MailCommand move = Assert.Single(await harness.CommandsAsync(account));
+        await harness.Queue.RecordFailureAsync(move.Id, "marker_server_text", harness.Clock.Now.AddMinutes(5), permanent: false);
+        Assert.Equal(MailCommandStatus.Pending, Assert.Single(await harness.CommandsAsync(account)).Status);
+
+        await Assert.ThrowsAsync<MailActionException>(() => harness.Actions.PreviewEmptyAsync(junk.Id));
+        await Assert.ThrowsAsync<MailActionException>(() => harness.Actions.EmptyFolderAsync(junk.Id, new EmptyFolderPreview(3, 3)));
+
+        Assert.Single(await harness.CommandsAsync(account));
+    }
+
+    // Case 25 positive controls: a pending Move in another folder and a pending SetFlags in this folder do not block.
+    [Fact(Timeout = TestTimeouts.PerTestMilliseconds)]
+    public async Task Other_pending_commands_do_not_block_empty()
+    {
+        (ActionsHarness harness, Account account, MailFolder inbox, MailFolder junk, MailFolder archive) = await JunkWithMailsAsync();
+        await using ActionsHarness owned = harness;
+        IReadOnlyList<MailMessage> inboxMails = await harness.AddMessagesAsync(inbox, 1);
+        IReadOnlyList<MailMessage> junkMails = await harness.Messages.ListAsync(new MessageQuery(FolderId: junk.Id));
+        await harness.Actions.MoveAsync(inboxMails, archive.Id);
+        await harness.Actions.SetFlaggedAsync([junkMails[0]], flagged: true);
+
+        EmptyFolderPreview preview = await harness.Actions.PreviewEmptyAsync(junk.Id);
+        await harness.Actions.EmptyFolderAsync(junk.Id, preview);
+
+        Assert.Equal(3, (await harness.CommandsAsync(account)).Count);
+    }
+
+    // Case 26: a mail that arrived after the preview refuses the empty; a fresh preview then goes ahead.
+    [Fact(Timeout = TestTimeouts.PerTestMilliseconds)]
+    public async Task A_mail_arriving_after_the_preview_refuses_the_empty_until_it_is_previewed_again()
+    {
+        (ActionsHarness harness, Account account, _, MailFolder junk, _) = await JunkWithMailsAsync();
+        await using ActionsHarness owned = harness;
+        EmptyFolderPreview preview = await harness.Actions.PreviewEmptyAsync(junk.Id);
+        await harness.AddMessagesAsync(junk, 1, firstUid: 4);
+
+        MailActionException refusal = await Assert.ThrowsAsync<MailActionException>(() => harness.Actions.EmptyFolderAsync(junk.Id, preview));
+
+        AssertFixedText(refusal);
+        Assert.Equal(0, await harness.CommandCountAsync(account));
+        Assert.Empty(harness.Triggered);
+        EmptyFolderPreview fresh = await harness.Actions.PreviewEmptyAsync(junk.Id);
+        Assert.Equal(new EmptyFolderPreview(4, 4), fresh);
+        await harness.Actions.EmptyFolderAsync(junk.Id, fresh);
+        Assert.Equal(new uint[] { 1, 2, 3, 4 }, Assert.Single(await harness.CommandsAsync(account)).Uids);
+    }
+
+    // Case 26: a mail that disappeared after the preview does not stop the empty.
+    [Theory(Timeout = TestTimeouts.PerTestMilliseconds)]
+    [InlineData(1u)]
+    [InlineData(3u)]
+    public async Task A_mail_disappearing_after_the_preview_does_not_stop_the_empty(uint disappearingUid)
+    {
+        (ActionsHarness harness, Account account, _, MailFolder junk, _) = await JunkWithMailsAsync();
+        await using ActionsHarness owned = harness;
+        EmptyFolderPreview preview = await harness.Actions.PreviewEmptyAsync(junk.Id);
+        await harness.Messages.DeleteByUidsAsync(junk.Id, [disappearingUid]);
+
+        await harness.Actions.EmptyFolderAsync(junk.Id, preview);
+
+        uint[] expected = new uint[] { 1, 2, 3 }.Where(uid => uid != disappearingUid).ToArray();
+        Assert.Equal(expected, Assert.Single(await harness.CommandsAsync(account)).Uids);
+    }
+
+    // Case 27: a rejection after one group was stored says "partly done"; a rejection with nothing stored does not.
+    [Fact(Timeout = TestTimeouts.PerTestMilliseconds)]
+    public async Task A_rejection_after_a_stored_group_says_partly_done_and_one_without_storage_does_not()
+    {
+        await using ActionsHarness harness = await ActionsHarness.CreateAsync();
+        Account account = await harness.AddAccountAsync();
+        MailFolder inbox = await harness.AddFolderAsync(account, FolderRole.Inbox);
+        MailFolder trash = await harness.AddFolderAsync(account, FolderRole.Trash, "Trash");
+        IReadOnlyList<MailMessage> fromInbox = await harness.AddMessagesAsync(inbox, 1);
+        IReadOnlyList<MailMessage> fromTrash = await harness.AddMessagesAsync(trash, 1);
+        MailActionException none = await Assert.ThrowsAsync<MailActionException>(() => harness.Actions.MoveToTrashAsync(fromTrash));
+        Assert.DoesNotContain("teilweise", none.Message, StringComparison.OrdinalIgnoreCase);
+        Assert.Equal(0, await harness.CommandCountAsync(account));
+
+        MailActionException mixed = await Assert.ThrowsAsync<MailActionException>(() => harness.Actions.MoveToTrashAsync([.. fromInbox, .. fromTrash]));
+
+        long stored = await harness.CommandCountAsync(account);
+        Assert.Equal(stored > 0, mixed.Message.Contains("teilweise", StringComparison.OrdinalIgnoreCase));
+        AssertFixedText(mixed);
     }
 }

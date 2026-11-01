@@ -424,8 +424,23 @@ internal sealed class FakeMailboxReadModel : IMailboxReadModel
         }
     }
 
-    public Task<FolderRole?> GetFolderRoleAsync(long folderId, CancellationToken ct = default)
+    /// <summary>Awaited by <see cref="GetFolderRoleAsync"/> before it answers (blocks a view model inside an action).</summary>
+    public Func<Task>? RoleGate { get; set; }
+
+    /// <summary>Number of times <see cref="RoleGate"/> was entered.</summary>
+    public int RoleGateEntered => Volatile.Read(ref _roleGateEntered);
+
+    private int _roleGateEntered;
+
+    public async Task<FolderRole?> GetFolderRoleAsync(long folderId, CancellationToken ct = default)
     {
+        Func<Task>? roleGate = RoleGate;
+        if (roleGate is not null)
+        {
+            Interlocked.Increment(ref _roleGateEntered);
+            await roleGate();
+        }
+
         if (FolderRoleFailure is not null)
         {
             throw FolderRoleFailure;
@@ -435,12 +450,12 @@ internal sealed class FakeMailboxReadModel : IMailboxReadModel
         {
             if (_roleOverrides.TryGetValue(folderId, out FolderRole? overridden))
             {
-                return Task.FromResult(overridden);
+                return overridden;
             }
 
             // Known folders report the role they were added with (Inbox in most tests); unknown folders report null.
             MailFolder? folder = _folders.FirstOrDefault(candidate => candidate.Id == folderId);
-            return Task.FromResult<FolderRole?>(folder?.Role);
+            return folder?.Role;
         }
     }
 
