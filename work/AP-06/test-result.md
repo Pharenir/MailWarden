@@ -35,3 +35,20 @@ Runtime about 16 s via the watchdog, no limit reached.
 First run: 1 failure, `ContactSenderDirectoryHardeningTests.Punycode_and_u_form_of_a_domain_are_one_entry_in_the_store`.
 The store keeps a Punycode and a U-form entry as two rows; R5 only requires that lookups match both forms, which other tests prove.
 Class: own test over-specified (c). Test removed; no product change.
+
+## verify.3 (after fix.3, cases 27-31)
+
+Result: PASS, stage S3 green. Build `-warnaserror` 0 warnings, 0 errors.
+
+| Project | Tests | Passed |
+|---|---|---|
+| MailWarden.Core.Tests | 531 | 531 |
+| MailWarden.Infrastructure.Tests | 1512 | 1512 |
+| MailWarden.Presentation.Tests | 356 | 356 |
+| Total | 2399 | 2399 |
+
+Runtime about 16 s via the watchdog, no limit reached.
+
+First run: 1 failure, `ContactSenderDirectoryHardeningTests.Look_alike_senders_never_hit_allow_entries_but_still_hit_block_entries`
+with sender `sender_a@<U+1D41A>xample.test`. Class: test error (a). The sender held the mathematical letter `a`
+(U+1D41A) instead of `e` (U+1D41E), so the domain was `axample.test`, not a look-alike of `example.test`. Fixed to U+1D41E, product unchanged.
