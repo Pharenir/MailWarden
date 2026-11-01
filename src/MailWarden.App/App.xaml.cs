@@ -123,7 +123,7 @@ public partial class App : Application
         {
             openWindow?.AppWindow.Hide();
             shell?.Dispose();
-            (openWindow as MainWindow)?.CloseReadingView();
+            CloseReadingViewAndLog();
             if (runtime is not null)
             {
                 await runtime.DisposeAsync().AsTask().WaitAsync(ShutdownTimeout);
@@ -135,6 +135,19 @@ public partial class App : Application
         }
 
         Exit();
+    }
+
+    // A failure of the browser control must not keep the runtime from being disposed.
+    private void CloseReadingViewAndLog()
+    {
+        try
+        {
+            (openWindow as MainWindow)?.CloseReadingView();
+        }
+        catch (Exception exception) when (exception is not OutOfMemoryException)
+        {
+            WriteLog("App.CloseReadingViewAndLog", $"Closing the reading view failed: {exception.GetType().Name}");
+        }
     }
 
     private async Task ReleaseAfterFailedStartAsync(Window? windowOfFailedStart)

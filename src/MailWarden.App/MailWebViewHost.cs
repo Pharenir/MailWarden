@@ -72,12 +72,25 @@ internal sealed class MailWebViewHost
     {
         if (documentHtml is not null && !isClosed)
         {
-            core?.CookieManager.DeleteAllCookies();
+            DeleteCookies();
         }
 
         documentHtml = null;
         documentBytes = null;
         allowRemoteImages = false;
+    }
+
+    // Runs on every change of the message, also on error paths: a failure here must not end them.
+    private void DeleteCookies()
+    {
+        try
+        {
+            core?.CookieManager.DeleteAllCookies();
+        }
+        catch (Exception exception) when (exception is not OutOfMemoryException)
+        {
+            log.Write(CriticalLogLevel.Critical, "MailWebViewHost.DeleteCookies", $"Deleting the cookies failed: {exception.GetType().Name}");
+        }
     }
 
     /// <summary>Ends the browser processes of this control.</summary>

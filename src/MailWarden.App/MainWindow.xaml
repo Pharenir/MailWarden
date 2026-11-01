@@ -141,11 +141,12 @@
           <Grid.RowDefinitions>
             <RowDefinition Height="Auto" />
             <RowDefinition Height="Auto" />
+            <RowDefinition Height="Auto" />
             <RowDefinition Height="*" />
           </Grid.RowDefinitions>
 
           <!-- Header lines are limited in the view model; the height limit keeps the document reachable for long lists. -->
-          <ScrollViewer Grid.Row="0" MaxHeight="220" Margin="0,0,0,4" VerticalScrollBarVisibility="Auto">
+          <ScrollViewer Grid.Row="0" MaxHeight="160" Margin="0,0,0,4" VerticalScrollBarVisibility="Auto">
             <StackPanel Spacing="2">
               <TextBlock
                   IsTextSelectionEnabled="True"
@@ -180,12 +181,20 @@
               Visibility="{x:Bind ViewModel.Reading.CanLoadRemoteImages, Mode=OneWay}" />
 
           <TextBlock
-              x:Name="ReadingStatusText"
               Grid.Row="2"
+              Margin="0,0,0,8"
+              FontWeight="SemiBold"
+              Text="{x:Bind ViewModel.Reading.ContentNotice, Mode=OneWay}"
+              TextWrapping="Wrap"
+              Visibility="{x:Bind ViewModel.Reading.HasContentNotice, Mode=OneWay}" />
+
+          <TextBlock
+              x:Name="ReadingStatusText"
+              Grid.Row="3"
               HorizontalAlignment="Center"
               VerticalAlignment="Center"
               TextWrapping="Wrap" />
-          <WebView2 x:Name="ReadingWebView" Grid.Row="2" Visibility="Collapsed" />
+          <WebView2 x:Name="ReadingWebView" Grid.Row="3" Visibility="Collapsed" />
         </Grid>
       </Grid>
     </Grid>
