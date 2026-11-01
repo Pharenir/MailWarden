@@ -179,7 +179,7 @@ public sealed class ReadingPaneViewModel : ObservableObject
     /// <summary>True when <see cref="ContentNotice"/> has a text.</summary>
     public bool HasContentNotice => contentNotice is not null;
 
-    /// <summary>Number of remote resources blocked in the current document.</summary>
+    /// <summary>Number of images blocked in the current document: remote ones and, in Junk and Quarantine, embedded ones.</summary>
     public int BlockedRemoteResourceCount
     {
         get => blockedRemoteResourceCount;

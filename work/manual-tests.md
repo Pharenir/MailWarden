@@ -148,8 +148,8 @@ dotnet build MailWarden.sln -warnaserror
 - [ ] Bilder sind blockiert; die Schaltfläche heißt „Bilder laden (n blockiert)“ mit passender Zahl
 - [ ] „Bilder laden“ zeigt die Bilder nur für diese Mail; eine andere Mail wählen und zurückgehen: wieder blockiert
 - [ ] Mit der Maus über einen Link: das Ziel wird angezeigt
-- [ ] Klick auf einen `http(s)`-Link öffnet den Standardbrowser, nicht die App
-- [ ] Klick auf einen `mailto:`-Link: ein echter Klick öffnet das Standard-Mailprogramm; öffnet sich nichts, melde das
+- [x] Klick auf einen `http(s)`-Link öffnet den Standardbrowser, nicht die App
+- [x] Klick auf einen `mailto:`-Link: ein echter Klick öffnet das Standard-Mailprogramm; öffnet sich nichts, melde das
 - [ ] Schnelles Durchklicken durch viele normale Mails (z. B. Pfeil-nach-unten gedrückt halten): jede Mail erscheint formatiert, **ohne** Hinweis und **ohne** Klartext-Ersatz
 - [ ] Dieselbe Mail erneut anklicken: sie bleibt normal (kein Hinweis, nicht als Klartext)
 - [ ] Erscheint bei einer Mail ein Hinweis über dem Inhalt („ungewöhnlich aufgebaut …“, „dauert zu lange …“, „zu tief verschachtelt …“): Wortlaut melden, ohne Betreff und Adresse
@@ -165,8 +165,14 @@ dotnet build MailWarden.sln -warnaserror
 - [ ] Fehlerleiste: `Set-Content "$env:MAILWARDEN_DATA_DIR\ui-settings.json" '{"foo":1}'`, App starten: oben erscheint eine Leiste „Die Einstellungsdatei ist ungültig; es gelten die Standardwerte.“; sie lässt sich schließen und kommt nicht sofort wieder. Danach die Datei löschen: `Remove-Item "$env:MAILWARDEN_DATA_DIR\ui-settings.json"`
 
 **Fall 48 – Server unverändert**
-- [ ] Nach dem Lesen mehrerer ungelesener Mails in der App: im Webmail sind dieselben Mails weiterhin ungelesen, die Zahlen der Ungelesenen entsprechen den vor dem Test notierten
-- [ ] Auch in der App bleiben die gelesenen Mails fett (ungelesen)
+- [x] Nach dem Lesen mehrerer ungelesener Mails in der App: im Webmail sind dieselben Mails weiterhin ungelesen, die Zahlen der Ungelesenen entsprechen den vor dem Test notierten
+- [x] Auch in der App bleiben die gelesenen Mails fett (ungelesen)
+
+**Änderungen nach dem ersten Test (fix.6)**
+- [ ] Ordnerbaum: Die Ungelesen-Zahlen bleiben neben dem Scrollbalken sichtbar
+- [ ] Ordnerbaum: Kontonamen sind fett und etwas größer; Auswahl und Auf-/Zuklappen funktionieren normal
+- [ ] Mail in Junk oder Quarantäne mit eingebettetem Bild: kein Bild, „Bilder laden (n blockiert)“ zählt es mit; nach dem Klick erscheinen die Bilder nur für diese Mail
+- [ ] Dieselbe Mail in einem normalen Ordner (oder eine Mail im Posteingang): eingebettete Bilder erscheinen sofort
 
 **Das meldest du an Claude** (keine Betreffs oder Adressen nötig)
 - je Fall bestanden oder nicht, bei Abweichung Fallnummer und die Beobachtung in einem Satz

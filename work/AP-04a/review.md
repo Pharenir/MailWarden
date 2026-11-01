@@ -36,3 +36,7 @@ M3. B2 closed (32 s → 232 ms, measured). S9: `<svg/>` drops the rest of the ma
 
 **Verdict: APPROVE.** B3 closed, M1a holds. S10 `IsScripting` differs from the package factory, not exploitable here → fix.5 N4.
 S11 budget numbers in the notes → N5.
+
+# review.6 (2026-11-01)
+
+**Verdict: APPROVE.** P1-P3 as decided; the block holds on every checked path. NITs in `TODO.md` and fixed doc comment.

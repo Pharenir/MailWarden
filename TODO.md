@@ -78,8 +78,13 @@ Testzähler: 0/4 seit letztem S3 (zuletzt 2026-10-31: S3 auf `main` @ `3f74af0` 
   Voraussetzung, damit der Filter wirklich verschiebt.
 - Reihenfolge danach: AP-04a und AP-07c mergen, D8 von AP-07c (Verdrahtung in `MailWardenRuntime`), dann AP-04b / AP-06.
 
+- [ ] Wunsch aus dem Test 2026-11-01: AP-04b warnt vor dem Öffnen von Anhängen aus Junk und Quarantäne
+- [ ] AP-05: MailWarden als Standard-Mailprogramm anmeldbar machen (`mailto:`), bis dahin öffnet das eingestellte Programm
+- [ ] AP-07c (D8): beim Verschieben prüfen, ob Id und `EmlPath` gleich bleiben; sonst zeigt die offene Mail bis zur nächsten Auswahl die alte Bilder-Regel (review.6)
+- [ ] CSS `url(data:)` zählt als blockiert, bleibt aber auch nach der Freigabe entfernt; der Button verspricht dort etwas mehr (review.6)
+
 ### Vertagt aus AP-04a
-Stand: S3 1700/1700, review.5 APPROVE, Sicherheitsbefunde aus secure.4 in fix.5 behoben; eine weitere Sicherheitsprüfung
+Stand: S3 1732/1732, review.6 APPROVE (fix.6: Zahlen im Baum, Kontonamen, eingebettete Bilder in Junk/Quarantäne); davor S3 1700/1700, review.5 APPROVE, Sicherheitsbefunde aus secure.4 in fix.5 behoben; eine weitere Sicherheitsprüfung
 gibt es nach Entscheidung von Dennis nicht. Alles unterhalb „Hoch“ steht hier.
 - [ ] **Fälle 42–48 offen** (manuell Dennis, `work\manual-tests.md` Teil 6): die Oberfläche wurde noch nie ausgeführt
 - [ ] N3-Schätzung zählt die Kodierung nicht mit: eine 1-MB-Mail kann 336 Mio. Zeichen ergeben (review S12, Medium).

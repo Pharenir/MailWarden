@@ -43,6 +43,7 @@ a message does not mark it as read, and nothing is deleted, moved or flagged on 
 
 Safe display of mail:
 - HTML is cleaned before it is shown. Scripts, forms and similar elements are removed.
+- In Junk and Quarantine pictures inside the mail are blocked as well, until you click the button below.
 - Pictures and other content from the internet are blocked. The button "Bilder laden" shows how many were blocked
   and loads them for this message only; the next message is blocked again. Loading pictures tells the sender that you
   opened the mail.
