@@ -27,11 +27,8 @@ internal static class MailDisplayText
     // No file system allows longer names, so only crafted names are cut.
     private const int MaxAttachmentNameCharacters = 260;
 
-    // With a name beside it the address gets at most this much, the name gets the rest of the sender limit.
+    // Beside a name the address gets at most this much.
     private const int MaxAddressCharactersWithName = 60;
-
-    // The space and the angle brackets around the address.
-    private const int AddressFrameCharacters = 3;
 
     private const string Ellipsis = "…";
 
@@ -50,7 +47,10 @@ internal static class MailDisplayText
     /// address in the middle, so that its domain stays visible.
     /// </summary>
     /// <param name="senders">Parsed mailboxes of the From header.</param>
-    /// <returns>The first mailbox in at most <see cref="MaxSenderCharacters"/> characters plus "…", and the number of others.</returns>
+    /// <returns>
+    /// The first mailbox, with a name of at most <see cref="MaxSenderCharacters"/> characters plus "…" and an address of at most
+    /// 60 characters beside it, and the number of others.
+    /// </returns>
     public static string SenderLine(IReadOnlyList<MailSender> senders)
     {
         if (senders.Count == 0)
@@ -101,14 +101,9 @@ internal static class MailDisplayText
             return ShortenAddress(sender.Address, MaxSenderCharacters);
         }
 
+        string name = SafeDisplayText.Shorten(sender.Name, MaxSenderCharacters);
         string address = ShortenAddress(sender.Address, MaxAddressCharactersWithName);
-        if (address.Length == 0)
-        {
-            return SafeDisplayText.Shorten(sender.Name, MaxSenderCharacters);
-        }
-
-        string name = SafeDisplayText.Shorten(sender.Name, MaxSenderCharacters - address.Length - AddressFrameCharacters);
-        return $"{name} <{address}>";
+        return address.Length == 0 ? name : $"{name} <{address}>";
     }
 
     /// <summary>The recipients as one line.</summary>
