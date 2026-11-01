@@ -67,12 +67,13 @@ public static class MailContentReader
             ContainsOpaquePart(message.Body));
     }
 
-    // A generic part with a container type is what the parser leaves at the depth limit. The walk is bounded by that
-    // limit. Delivery reports and the like have their own part types and are not opaque.
+    // What the parser left unparsed: a generic part with a container type at the depth limit, and a multipart whose
+    // boundary never occurs, which keeps its whole content as preamble. The walk is bounded by the depth limit.
     private static bool ContainsOpaquePart(MimeEntity? entity)
     {
         return entity switch
         {
+            Multipart { Count: 0 } emptyMultipart => !string.IsNullOrWhiteSpace(emptyMultipart.Preamble),
             Multipart multipart => multipart.Any(ContainsOpaquePart),
             MessagePart messagePart => ContainsOpaquePart(messagePart.Message?.Body),
             MimePart part => IsOpaqueContainer(part),
@@ -80,11 +81,10 @@ public static class MailContentReader
         };
     }
 
+    // Other message types such as message/partial or delivery reports are normal attachments.
     private static bool IsOpaqueContainer(MimePart part)
     {
-        return part.GetType() == typeof(MimePart)
-            && (part.ContentType.MediaType.Equals("multipart", StringComparison.OrdinalIgnoreCase)
-                || part.ContentType.MediaType.Equals("message", StringComparison.OrdinalIgnoreCase));
+        return part.ContentType.IsMimeType("multipart", "*") || part.ContentType.IsMimeType("message", "rfc822");
     }
 
     // MimeMessage.Date is MinValue when the header is absent or unreadable.
@@ -128,8 +128,13 @@ public static class MailContentReader
             ct.ThrowIfCancellationRequested();
             if (entity is not MimePart part)
             {
-                // Attached messages and delivery reports have no content to decode here.
-                attachments.Add(DescribeAttachment(entity, FileNameOf(entity), size: null));
+                // Attached messages have no content to decode here. One that ends below the depth limit gets the notice
+                // instead of an unnamed entry.
+                if (!ContainsOpaquePart(entity))
+                {
+                    attachments.Add(DescribeAttachment(entity, FileNameOf(entity), size: null));
+                }
+
                 continue;
             }
 
