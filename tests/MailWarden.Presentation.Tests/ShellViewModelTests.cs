@@ -344,6 +344,7 @@ public sealed class ShellViewModelTests
         var shell = new ShellViewModel(
             readModel,
             new FakeMailboxController(),
+            new FakeMailboxActions(readModel),
             new FakeUiDispatcher(),
             new UiSettingsFile(path),
             log,
@@ -367,9 +368,11 @@ public sealed class ShellViewModelTests
         using var temp = new TempDirectory();
         string path = Path.Combine(temp.RootPath, UiSettingsFile.FileName);
         await File.WriteAllTextAsync(path, "{broken");
+        var readModelForActions = new FakeMailboxReadModel();
         var shell = new ShellViewModel(
-            new FakeMailboxReadModel(),
+            readModelForActions,
             new FakeMailboxController(),
+            new FakeMailboxActions(readModelForActions),
             new FakeUiDispatcher(),
             new UiSettingsFile(path),
             new FakeCriticalLog(),

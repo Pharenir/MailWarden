@@ -227,7 +227,7 @@ public sealed class WindowSettingsTests : IDisposable
     // ---- Position off every monitor (pure helper) ----------------------------------------------------------
     // The helper's name and signature are not in the contract; see test-plan question Q4.
 
-    private static readonly IReadOnlyList<(int X, int Y, int Width, int Height)> TwoMonitors =
+    private static readonly IReadOnlyList<(double X, double Y, double Width, double Height)> TwoMonitors =
     [
         (0, 0, 1920, 1080),
         (-1280, 0, 1280, 1024),
@@ -265,6 +265,6 @@ public sealed class WindowSettingsTests : IDisposable
     [Fact]
     public void Without_any_monitor_the_position_is_dropped()
     {
-        Assert.False(WindowPlacement.IsOnAnyMonitor(0, 0, 800, 600, []));
+        Assert.False(WindowPlacement.IsOnAnyMonitor(0, 0, 800, 600, Array.Empty<(double X, double Y, double Width, double Height)>()));
     }
 }
