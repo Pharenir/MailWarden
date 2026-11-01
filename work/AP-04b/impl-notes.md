@@ -1,4 +1,4 @@
-STEP-RESULT: done (implement.1; the coordinator's precisions of 2026-11-01 are applied)
+STEP-RESULT: done (fix.2: U1-U9 done, see section "fix.2"; implement.1 with the coordinator's precisions of 2026-11-01)
 
 # AP-04b - Implementation notes (Builder, implement.1)
 
@@ -93,3 +93,42 @@ Build: `MailWarden.App` and `MailWarden.Presentation` with `-warnaserror`, inclu
 `ContentDialog`, flyouts, search box, navigation without highlight during a search, link hint, window placement after a restart (maximised, other scale, monitor removed), a real
 server. Theme resources of the hint were checked against `generic.xaml`. **Vermutlich korrekt:** the rest of the XAML wiring, since it compiles.
 **Not run:** S1-S3 (tester).
+
+## fix.2 (U1-U9 of `requirement.md`, section "Decisions fix.2")
+Items 3 and 10 of "Deviations and decisions" and the question on `CountForEmptyAsync` above are replaced by this section.
+
+| # | Where | What |
+|---|---|---|
+| U1 | `ShellViewModel.StartOnSelection` | The only way a command reaches the selection: a copy at the keystroke goes into the action as a parameter; at its turn hidden rows drop out. `DeleteAsync`, `DeletePermanentlyAsync`, `MoveAsync`, `ToggleFlagAsync`, `ChangeSeenAsync` no longer read `SelectedRows`. |
+| U2 | `MailboxActions.RequireEmptiableFolderAsync` | Refuses preview and empty while a command with status `Pending` and kind `Move` or `MoveToTrash` has this source folder, also in backoff. A permanently failed one takes nothing away and does not block. |
+| U3 | `IMailboxActions`, `ShellViewModel.EmptyFolderAsync` | `PreviewEmptyAsync`, `EmptyFolderPreview`, `EmptyFolderAsync(folderId, confirmed, ct)`. After a refusal the UI reads a new preview: changed means ask again (3 questions at most), unchanged means another reason and goes to the banner. |
+| U4 | `MailboxActions.PartlyDoneText`, `UiText.Confirm*` | Rejection after stored commands; also the second step of a mixed Del. Number of accounts when more than one; account label in the empty question. |
+| U5 | `MailWebViewHost`, `MailDisplayText.LinkTarget` | Status bar on, hint on top. Beyond 500 characters an http or https target reads `host \| text`, in total at most 501 characters. |
+| U6 | `ShellViewModel.ViewBehindEmptyCommand` | Decides by `Search.IsActive`, which changes before the event; `Messages.IsShowingSearch` changed only after it, that was the bug. |
+| U7 | `ShellViewModel.EnqueueAsync` | Checks `isDisposed` right before enqueuing, and again before the second step of a mixed Del. |
+| U8 | `MainWindow.OnMessageListKeyDown` | `KeyStatus.WasKeyDown`: the key is handled, nothing happens. |
+| U9 | `WindowPlacementKeeper`, `MainWindow.FocusMessageList` | `Move`, then `Resize`. Focus back on the selected row after a removal, not out of the search box. |
+| TODO | `TODO.md` | The six deferred points, section "Vertagt aus AP-04b (fix.2)". |
+
+### Beyond the decisions, please check
+1. **Second Del while the first is being stored (`ShellViewModel.rowSelectedByRunningRemoval`).** U1 only names "before the row is hidden". But the row is hidden before its command is stored, so a fast second
+   Del would hit the next row, which the app and not the user selected. Case 24 asks for "the next row untouched", so a keystroke during that time leaves this row out. A row the user selected himself in that time
+   is acted on. After the command is stored the next Del acts normally, as in Outlook.
+2. **The view of "Ordner leeren" is also taken at the keystroke**, by the same reasoning as U1 (U1 does not list it).
+3. **`ActionRowsRemoved`**: new public event on `ShellViewModel`, so that the window knows when to take the focus back (U9).
+4. **`ShowWantedFlags`:** the wanted flags now go to the current rows by id, because a row copied at the keystroke can have been replaced by a reload.
+
+### For the tester
+- Case 24: two `Execute` calls need something blocked (role read or enqueue). With a read model and actions that complete synchronously the first Del is completely done before the second, and two commands are correct.
+- `MailActionException` during `EmptyFolderAsync` with an unchanged `PreviewEmptyAsync` goes to the banner without a second question.
+- Banner on a partial rejection: the text of the exception. A fake has to throw its own text; only the real `MailboxActions` produces `PartlyDoneText`, the shell only for the mixed Del.
+
+### Remaining limits
+- U3: between the UID check and the snapshot of the queue a mail can still arrive: microseconds, on another connection. Closing it needs a transaction in the queue, which belongs to the queue's contract.
+- U5: a target above 65,519 characters cannot be parsed by `Uri`, so it has no host in front.
+- U5: `Uri.Host` can hold Unicode (IDN); the decision names `Uri.Host`. `IdnHost` would show punycode, in case the security review wants that.
+
+### Getting a result
+**Tested (self-check, no proof; `_scratch\ap04bprobe`, artificial data):** U2, U3, U4 on the real queue; cases 23, 24 (both variants), 26, 28, 29, 30, 31 on fakes. All passed.
+Build: `MailWarden.Presentation` and `MailWarden.App` with `-warnaserror`: 0 errors, 0 warnings. `tests\` not built: `PreviewEmptyAsync` breaks their fakes until the tester adapts them.
+**Untested, only Dennis can see it:** U8 (holding Del), U9 (window on a monitor with another scale, focus after a delete), U5 at runtime (case 32), and case 27 in the banner of the running app. **Not run:** S1-S3.
