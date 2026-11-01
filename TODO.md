@@ -83,6 +83,9 @@ Testzähler: 0/4 seit letztem S3 (zuletzt 2026-10-31: S3 auf `main` @ `3f74af0` 
 - [ ] AP-07c (D8): beim Verschieben prüfen, ob Id und `EmlPath` gleich bleiben; sonst zeigt die offene Mail bis zur nächsten Auswahl die alte Bilder-Regel (review.6)
 - [ ] CSS `url(data:)` zählt als blockiert, bleibt aber auch nach der Freigabe entfernt; der Button verspricht dort etwas mehr (review.6)
 
+- [ ] Wunsch Dennis 2026-11-01 (AP-04b): Linkziel als Tooltip an der Maus statt unten links (`StatusBarTextChanged`, eigene Anzeige); Fremdtext bereinigen
+- [ ] Outlook.com zeigt Ordner mit `/` im Namen nicht über IMAP (Hinweismail von Microsoft 2026-11-01): Die App und der Vergleich `sync-check` sehen sie nicht. In `docsuth-setup.md` festhalten; Dennis benennt den betroffenen Ordner um
+
 ### Vertagt aus AP-04a
 Stand: S3 1732/1732, review.6 APPROVE (fix.6: Zahlen im Baum, Kontonamen, eingebettete Bilder in Junk/Quarantäne); davor S3 1700/1700, review.5 APPROVE, Sicherheitsbefunde aus secure.4 in fix.5 behoben; eine weitere Sicherheitsprüfung
 gibt es nach Entscheidung von Dennis nicht. Alles unterhalb „Hoch“ steht hier.

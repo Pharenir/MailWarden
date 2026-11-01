@@ -209,7 +209,7 @@ Vollständiger Schnittstellenvertrag: `work\AP-03d\requirement.md`.
 Parallel zu AP-07c (Dennis 2026-11-01). HTML-Bereinigung mit HtmlSanitizer (Freigabe Dennis 2026-11-01). AP-04b folgt:
 Konten-UI (AP-02b), Aktionen, Suche, Anhänge.
 
-Stand: fix.6 aus dem ersten Test von Dennis: verify.6 S3 **1732/1732** (Core 430, Infrastructure 958, Presentation 344), review.6 APPROVE. Dennis 2026-11-01: App startet, Links und `mailto:` öffnen das Standardprogramm, Abgleich bringt neue Mails, kein Gelesen-Befund im Webmail. Offen: Fälle 45 Linkziel, 46 neue Mail bei laufender App, 47 zweite Instanz, fix.6 ansehen. Davor: verify.5 S3 1700/1700, review.5 APPROVE; die Sicherheitsbefunde
+Stand: fix.6 aus dem ersten Test von Dennis: verify.6 S3 **1732/1732** (Core 430, Infrastructure 958, Presentation 344), review.6 APPROVE. Dennis 2026-11-01: App startet, Links und `mailto:` öffnen das Standardprogramm, Abgleich bringt neue Mails, kein Gelesen-Befund im Webmail. Zweiter Durchgang: Linkziel sichtbar, neue Mail erscheint schnell, zweite Instanz mit Hinweis blockiert, fix.6 passt (Zahlen, Kontonamen, Bildsperre in Junk). Davor: verify.5 S3 1700/1700, review.5 APPROVE; die Sicherheitsbefunde
 aus secure.4 sind in fix.5 behoben, eine weitere Sicherheitsprüfung gibt es nach Entscheidung Dennis nicht. Fälle 1–41 und
 die Zusatzfälle 49–95 sind automatisiert. **Die Oberfläche selbst (Fenster, XAML, WebView2-Control) wurde nie ausgeführt**:
 was nur der manuelle Test belegt, steht als „manuell Dennis – offen“ (Fälle 42–48, `work\manual-tests.md` Teil 6).

@@ -147,7 +147,7 @@ dotnet build MailWarden.sln -warnaserror
 **Fall 45 – Newsletter, Bilder und Links** (Mail mit Bildern aus dem Internet auswählen)
 - [ ] Bilder sind blockiert; die Schaltfläche heißt „Bilder laden (n blockiert)“ mit passender Zahl
 - [ ] „Bilder laden“ zeigt die Bilder nur für diese Mail; eine andere Mail wählen und zurückgehen: wieder blockiert
-- [ ] Mit der Maus über einen Link: das Ziel wird angezeigt
+- [x] Mit der Maus über einen Link: das Ziel wird angezeigt
 - [x] Klick auf einen `http(s)`-Link öffnet den Standardbrowser, nicht die App
 - [x] Klick auf einen `mailto:`-Link: ein echter Klick öffnet das Standard-Mailprogramm; öffnet sich nichts, melde das
 - [ ] Schnelles Durchklicken durch viele normale Mails (z. B. Pfeil-nach-unten gedrückt halten): jede Mail erscheint formatiert, **ohne** Hinweis und **ohne** Klartext-Ersatz
@@ -155,12 +155,12 @@ dotnet build MailWarden.sln -warnaserror
 - [ ] Erscheint bei einer Mail ein Hinweis über dem Inhalt („ungewöhnlich aufgebaut …“, „dauert zu lange …“, „zu tief verschachtelt …“): Wortlaut melden, ohne Betreff und Adresse
 
 **Fall 46 – neue Mail im laufenden Betrieb** (App läuft)
-- [ ] Schicke von außen eine Mail an ein Konto: sie erscheint im Posteingang innerhalb von Sekunden (bis zu einigen Minuten, wenn der Anbieter kein IDLE bietet)
+- [x] Schicke von außen eine Mail an ein Konto: sie erscheint im Posteingang innerhalb von Sekunden (bis zu einigen Minuten, wenn der Anbieter kein IDLE bietet)
 - [ ] Die Ungelesen-Zahl steigt um 1
 - [ ] „Aktualisieren“ löst einen Abgleich aus, ohne dass die App hängt
 
 **Fall 47 – Fehlerfälle** (zweites Terminal mit denselben Zeilen aus der Vorbereitung)
-- [ ] Bei laufender erster App die Exe ein zweites Mal starten (letzte Zeile der Vorbereitung): Fenster „MailWarden kann nicht starten“ mit dem Text über den bereits verwendeten Datenordner, kein stilles Ende; die erste App läuft weiter
+- [x] Bei laufender erster App die Exe ein zweites Mal starten (letzte Zeile der Vorbereitung): Fenster „MailWarden kann nicht starten“ mit dem Text über den bereits verwendeten Datenordner, kein stilles Ende; die erste App läuft weiter
 - [ ] Erste App beenden. Ungültiger Pfad: `$env:MAILWARDEN_DATA_DIR = 'relativ\pfad'`, App starten: Fenster mit dem Text über den ungültigen Datenordner. Danach `$env:MAILWARDEN_DATA_DIR` wieder auf die Kopie setzen (Zeile aus der Vorbereitung)
 - [ ] Fehlerleiste: `Set-Content "$env:MAILWARDEN_DATA_DIR\ui-settings.json" '{"foo":1}'`, App starten: oben erscheint eine Leiste „Die Einstellungsdatei ist ungültig; es gelten die Standardwerte.“; sie lässt sich schließen und kommt nicht sofort wieder. Danach die Datei löschen: `Remove-Item "$env:MAILWARDEN_DATA_DIR\ui-settings.json"`
 
@@ -169,9 +169,9 @@ dotnet build MailWarden.sln -warnaserror
 - [x] Auch in der App bleiben die gelesenen Mails fett (ungelesen)
 
 **Änderungen nach dem ersten Test (fix.6)**
-- [ ] Ordnerbaum: Die Ungelesen-Zahlen bleiben neben dem Scrollbalken sichtbar
-- [ ] Ordnerbaum: Kontonamen sind fett und etwas größer; Auswahl und Auf-/Zuklappen funktionieren normal
-- [ ] Mail in Junk oder Quarantäne mit eingebettetem Bild: kein Bild, „Bilder laden (n blockiert)“ zählt es mit; nach dem Klick erscheinen die Bilder nur für diese Mail
+- [x] Ordnerbaum: Die Ungelesen-Zahlen bleiben neben dem Scrollbalken sichtbar
+- [x] Ordnerbaum: Kontonamen sind fett und etwas größer; Auswahl und Auf-/Zuklappen funktionieren normal
+- [x] Mail in Junk oder Quarantäne mit eingebettetem Bild: kein Bild, „Bilder laden (n blockiert)“ zählt es mit; nach dem Klick erscheinen die Bilder nur für diese Mail
 - [ ] Dieselbe Mail in einem normalen Ordner (oder eine Mail im Posteingang): eingebettete Bilder erscheinen sofort
 
 **Das meldest du an Claude** (keine Betreffs oder Adressen nötig)
