@@ -1,3 +1,4 @@
+using System.Diagnostics.CodeAnalysis;
 using MailWarden.Core.Commands;
 using MailWarden.Core.Model;
 using MailWarden.Infrastructure.Logging;
@@ -20,7 +21,7 @@ public sealed class MailboxActions(
     ICriticalLog? log = null) : IMailboxActions
 {
     /// <summary>Fixed text of a rejection after commands were already stored.</summary>
-    public const string PartlyDoneText = "Die Aktion wurde nur teilweise ausgeführt, ein Teil der Mails wurde abgelehnt.";
+    public const string PartlyDoneText = "Die Aktion wurde nur teilweise ausgeführt, für einen Teil der Mails konnte sie nicht gespeichert werden.";
 
     private const string RejectedText = "Die Aktion wurde abgelehnt, die Ansicht ist vermutlich nicht mehr aktuell.";
     private const string UnknownFolderText = "Der Ordner dieser Aktion ist nicht mehr bekannt.";
@@ -82,9 +83,11 @@ public sealed class MailboxActions(
         return RunSerialisedAsync(
             async token =>
             {
-                await RequireEmptiableFolderAsync(folderId, token).ConfigureAwait(false);
+                // The UIDVALIDITY first: a reset between the two reads then gives an old value with new UIDs, and the queue refuses
+                // that later. The other order could pair old UIDs with the new value.
+                MailFolder folder = await RequireEmptiableFolderAsync(folderId, token).ConfigureAwait(false);
                 IReadOnlyDictionary<uint, MessageFlags> localMessages = await messageStore.GetUidFlagsAsync(folderId, token).ConfigureAwait(false);
-                return new EmptyFolderPreview(localMessages.Count, HighestUid(localMessages));
+                return new EmptyFolderPreview(folder.UidValidity, new HashSet<uint>(localMessages.Keys));
             },
             ct);
     }
@@ -97,27 +100,21 @@ public sealed class MailboxActions(
             async token =>
             {
                 await RequireEmptiableFolderAsync(folderId, token).ConfigureAwait(false);
-                IReadOnlyDictionary<uint, MessageFlags> localMessages = await messageStore.GetUidFlagsAsync(folderId, token).ConfigureAwait(false);
-                if (HighestUid(localMessages) > confirmed.HighestUid || localMessages.Count > confirmed.Count)
+                MailCommand? command;
+                try
+                {
+                    command = await CallQueueAsync(() => queue.EnqueueEmptyFolderAsync(folderId, confirmed.UidValidity, confirmed.Uids, token)).ConfigureAwait(false);
+                }
+                catch (EmptyFolderChangedException)
                 {
                     throw new MailActionException(MailArrivedText);
                 }
 
-                MailCommand? command = await CallQueueAsync(() => queue.EnqueueEmptyFolderAsync(folderId, token)).ConfigureAwait(false);
-                if (command is null)
+                if (command is not null)
                 {
-                    return true;
+                    triggerAccount(command.AccountId);
                 }
 
-                // The sync runs on another connection, so a mail can arrive after the check above. The command holds what the queue
-                // really took; it goes again before a cycle is scheduled, also when the caller has cancelled in the meantime.
-                if (command.Uids[^1] > confirmed.HighestUid || command.Uids.Count > confirmed.Count)
-                {
-                    await queue.DiscardAsync(command.Id, CancellationToken.None).ConfigureAwait(false);
-                    throw new MailActionException(MailArrivedText);
-                }
-
-                triggerAccount(command.AccountId);
                 return true;
             },
             ct);
@@ -165,6 +162,37 @@ public sealed class MailboxActions(
     }
 
     /// <summary>
+    /// The rule for a failure after commands of the same action were stored: the user is told that it was done only partly, and
+    /// the type name goes to the log unless it is a refusal. Cancellation, a closed connection and lack of memory stay what they are.
+    /// </summary>
+    /// <param name="failure">The failure.</param>
+    /// <param name="log">Critical log; null means no logging.</param>
+    /// <param name="source">Origin for the log as <c>module.function</c>.</param>
+    /// <param name="partlyDone">The exception to throw instead; null when the rule does not apply.</param>
+    /// <returns>True when the rule applies.</returns>
+    public static bool TryGetPartlyDone(
+        Exception failure,
+        ICriticalLog? log,
+        string source,
+        [NotNullWhen(true)] out MailActionException? partlyDone)
+    {
+        ArgumentNullException.ThrowIfNull(failure);
+        partlyDone = null;
+        if (failure is OperationCanceledException or ObjectDisposedException or OutOfMemoryException)
+        {
+            return false;
+        }
+
+        if (failure is not MailActionException)
+        {
+            log?.Write(CriticalLogLevel.Critical, source, $"Storing a command failed after others were stored: {failure.GetType().Name}");
+        }
+
+        partlyDone = new MailActionException(PartlyDoneText);
+        return true;
+    }
+
+    /// <summary>
     /// Waits for the running call and refuses later ones, so that the connection can be closed safely afterwards.
     /// </summary>
     /// <returns>A task that completes when no call runs any more.</returns>
@@ -179,11 +207,6 @@ public sealed class MailboxActions(
         {
             connectionGate.Release();
         }
-    }
-
-    private static uint HighestUid(IReadOnlyDictionary<uint, MessageFlags> localMessages)
-    {
-        return localMessages.Keys.DefaultIfEmpty(0u).Max();
     }
 
     private static PendingAction ToPendingAction(MailCommand command, IReadOnlyDictionary<uint, long> messageIds)
@@ -263,14 +286,9 @@ public sealed class MailboxActions(
                     }
                 }
                 catch (Exception exception) when (accountsWithNewCommands.Count > 0
-                    && exception is not (OperationCanceledException or ObjectDisposedException or OutOfMemoryException))
+                    && TryGetPartlyDone(exception, log, "MailboxActions.EnqueuePerFolderAsync", out MailActionException? partlyDone))
                 {
-                    if (exception is not MailActionException)
-                    {
-                        log?.Write(CriticalLogLevel.Critical, "MailboxActions.EnqueuePerFolderAsync", $"Storing a command failed after others were stored: {exception.GetType().Name}");
-                    }
-
-                    throw new MailActionException(PartlyDoneText);
+                    throw partlyDone;
                 }
                 finally
                 {
@@ -300,7 +318,7 @@ public sealed class MailboxActions(
         }
     }
 
-    private async Task RequireEmptiableFolderAsync(long folderId, CancellationToken ct)
+    private async Task<MailFolder> RequireEmptiableFolderAsync(long folderId, CancellationToken ct)
     {
         MailFolder folder = await folders.GetAsync(folderId, ct).ConfigureAwait(false)
             ?? throw new MailActionException(UnknownFolderText);
@@ -317,6 +335,8 @@ public sealed class MailboxActions(
         {
             throw new MailActionException(MailsLeavingFolderText);
         }
+
+        return folder;
     }
 
     private Task<TResult> RunSerialisedAsync<TResult>(Func<CancellationToken, Task<TResult>> work, CancellationToken ct)

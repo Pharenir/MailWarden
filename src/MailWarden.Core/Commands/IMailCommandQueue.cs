@@ -93,18 +93,28 @@ public interface IMailCommandQueue
         CancellationToken ct = default);
 
     /// <summary>
-    /// "Ordner leeren": only for role Trash or Junk. Takes the UIDs stored locally for the folder now and enqueues
-    /// <see cref="MailCommandKind.DeletePermanently"/> for exactly these; messages that arrive later are never touched.
-    /// The 1,000-UID limit of the other Enqueue methods does not apply: one command holds all local UIDs. The
-    /// UIDVALIDITY stored now becomes <see cref="MailCommand.FolderUidValidity"/> (snapshot of the same moment).
+    /// "Ordner leeren": only for role Trash or Junk, and only what the user confirmed. Reading the UIDVALIDITY, reading the local
+    /// UIDs and storing the command are one write transaction, so that no sync can store a message in between; any failure stores
+    /// nothing. Enqueues <see cref="MailCommandKind.DeletePermanently"/> for exactly the local UIDs, which may be fewer than the
+    /// confirmed ones. The 1,000-UID limit of the other Enqueue methods does not apply: one command holds all local UIDs.
     /// </summary>
     /// <param name="folderId">Folder to empty.</param>
+    /// <param name="confirmedUidValidity">UIDVALIDITY of the folder when the user confirmed.</param>
+    /// <param name="confirmedUids">UIDs the user confirmed.</param>
     /// <param name="ct">Cancellation token.</param>
     /// <returns>The stored command, or null when the folder has no local messages.</returns>
+    /// <exception cref="ArgumentNullException"><paramref name="confirmedUids"/> is null.</exception>
     /// <exception cref="ArgumentException">
     /// The folder is unknown, its role is neither Trash nor Junk, or it was never synced (UIDVALIDITY 0).
     /// </exception>
-    Task<MailCommand?> EnqueueEmptyFolderAsync(long folderId, CancellationToken ct = default);
+    /// <exception cref="EmptyFolderChangedException">
+    /// The UIDVALIDITY differs from the confirmed one, or a local UID was not confirmed; nothing is stored.
+    /// </exception>
+    Task<MailCommand?> EnqueueEmptyFolderAsync(
+        long folderId,
+        uint confirmedUidValidity,
+        IReadOnlyCollection<uint> confirmedUids,
+        CancellationToken ct = default);
 
     /// <summary>Lists the pending and failed commands of the account, oldest first.</summary>
     /// <param name="accountId">Account id.</param>

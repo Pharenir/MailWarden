@@ -21,11 +21,26 @@ public sealed record PendingAction(
     string? LastError);
 
 /// <summary>
-/// What "Ordner leeren" would delete right now; the confirmation of the user refers to it.
+/// What "Ordner leeren" would delete right now: exactly what the confirmation of the user refers to. Compare two previews with
+/// <see cref="HasSameContent"/>: the equality of a record compares the set by reference.
 /// </summary>
-/// <param name="Count">Number of local mails.</param>
-/// <param name="HighestUid">Highest local UID; 0 without mails. A mail that arrives later has a higher one.</param>
-public sealed record EmptyFolderPreview(int Count, uint HighestUid);
+/// <param name="UidValidity">UIDVALIDITY of the folder; only under it do the UIDs name these mails.</param>
+/// <param name="Uids">The local UIDs.</param>
+public sealed record EmptyFolderPreview(uint UidValidity, IReadOnlySet<uint> Uids)
+{
+    /// <summary>Number of local mails, for the confirmation.</summary>
+    public int Count => Uids.Count;
+
+    /// <summary>Tells whether another preview names the same mails.</summary>
+    /// <param name="other">The other preview.</param>
+    /// <returns>True for the same UIDVALIDITY and the same UIDs.</returns>
+    /// <exception cref="ArgumentNullException"><paramref name="other"/> is null.</exception>
+    public bool HasSameContent(EmptyFolderPreview other)
+    {
+        ArgumentNullException.ThrowIfNull(other);
+        return UidValidity == other.UidValidity && Uids.SetEquals(other.Uids);
+    }
+}
 
 /// <summary>
 /// What the user interface may change. Every member only stores commands in the queue and schedules a cycle; the executor
@@ -92,13 +107,13 @@ public interface IMailboxActions
 
     /// <summary>"Ordner leeren": one command with the UIDs stored now. A folder without local mails stores nothing.</summary>
     /// <param name="folderId">Folder with role Trash or Junk.</param>
-    /// <param name="confirmed">The preview the user has confirmed. Fewer mails now are fine.</param>
+    /// <param name="confirmed">The preview the user has confirmed. Fewer of these mails now are fine.</param>
     /// <param name="ct">Cancellation token.</param>
     /// <returns>A task that completes when the command is stored.</returns>
     /// <exception cref="ArgumentNullException"><paramref name="confirmed"/> is null.</exception>
     /// <exception cref="MailActionException">
-    /// As for <see cref="PreviewEmptyAsync"/>, or a mail has arrived that the user has not seen: the highest UID or the number of
-    /// mails is above the confirmed one, now or in the stored command, which is then discarded again before any cycle is scheduled.
+    /// As for <see cref="PreviewEmptyAsync"/>, or the folder holds a mail the user has not confirmed, or its UIDVALIDITY has changed:
+    /// the queue checks this and stores the command in one transaction, so nothing is stored then.
     /// </exception>
     Task EmptyFolderAsync(long folderId, EmptyFolderPreview confirmed, CancellationToken ct = default);
 
