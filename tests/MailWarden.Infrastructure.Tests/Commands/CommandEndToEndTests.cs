@@ -164,7 +164,7 @@ public sealed class CommandEndToEndTests
     {
         await using CommandHarness harness = await CreateSyncedAsync(junkMessages: 3);
         MailFolder junk = await harness.Sync.GetFolderAsync(JunkName);
-        await harness.Queue.EnqueueEmptyFolderAsync(junk.Id);
+        await harness.EnqueueEmptyConfirmedAsync(junk.Id);
 
         CommandRunReport report = await harness.ExecuteAsync();
         SyncReport sync = await harness.RunSyncAsync();

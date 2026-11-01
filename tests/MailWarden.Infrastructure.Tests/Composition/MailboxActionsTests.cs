@@ -11,6 +11,8 @@ public sealed class MailboxActionsTests
 {
     private static readonly string[] ForbiddenInMessages = ["subject_", "sender_a", "example.test"];
 
+    private static EmptyFolderPreview Confirmed(uint uidValidity, params uint[] uids) => new(uidValidity, new HashSet<uint>(uids));
+
     private static void AssertFixedText(MailActionException exception)
     {
         Assert.False(string.IsNullOrWhiteSpace(exception.Message));
@@ -343,7 +345,8 @@ public sealed class MailboxActionsTests
         await harness.Actions.EmptyFolderAsync(folder.Id, preview);
 
         Assert.Equal(4, preview.Count);
-        Assert.Equal(4u, preview.HighestUid);
+        Assert.Equal(1000u, preview.UidValidity);
+        Assert.Equal(new uint[] { 1, 2, 3, 4 }, preview.Uids.Order().ToArray());
         MailCommand command = Assert.Single(await harness.CommandsAsync(account));
         Assert.Equal(folder.Id, command.FolderId);
         Assert.Equal(new uint[] { 1, 2, 3, 4 }, command.Uids);
@@ -357,13 +360,13 @@ public sealed class MailboxActionsTests
         await using ActionsHarness harness = await ActionsHarness.CreateAsync();
         Account account = await harness.AddAccountAsync();
         MailFolder junk = await harness.AddFolderAsync(account, FolderRole.Junk, "Junk");
-        Assert.Equal(new EmptyFolderPreview(0, 0), await harness.Actions.PreviewEmptyAsync(junk.Id));
+        Assert.True(Confirmed(1000).HasSameContent(await harness.Actions.PreviewEmptyAsync(junk.Id)));
         await harness.AddMessagesAsync(junk, 3);
-        Assert.Equal(new EmptyFolderPreview(3, 3), await harness.Actions.PreviewEmptyAsync(junk.Id));
+        Assert.True(Confirmed(1000, 1, 2, 3).HasSameContent(await harness.Actions.PreviewEmptyAsync(junk.Id)));
 
         await harness.Messages.DeleteByUidsAsync(junk.Id, [1u]);
 
-        Assert.Equal(new EmptyFolderPreview(2, 3), await harness.Actions.PreviewEmptyAsync(junk.Id));
+        Assert.True(Confirmed(1000, 2, 3).HasSameContent(await harness.Actions.PreviewEmptyAsync(junk.Id)));
     }
 
     // Case 4
@@ -375,7 +378,7 @@ public sealed class MailboxActionsTests
         MailFolder inbox = await harness.AddFolderAsync(account, FolderRole.Inbox);
         await harness.AddMessagesAsync(inbox, 3);
 
-        MailActionException exception = await Assert.ThrowsAsync<MailActionException>(() => harness.Actions.EmptyFolderAsync(inbox.Id, new EmptyFolderPreview(3, 3)));
+        MailActionException exception = await Assert.ThrowsAsync<MailActionException>(() => harness.Actions.EmptyFolderAsync(inbox.Id, Confirmed(1000, 1, 2, 3)));
 
         AssertFixedText(exception);
         Assert.Equal(0, await harness.CommandCountAsync(account));
@@ -389,7 +392,7 @@ public sealed class MailboxActionsTests
         await using ActionsHarness harness = await ActionsHarness.CreateAsync();
         await harness.AddAccountAsync();
 
-        await Assert.ThrowsAsync<MailActionException>(() => harness.Actions.EmptyFolderAsync(987_654, new EmptyFolderPreview(0, 0)));
+        await Assert.ThrowsAsync<MailActionException>(() => harness.Actions.EmptyFolderAsync(987_654, Confirmed(1000)));
     }
 
     // Case 4: nothing to delete is no command and no trigger.
@@ -400,7 +403,7 @@ public sealed class MailboxActionsTests
         Account account = await harness.AddAccountAsync();
         MailFolder junk = await harness.AddFolderAsync(account, FolderRole.Junk, "Junk");
 
-        await harness.Actions.EmptyFolderAsync(junk.Id, new EmptyFolderPreview(0, 0));
+        await harness.Actions.EmptyFolderAsync(junk.Id, Confirmed(1000));
 
         Assert.Equal(0, await harness.CommandCountAsync(account));
         Assert.Empty(harness.Triggered);
@@ -572,7 +575,7 @@ public sealed class MailboxActionsTests
         long commandsBefore = await harness.CommandCountAsync(account);
 
         MailActionException previewFailure = await Assert.ThrowsAsync<MailActionException>(() => harness.Actions.PreviewEmptyAsync(junk.Id));
-        MailActionException emptyFailure = await Assert.ThrowsAsync<MailActionException>(() => harness.Actions.EmptyFolderAsync(junk.Id, new EmptyFolderPreview(3, 3)));
+        MailActionException emptyFailure = await Assert.ThrowsAsync<MailActionException>(() => harness.Actions.EmptyFolderAsync(junk.Id, Confirmed(1000, 1, 2, 3)));
 
         AssertFixedText(previewFailure);
         AssertFixedText(emptyFailure);
@@ -588,7 +591,7 @@ public sealed class MailboxActionsTests
         IReadOnlyList<MailMessage> stored = await harness.Messages.ListAsync(new MessageQuery(FolderId: junk.Id));
         await harness.Actions.MoveToTrashAsync([stored[0]]);
 
-        await Assert.ThrowsAsync<MailActionException>(() => harness.Actions.EmptyFolderAsync(junk.Id, new EmptyFolderPreview(3, 3)));
+        await Assert.ThrowsAsync<MailActionException>(() => harness.Actions.EmptyFolderAsync(junk.Id, Confirmed(1000, 1, 2, 3)));
 
         Assert.Equal(1, await harness.CommandCountAsync(account));
     }
@@ -606,7 +609,7 @@ public sealed class MailboxActionsTests
         Assert.Equal(MailCommandStatus.Pending, Assert.Single(await harness.CommandsAsync(account)).Status);
 
         await Assert.ThrowsAsync<MailActionException>(() => harness.Actions.PreviewEmptyAsync(junk.Id));
-        await Assert.ThrowsAsync<MailActionException>(() => harness.Actions.EmptyFolderAsync(junk.Id, new EmptyFolderPreview(3, 3)));
+        await Assert.ThrowsAsync<MailActionException>(() => harness.Actions.EmptyFolderAsync(junk.Id, Confirmed(1000, 1, 2, 3)));
 
         Assert.Single(await harness.CommandsAsync(account));
     }
@@ -643,7 +646,7 @@ public sealed class MailboxActionsTests
         Assert.Equal(0, await harness.CommandCountAsync(account));
         Assert.Empty(harness.Triggered);
         EmptyFolderPreview fresh = await harness.Actions.PreviewEmptyAsync(junk.Id);
-        Assert.Equal(new EmptyFolderPreview(4, 4), fresh);
+        Assert.True(Confirmed(1000, 1, 2, 3, 4).HasSameContent(fresh));
         await harness.Actions.EmptyFolderAsync(junk.Id, fresh);
         Assert.Equal(new uint[] { 1, 2, 3, 4 }, Assert.Single(await harness.CommandsAsync(account)).Uids);
     }
@@ -698,7 +701,7 @@ public sealed class MailboxActionsTests
         MailFolder junk = await harness.AddFolderAsync(account, FolderRole.Junk, "Junk");
         await harness.AddMessagesAsync(junk, 3, firstUid: 2);
         EmptyFolderPreview preview = await harness.Actions.PreviewEmptyAsync(junk.Id);
-        Assert.Equal(new EmptyFolderPreview(3, 4), preview);
+        Assert.True(Confirmed(1000, 2, 3, 4).HasSameContent(preview));
         await harness.AddMessagesAsync(junk, 1, firstUid: 1);
 
         MailActionException refusal = await Assert.ThrowsAsync<MailActionException>(() => harness.Actions.EmptyFolderAsync(junk.Id, preview));
@@ -766,5 +769,138 @@ public sealed class MailboxActionsTests
         await harness.Actions.SetFlaggedAsync(mails, flagged: true);
 
         Assert.Equal(1, await harness.CommandCountAsync(account));
+    }
+
+    // ---- fix.4 W-a .. W-e and atomicity (real queue, real SQLite) -------------------------------------------
+
+    private static async Task<(ActionsHarness Harness, Account Account, MailFolder Junk)> JunkWithUidsAsync(params uint[] uids)
+    {
+        ActionsHarness harness = await ActionsHarness.CreateAsync();
+        Account account = await harness.AddAccountAsync();
+        await harness.AddFolderAsync(account, FolderRole.Inbox);
+        MailFolder junk = await harness.AddFolderAsync(account, FolderRole.Junk, "Junk", uidValidity: 1000);
+        foreach (uint uid in uids)
+        {
+            await harness.AddMessagesAsync(junk, 1, firstUid: uid);
+        }
+
+        return (harness, account, junk);
+    }
+
+    // W-a: confirmed {10, 20}, local {15, 20}: same count, same highest UID, still refused; nothing stored.
+    [Fact(Timeout = TestTimeouts.PerTestMilliseconds)]
+    public async Task W_a_same_count_and_highest_uid_but_another_uid_is_refused_and_nothing_is_stored()
+    {
+        (ActionsHarness harness, Account account, MailFolder junk) = await JunkWithUidsAsync(10, 20);
+        await using ActionsHarness owned = harness;
+        EmptyFolderPreview confirmed = Confirmed(1000, 10, 20);
+        await harness.Messages.DeleteByUidsAsync(junk.Id, [10u]);
+        await harness.AddMessagesAsync(junk, 1, firstUid: 15);
+
+        MailActionException refusal = await Assert.ThrowsAsync<MailActionException>(() => harness.Actions.EmptyFolderAsync(junk.Id, confirmed));
+
+        AssertFixedText(refusal);
+        Assert.NotEqual(MailboxActions.PartlyDoneText, refusal.Message);
+        Assert.Equal(0, await harness.CommandCountAsync(account));
+        Assert.Empty(await harness.Queue.ListAsync(account.Id));
+        Assert.Empty(harness.Triggered);
+    }
+
+    // W-b: UIDVALIDITY changed, local UIDs a subset of the confirmed ones: refused; nothing stored.
+    [Fact(Timeout = TestTimeouts.PerTestMilliseconds)]
+    public async Task W_b_a_changed_uid_validity_is_refused_and_nothing_is_stored()
+    {
+        (ActionsHarness harness, Account account, MailFolder junk) = await JunkWithUidsAsync(1, 2, 3);
+        await using ActionsHarness owned = harness;
+        EmptyFolderPreview confirmed = Confirmed(1000, 1, 2, 3);
+        await harness.Folders.UpsertAsync(junk with { UidValidity = 2000 });
+        Assert.Equal(2000u, (await harness.Folders.GetAsync(junk.Id))!.UidValidity);
+        Assert.Equal(3, (await harness.Messages.ListAsync(new MessageQuery(FolderId: junk.Id))).Count);
+
+        MailActionException refusal = await Assert.ThrowsAsync<MailActionException>(() => harness.Actions.EmptyFolderAsync(junk.Id, confirmed));
+
+        AssertFixedText(refusal);
+        Assert.NotEqual(MailboxActions.PartlyDoneText, refusal.Message);
+        Assert.Empty(await harness.Queue.ListAsync(account.Id));
+        Assert.Empty(harness.Triggered);
+    }
+
+    // W-c: local UIDs are a proper subset of the confirmed ones: the command holds exactly the local UIDs.
+    [Fact(Timeout = TestTimeouts.PerTestMilliseconds)]
+    public async Task W_c_a_proper_subset_stores_exactly_the_local_uids()
+    {
+        (ActionsHarness harness, Account account, MailFolder junk) = await JunkWithUidsAsync(1, 2, 3);
+        await using ActionsHarness owned = harness;
+
+        await harness.Actions.EmptyFolderAsync(junk.Id, Confirmed(1000, 1, 2, 3, 99));
+
+        MailCommand command = Assert.Single(await harness.Queue.ListAsync(account.Id));
+        Assert.Equal(new uint[] { 1, 2, 3 }, command.Uids);
+        Assert.Equal(junk.Id, command.FolderId);
+        Assert.Equal(1000u, command.FolderUidValidity);
+    }
+
+    // W-d: nothing local any more: no command and no failure.
+    [Fact(Timeout = TestTimeouts.PerTestMilliseconds)]
+    public async Task W_d_nothing_local_any_more_stores_nothing_and_does_not_fail()
+    {
+        (ActionsHarness harness, Account account, MailFolder junk) = await JunkWithUidsAsync(1, 2);
+        await using ActionsHarness owned = harness;
+        EmptyFolderPreview confirmed = Confirmed(1000, 1, 2);
+        await harness.Messages.DeleteByUidsAsync(junk.Id, [1u, 2u]);
+
+        Exception? failure = await Record.ExceptionAsync(() => harness.Actions.EmptyFolderAsync(junk.Id, confirmed));
+
+        Assert.Null(failure);
+        Assert.Empty(await harness.Queue.ListAsync(account.Id));
+        Assert.Empty(harness.Triggered);
+    }
+
+    private static async Task ExecuteAsync(ActionsHarness harness, string sql)
+    {
+        await using Microsoft.Data.Sqlite.SqliteCommand command = harness.SeedDatabase.Connection.CreateCommand();
+        command.CommandText = sql;
+        await command.ExecuteNonQueryAsync();
+    }
+
+    // W-e: the insert fails (trigger): nothing stored, the error reaches the caller; the same call works once the trigger is gone.
+    [Fact(Timeout = TestTimeouts.PerTestMilliseconds)]
+    public async Task W_e_a_failing_insert_stores_nothing_reaches_the_caller_and_the_retry_works()
+    {
+        (ActionsHarness harness, Account account, MailFolder junk) = await JunkWithUidsAsync(1, 2, 3);
+        await using ActionsHarness owned = harness;
+        EmptyFolderPreview confirmed = Confirmed(1000, 1, 2, 3);
+        await ExecuteAsync(harness, "CREATE TRIGGER fail_every_command BEFORE INSERT ON mail_commands BEGIN SELECT RAISE(ABORT, 'marker_storage_failure'); END;");
+
+        Exception failure = await Assert.ThrowsAnyAsync<Exception>(() => harness.Actions.EmptyFolderAsync(junk.Id, confirmed));
+
+        Assert.NotNull(failure);
+        Assert.Empty(await harness.Queue.ListAsync(account.Id));
+        await ExecuteAsync(harness, "DROP TRIGGER fail_every_command;");
+
+        await harness.Actions.EmptyFolderAsync(junk.Id, confirmed);
+
+        Assert.Equal(new uint[] { 1, 2, 3 }, Assert.Single(await harness.Queue.ListAsync(account.Id)).Uids);
+    }
+
+    // Atomicity: another connection holds the write lock and changes a UID; the empty waits for it and then refuses.
+    [Fact(Timeout = TestTimeouts.PerTestMilliseconds)]
+    public async Task Check_and_insert_are_one_transaction_a_concurrent_uid_change_is_seen()
+    {
+        (ActionsHarness harness, Account account, MailFolder junk) = await JunkWithUidsAsync(1, 2, 3);
+        await using ActionsHarness owned = harness;
+        EmptyFolderPreview confirmed = Confirmed(1000, 1, 2, 3);
+        await ExecuteAsync(harness, "BEGIN IMMEDIATE;");
+
+        Task<MailActionException> call = Assert.ThrowsAsync<MailActionException>(() => harness.Actions.EmptyFolderAsync(junk.Id, confirmed));
+        await Task.Delay(500);
+        Assert.False(call.IsCompleted, "the call must wait for the write lock instead of reading around it");
+        await ExecuteAsync(harness, $"UPDATE messages SET uid = 7 WHERE folder_id = {junk.Id} AND uid = 3;");
+        await ExecuteAsync(harness, "COMMIT;");
+
+        MailActionException refusal = await call;
+        AssertFixedText(refusal);
+        Assert.NotEqual(MailboxActions.PartlyDoneText, refusal.Message);
+        Assert.Empty(await harness.Queue.ListAsync(account.Id));
     }
 }

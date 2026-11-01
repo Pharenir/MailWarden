@@ -521,4 +521,43 @@ public sealed class ActionRaceTests
             Assert.True(Volatile.Read(ref fired) >= 1, "the event must fire when rows are removed");
         }
     }
+
+    // ---- fix.4 W-f / W-g ------------------------------------------------------------------------------------
+
+    // W-g: refused although the new preview has the same content: stops with the error, no further question.
+    [Fact(Timeout = TestTimeouts.PerTestMilliseconds)]
+    public async Task A_refusal_with_an_unchanged_preview_stops_with_the_error_and_asks_once()
+    {
+        (ShellHarness harness, _, _) = await InitializedInFolderAsync(FolderRole.Junk, 4);
+        harness.Actions.EmptyRefusal = new MailActionException("fixed refusal: a new mail arrived");
+
+        harness.Shell.EmptyFolderCommand.Execute(null);
+
+        await WaitForConfirmationAsync(harness);
+        await Wait.UntilAsync(() => !string.IsNullOrWhiteSpace(harness.Shell.Banner), "banner shows the refusal");
+        await Wait.NegativeWindowAsync();
+        Assert.Single(harness.ConfirmationTexts);
+        Assert.Empty(harness.Actions.CallsNamed("EmptyFolder"));
+        AssertNoPrivateText(harness.Shell.Banner);
+    }
+
+    // W-f positive control for W-g: when the preview differs after the refusal the dialog does ask again
+    // (see A_mail_arriving_after_the_preview_makes_the_ui_ask_again_with_the_new_count).
+    [Fact(Timeout = TestTimeouts.PerTestMilliseconds)]
+    public async Task A_refusal_with_a_different_preview_asks_again_with_the_new_count()
+    {
+        (ShellHarness harness, _, MailFolder junk) = await InitializedInFolderAsync(FolderRole.Junk, 4);
+        harness.BeforeAnswer = number =>
+        {
+            if (number == 1)
+            {
+                harness.ReadModel.AddMessage(junk, "marker_subject_arrived_lower", fromName: "marker_sender_x");
+            }
+        };
+
+        harness.Shell.EmptyFolderCommand.Execute(null);
+
+        await WaitForConfirmationAsync(harness, 2);
+        Assert.Contains("5", harness.ConfirmationTexts[1], StringComparison.Ordinal);
+    }
 }

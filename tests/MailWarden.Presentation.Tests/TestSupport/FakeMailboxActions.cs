@@ -123,6 +123,12 @@ internal sealed class FakeMailboxActions(FakeMailboxReadModel readModel) : IMail
             readModel.MoveMessage(message.Id, target);
         });
 
+    /// <summary>When set, <see cref="EmptyFolderAsync"/> refuses with it regardless of the content (a forced refusal).</summary>
+    public MailActionException? EmptyRefusal { get; set; }
+
+    /// <summary>UIDVALIDITY the fake reports in every preview.</summary>
+    public const uint PreviewUidValidity = 1000;
+
     public async Task<EmptyFolderPreview> PreviewEmptyAsync(long folderId, CancellationToken ct = default)
     {
         IReadOnlyList<MailMessage> stored = await readModel.ListMessagesAsync(new MessageQuery(FolderId: folderId, Limit: int.MaxValue), ct);
@@ -136,7 +142,14 @@ internal sealed class FakeMailboxActions(FakeMailboxReadModel readModel) : IMail
             }
         }
 
-        return new EmptyFolderPreview(count, stored.Count == 0 ? 0u : stored.Max(message => message.Uid));
+        // A count override adds synthetic UIDs above every real one so that the set still contains the stored UIDs.
+        HashSet<uint> uids = [.. stored.Select(message => message.Uid)];
+        for (uint extra = 0; uids.Count < count; extra++)
+        {
+            uids.Add(uint.MaxValue - extra);
+        }
+
+        return new EmptyFolderPreview(PreviewUidValidity, uids);
     }
 
     /// <summary>Number of <see cref="PreviewEmptyAsync"/> calls.</summary>
@@ -167,7 +180,7 @@ internal sealed class FakeMailboxActions(FakeMailboxReadModel readModel) : IMail
 
     private readonly List<EmptyFolderPreview> _confirmed = [];
 
-    /// <summary>Like the product: refuses with <see cref="MailActionException"/> when a mail above the confirmed highest UID arrived.</summary>
+    /// <summary>Like the product: refuses with <see cref="MailActionException"/> when a local UID is not among the confirmed ones.</summary>
     public async Task EmptyFolderAsync(long folderId, EmptyFolderPreview confirmed, CancellationToken ct = default)
     {
         IReadOnlyList<MailMessage> messages = await readModel.ListMessagesAsync(new MessageQuery(FolderId: folderId, Limit: int.MaxValue), ct);
@@ -176,7 +189,12 @@ internal sealed class FakeMailboxActions(FakeMailboxReadModel readModel) : IMail
             _confirmed.Add(confirmed);
         }
 
-        if (messages.Any(message => message.Uid > confirmed.HighestUid))
+        if (EmptyRefusal is not null)
+        {
+            throw EmptyRefusal;
+        }
+
+        if (confirmed.UidValidity != PreviewUidValidity || messages.Any(message => !confirmed.Uids.Contains(message.Uid)))
         {
             throw new MailActionException("fixed refusal: a new mail arrived");
         }
