@@ -446,3 +446,20 @@ Test cases 1–41 use fakes for the read model, controller, dispatcher and setti
 - Documenter: `README.md` (first use of the app, data folder, layout), PLAN rows AP-04a, `work\manual-tests.md` part for
   cases 42–48, TODO deferred items.
 - Dennis has checked the manual cases 42–48.
+
+## Decisions author.0 (planner, 2026-11-01, questions of the tester)
+- `MailContentReader`: only an input that cannot be parsed as a message (at least the empty stream) gives
+  `MailContentException`. An `IOException` from the stream propagates unchanged; the reading pane turns it into `Error`.
+- `UiSettingsFile(string path)`: `path` is the path of the file, not of its folder.
+- `SelectedItem` and `SelectedRow` setters start the load without the caller being able to await it. `LoadAsync`,
+  `ShowAsync`, `ReloadAsync`, `LoadMoreAsync`, `InitializeAsync` can be awaited directly.
+- Cancellation in `ShowAsync`: the `OperationCanceledException` of the caller's token propagates. The state does not
+  become `Error` and nothing is logged.
+- Sanitizer: with `allowRemoteImages`, `background-image: url(https://...)` stays in an inline `style`. Configure the
+  allowed CSS properties accordingly.
+- Very deep nesting (case 15, 5,000 levels) must not end the process: no stack overflow in parsing, sanitizing or
+  serializing. If the library cannot guarantee it, the sanitizer limits the depth before parsing and returns a safe
+  result; state which in the notes.
+- The `HtmlSanitizer` reference has no `PrivateAssets`, so its AngleSharp dependency flows to the test projects.
+- Tests check only that `StatusText` is non-empty, differs by state and contains no exception text, and that the
+  empty-accounts banner contains "AuthProbe". The exact German wording stays free.
