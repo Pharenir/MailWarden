@@ -57,3 +57,7 @@ with sender `sender_a@<U+1D41A>xample.test`. Class: test error (a). The sender h
 
 Result: PASS. Affected classes (`AllowListAndAlignmentTests`, `ContactBookTests`): 38 of 38. Then S3 green: Core 536, Infrastructure 1513,
 Presentation 356, total 2405 of 2405, about 15 s. Build `-warnaserror` clean. No failures.
+
+## verify.3c (case 27: xn-- label with a fullwidth letter)
+
+Result: PASS. S3 green: Core 536, Infrastructure 1514, Presentation 356, total 2406 of 2406, about 16 s. Build `-warnaserror` clean. No failures.
