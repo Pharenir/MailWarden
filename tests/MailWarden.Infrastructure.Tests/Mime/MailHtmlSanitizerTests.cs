@@ -39,6 +39,12 @@ public sealed class MailHtmlSanitizerTests
 
     private static IEnumerable<IElement> AllElements(IHtmlDocument document) => document.All;
 
+    // A harmless colour may be normalised by the sanitizer (red -> rgba(255, 0, 0, 1)); all spellings count.
+    private static bool IsRed(string styles) =>
+        styles.Contains("red", StringComparison.OrdinalIgnoreCase) ||
+        Regex.IsMatch(styles, @"rgba?\(\s*255\s*,\s*0\s*,\s*0", RegexOptions.CultureInvariant) ||
+        Regex.IsMatch(styles, "#f00|#ff0000", RegexOptions.IgnoreCase | RegexOptions.CultureInvariant);
+
     private static IReadOnlyList<string> StyleValues(IHtmlDocument document) =>
         [.. AllElements(document).Select(element => element.GetAttribute("style")).Where(value => value is not null).Select(value => value!)];
 
@@ -309,7 +315,7 @@ public sealed class MailHtmlSanitizerTests
 
         Assert.DoesNotContain("tracker.test", blocked.Html, StringComparison.Ordinal);
         Assert.Equal(1, blocked.BlockedRemoteResourceCount);
-        Assert.Contains("red", string.Concat(StyleValues(Parse(blocked))), StringComparison.OrdinalIgnoreCase);
+        Assert.True(IsRed(string.Concat(StyleValues(Parse(blocked)))), "colour lost");
         Assert.Contains("style_marker", Parse(blocked).Body!.TextContent, StringComparison.Ordinal);
         Assert.Contains("tracker.test", string.Concat(StyleValues(Parse(allowed))), StringComparison.Ordinal);
         Assert.Equal(0, allowed.BlockedRemoteResourceCount);
@@ -337,7 +343,7 @@ public sealed class MailHtmlSanitizerTests
         string styles = string.Concat(StyleValues(document));
 
         Assert.DoesNotContain(forbiddenText, styles, StringComparison.OrdinalIgnoreCase);
-        Assert.Contains("red", styles, StringComparison.OrdinalIgnoreCase);
+        Assert.True(IsRed(styles), styles);
         Assert.Contains("style_marker", document.Body!.TextContent, StringComparison.Ordinal);
         Assert.Equal(0, result.BlockedRemoteResourceCount);
     }
@@ -351,7 +357,7 @@ public sealed class MailHtmlSanitizerTests
         SanitizedHtml result = Sanitize("<p style=\"color: red; font-size: 14px\">style_marker</p>");
 
         string styles = string.Concat(StyleValues(Parse(result)));
-        Assert.Contains("red", styles, StringComparison.OrdinalIgnoreCase);
+        Assert.True(IsRed(styles), styles);
         Assert.Contains("14px", styles, StringComparison.OrdinalIgnoreCase);
     }
 
