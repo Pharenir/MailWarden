@@ -23,7 +23,7 @@ public static partial class ClassificationInputReader
     /// </summary>
     /// <param name="eml">Raw message, read from its current position; not disposed.</param>
     /// <param name="ct">Cancellation token.</param>
-    /// <returns>The input, or null when the bytes are no message or no single usable From address exists.</returns>
+    /// <returns>The input, or null when the bytes are no message, no single usable From address exists or building the input failed.</returns>
     /// <exception cref="ArgumentNullException"><paramref name="eml"/> is null.</exception>
     /// <exception cref="IOException">Reading the stream failed.</exception>
     /// <exception cref="OperationCanceledException">The operation was cancelled.</exception>

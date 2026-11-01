@@ -109,7 +109,7 @@ public sealed class ClassificationPass
     /// <param name="accountId">Account to handle.</param>
     /// <param name="ct">Cancellation token.</param>
     /// <returns>The counts of this pass.</returns>
-    /// <exception cref="ArgumentException">The account is unknown.</exception>
+    /// <exception cref="ArgumentException">The account is unknown, or the signals given to the constructor are invalid.</exception>
     /// <exception cref="MailTransportException">Creating the app folders failed; nothing was stored then.</exception>
     /// <exception cref="AuthenticationFailedException">Creating the app folders needs a sign-in; nothing was stored then.</exception>
     /// <exception cref="StorageException">The local store failed.</exception>

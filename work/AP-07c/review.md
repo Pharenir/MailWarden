@@ -36,3 +36,7 @@ Questions: unstable `Received` → `Act` stays off until case 33 (fix.3). Case 3
 
 **Verdict: APPROVE**, one SHOULD: the exception branch of H2 turns a programming error into a silent mass move to Junk
 (`ClassificationPass.cs:179-191`) → fix.4 J1, J2, J3. NITs: `Trim` in the parser (TODO), probe count (J5).
+
+# review.4 (2026-11-01, HEAD 856dc52)
+
+**Verdict: APPROVE.** J1, J2, J3, J5, J6 implemented. Two documentation NITs, fixed by the planner.
