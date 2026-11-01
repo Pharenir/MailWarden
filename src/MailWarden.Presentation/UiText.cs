@@ -117,7 +117,7 @@ public static class UiText
 
     /// <summary>Banner: no accounts yet.</summary>
     public static string BannerNoAccounts =>
-        "Noch keine Konten vorhanden. Konten werden bis AP-04b mit der AuthProbe hinzugefügt.";
+        "Noch keine Konten vorhanden. Konten werden bis AP-04c mit der AuthProbe hinzugefügt.";
 
     /// <summary>Banner: the settings file could not be read.</summary>
     public static string BannerSettingsLoadFailed =>
