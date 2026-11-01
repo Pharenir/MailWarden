@@ -31,3 +31,8 @@ Word about 1.1 MB, plain table about 264 KB.
 
 **Verdict: BLOCK**, only for B3: the same mail selected during its build ends in the text version with a wrong message → fix.4
 M3. B2 closed (32 s → 232 ms, measured). S9: `<svg/>` drops the rest of the mail without a notice → M5. NITs → M7, M8.
+
+# review.4 (2026-11-01)
+
+**Verdict: APPROVE.** B3 closed, M1a holds. S10 `IsScripting` differs from the package factory, not exploitable here → fix.5 N4.
+S11 budget numbers in the notes → N5.

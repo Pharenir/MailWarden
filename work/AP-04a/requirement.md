@@ -681,3 +681,34 @@ stop, and it did. Replacement, same idea, measured per token:
   of the parser budget. Cases 78 and 79 expect the abort or the pre-scan limit, whichever comes first.
 - **M7** changes: `message/partial` is a normal attachment; opaque is only a part the parser left unparsed at the depth limit
   (`multipart/*`, `message/rfc822`) and M6.
+
+## Decisions fix.5 (Dennis 2026-11-01: one extra round; planner decisions below)
+Round budget exceeded by Dennis's decision after secure.4 (0 Critical, 1 High, 1 Medium) and review.4 APPROVE, verify.4 PASS
+1678/1678. Binding. **After this round there are no more security rounds for AP-04a: everything below High goes to `TODO.md`,
+and Dennis tests the app.**
+
+### Must fix
+- **N1 (secure.4 H1: a 3.6 KB mail ends the process when opened, `calc(` with 3,500 `(` recurses in the CSS parser).** In the
+  limiter, an inline `style` value is dropped when it holds more than 256 `(` or more than 256 `&` (`&#40` without a semicolon
+  becomes `(` in the parser). `WasReduced` true.
+- **N2 (backstop for the whole class).** The document build runs on a **dedicated thread with a 256 MB stack**, not on a pool
+  thread, so unknown recursion in the parser, CSS or serializer has room in proportion to the input. At most one build at a time
+  stays (L3). The thread is a background thread and does not keep the process alive. `MailContentReader` and `SyncEngine` keep
+  their parser limits. State in the notes up to which depth `calc` now survives without N1 (probe `secprobe8`).
+- **N3 (secure.4 M1: serialisation multiplies attribute values, 1 MB mail → over 1 billion characters).** Before `ToHtml` the
+  sanitizer estimates the output size iteratively: sum of the attribute values of all elements plus the text length. Above
+  **64,000,000 characters** it takes the same text fallback as a parser abort (`WasReduced` true).
+
+### Should fix
+- **N4 (review S10).** The own parser sets `IsScripting = true` like the package factory; the notes name all parser options.
+- **N5 (review S11).** Correct the numbers in `impl-notes.md`: Word/Outlook about 12,000 styled tags (976 KB), and a budget abort
+  takes all links and images of that mail; the notice appears.
+
+### Additional test cases (fix.5)
+| # | Case | Expected |
+|---|---|---|
+| 91 | `<div style="width:calc(` + n × `(` + `">text</div>` for n = 3,500 and 12,000; same with `)` closed, with `calc(calc(`, with `/**/` between; `calc(` + 5,000 × `&#40` without a semicolon | no process end, `WasReduced` true, text stays |
+| 92 | Positive controls: `calc(100% - 10px)`, a style with 20 `rgb()`, 256 `(` exactly | style kept, `WasReduced` false |
+| 93 | `<p><b title="x…">` + K × `</p><p>x` with value 1 MB × 1,000 and 100 KB × 2,000 | text fallback, `WasReduced` true, allocation guard as in case 68 |
+| 94 | Positive control: normal newsletter with repeated attributes | markup kept, `WasReduced` false |
+| 95 | The build runs on a thread of its own: a fake builder records `Thread.CurrentThread` | not a pool thread; `IsBackground` true |

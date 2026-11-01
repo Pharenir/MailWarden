@@ -41,3 +41,10 @@ Untested: WebView2 behaviour (real click, redirects, `DeleteAllCookies`, InPriva
 **Result: 0 Critical, 0 High, 2 Medium, 2 Low.** M3, N1, N2, N3 closed. New: M1 `<!--!>` keeps scan and parser apart (7.4 s for
 259 KB) → fix.4 M2. M2 formatting counter counts down on end tags the parser ignores (172 KB mail, over 5 GB) → fix.4 M1.
 N1 hidden content without a notice → M5. N2 `multipart` without a usable boundary → M6.
+
+# secure.4 (2026-11-01, `e8fbc4e`)
+
+**Result: 0 Critical, 1 High, 1 Medium.** H1: `calc(` with 3,500 `(` (3.6 KB mail) overflows the stack in the CSS parser when the
+mail is opened (exit `0xC00000FD`, tested); no data loss, no start loop → fix.5 N1, N2. M1: serialisation multiplies attribute
+values (over 1 billion characters, 4.9 GB, tested) → fix.5 N3. Parser budget holds; M1, M2 of secure.3 closed; the text fallback
+holds nothing executable. Dennis chose one extra round.
