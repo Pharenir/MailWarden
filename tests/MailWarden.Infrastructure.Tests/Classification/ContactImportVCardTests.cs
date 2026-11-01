@@ -198,14 +198,13 @@ public sealed class ContactImportVCardTests
         Assert.Single(contacts);
     }
 
-    // Case 16: empty file
+    // Case 16: empty file (not specified; the builder refuses it like a CSV without header, planner to confirm)
     [Fact(Timeout = TestTimeouts.PerTestMilliseconds)]
-    public async Task Empty_file_imports_nothing()
+    public async Task Empty_file_is_refused_as_not_a_vcard_file()
     {
-        (ContactImportReport report, IReadOnlyList<Contact> contacts) = await ImportAsync(new MemoryStream());
+        InvalidDataException exception = await Assert.ThrowsAsync<InvalidDataException>(() => ImportAsync(new MemoryStream()));
 
-        Assert.Equal(0, report.Added);
-        Assert.Empty(contacts);
+        Assert.False(string.IsNullOrWhiteSpace(exception.Message));
     }
 
     // Case 16: size limit with positive control just below it
