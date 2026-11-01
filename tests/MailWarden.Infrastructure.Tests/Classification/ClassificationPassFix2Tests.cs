@@ -354,7 +354,7 @@ public sealed class ClassificationPassFix2Tests
 
     private static async Task<MailMessage> SeedDueAsync(ClassificationHarness harness, uint uid)
     {
-        MailMessage message = await harness.AddRawAsync(harness.Quarantine!, uid, null, $"<due_{uid}@example.test>", AncientDate);
+        MailMessage message = await harness.AddRawAsync(harness.Quarantine!, uid, ClassificationTestEml.For(MailKind.CertainSpam), $"<due_{uid}@example.test>", AncientDate);
         await harness.SeedEntryAsync(message, harness.Clock.GetUtcNow() - TimeSpan.FromDays(100));
         return message;
     }

@@ -437,10 +437,11 @@ public sealed class ClassificationPassRoutingTests
     {
         await using ClassificationHarness harness = await ClassificationHarness.CreateAsync();
         const int mailCount = 1500;
+        string sharedPath = harness.Eml.RelativePathFor(harness.Account.Id, harness.Quarantine!.Id, 1);
         var entries = new List<ClassificationLogEntry>();
         for (uint uid = 1; uid <= mailCount; uid++)
         {
-            MailMessage message = await harness.AddRawAsync(harness.Quarantine!, uid, null, $"<old_{uid}@example.test>");
+            MailMessage message = await harness.AddRawAsync(harness.Quarantine!, uid, ClassificationTestEml.For(MailKind.CertainSpam), $"<old_{uid}@example.test>", sharedEmlPath: sharedPath);
             entries.Add(new ClassificationLogEntry(
                 harness.Account.Id, MessageKey.For(message, null), harness.Inbox.Id, uid,
                 harness.Clock.GetUtcNow() - TimeSpan.FromDays(100), ClassificationMode.Act, ClassificationOutcome.Enqueued,
