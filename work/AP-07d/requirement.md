@@ -114,3 +114,32 @@ Test cases with fakes for the functions; real SQLite and queue for D2.
 - Build `-warnaserror` green; S3 green (interfaces, policy).
 - Review APPROVE; security review without Critical or High (trigger: classifier actions that can delete, now in the running app).
 - Documenter: `README.md`, `docs\classifier.md`, PLAN rows, TODO; no account names.
+
+## Decisions fix.2 (planner, 2026-11-01, after verify.1 PASS 2133/2133, review.1 APPROVE, secure.1 0/0/2/4)
+Binding; they change D1 and D4.
+- **Q1 (review S1).** `ClassifyingSyncCycle` treats only a cancellation of its own token as cancellation, like `MailboxService`: an
+  `OperationCanceledException` without a cancelled `ct` (for example a timeout while getting a token) writes the log line and propagates.
+- **Q2 (secure M2, review S2, changes D4 and case 14).** The banner must not disappear unseen. `ShellViewModel` adds `EvaluationFailed` and
+  `BrakeHeld` per known account since the app started and shows the sums; a clean pass clears nothing. It ends with the app; acknowledging it
+  comes with AP-08. `ActSuspendedNoContacts` still follows the last summary of each account.
+- **Q3 (review N5).** The doc comments of `MailboxService` say that `syncAccount` is the whole cycle of sync and classification pass.
+
+### Into `TODO.md` as conditions before `Act` on a real account (documenter)
+- `BrakeHeld` is final today: a salvo over the limit stays unsorted (secure M1). AP-08 offers "sort held mails afterwards"; the log keeps action
+  and UID. Dennis decides on the limit knowing this.
+- The marker can pass a gap: a UID fetched later below the marker is never decided (secure N1, review N3).
+- Stream instead of `MemoryStream` in the pass (secure N2); retention first asks the log for expired entries instead of reading every quarantine
+  file (secure N3).
+
+### Into `TODO.md` or `docs\classifier.md` without a condition
+- A permanent failure of the pass slows the sync to at most every 30 minutes (review S3).
+- Switching back from `act` to `recordOnly` does not stop commands already queued (review N2).
+- With a failing later folder the counts of the earlier one reach neither banner nor log; the entries stay (review N1).
+- `OpenWithCycleStepsAsync` could become internal (secure N4). AP-04b: recalculate the sums when an account is removed.
+
+### Additional test cases (fix.2)
+| # | Case | Expected |
+|---|---|---|
+| 19 | `classify` throws `TaskCanceledException` with a token that is not cancelled | one log line with the type name, propagates |
+| 20 | Same with a cancelled token | no log line, propagates |
+| 21 | Banner: 2 failed, then a clean pass, then 3 held on another account | sums stay 2, then 2 and 3; replaces the clearing part of case 14 |
