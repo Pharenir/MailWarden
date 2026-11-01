@@ -70,6 +70,195 @@ public sealed class WebContentPolicyTests
         Assert.Equal(NavigationDecision.Block, WebContentPolicy.DecideNavigation(uri));
     }
 
+    // ---- Case 57 (K11) -------------------------------------------------------------------------------------
+
+    // Case 57
+    [Theory]
+    [InlineData(true)]
+    [InlineData(false)]
+    public void Document_uri_is_allowed_with_or_without_user_initiation(bool isUserInitiated)
+    {
+        Assert.Equal(NavigationDecision.Allow, WebContentPolicy.DecideNavigation(WebContentPolicy.DocumentUri, isUserInitiated));
+    }
+
+    // Case 57
+    [Theory]
+    [InlineData("http://example.test/page")]
+    [InlineData("https://example.test/page?x=1")]
+    [InlineData("mailto:recipient_b@example.test")]
+    public void External_links_open_only_when_the_user_initiated_the_navigation(string uri)
+    {
+        Assert.Equal(NavigationDecision.OpenExternally, WebContentPolicy.DecideNavigation(uri, isUserInitiated: true));
+        Assert.Equal(NavigationDecision.Block, WebContentPolicy.DecideNavigation(uri, isUserInitiated: false));
+    }
+
+    // Case 57
+    [Theory]
+    [InlineData("javascript:alert(1)")]
+    [InlineData("data:text/html,<b>x</b>")]
+    [InlineData("file:///c:/secret.txt")]
+    [InlineData("about:blank")]
+    [InlineData("https://bank.test@evil.test/login")]
+    [InlineData("/relative/path")]
+    [InlineData("")]
+    [InlineData("garbage ::: %%% not a uri")]
+    public void Blocked_uris_stay_blocked_whatever_the_initiation(string uri)
+    {
+        Assert.Equal(NavigationDecision.Block, WebContentPolicy.DecideNavigation(uri, isUserInitiated: true));
+        Assert.Equal(NavigationDecision.Block, WebContentPolicy.DecideNavigation(uri, isUserInitiated: false));
+    }
+
+    // Case 57: the one-argument overload keeps its meaning.
+    [Fact]
+    public void One_argument_overload_still_opens_external_links()
+    {
+        Assert.Equal(NavigationDecision.OpenExternally, WebContentPolicy.DecideNavigation("https://example.test/"));
+    }
+
+    // ---- Case 58 (K12) -------------------------------------------------------------------------------------
+
+    private static string[] QueryKeys(string mailto)
+    {
+        int queryStart = mailto.IndexOf('?', StringComparison.Ordinal);
+        if (queryStart < 0 || queryStart == mailto.Length - 1)
+        {
+            return [];
+        }
+
+        return [.. mailto[(queryStart + 1)..].Split('&', StringSplitOptions.RemoveEmptyEntries).Select(pair => pair.Split('=')[0])];
+    }
+
+    private static string QueryValue(string mailto, string key)
+    {
+        string pair = mailto[(mailto.IndexOf('?', StringComparison.Ordinal) + 1)..]
+            .Split('&')
+            .First(candidate => string.Equals(candidate.Split('=')[0], key, StringComparison.OrdinalIgnoreCase));
+        return Uri.UnescapeDataString(pair[(pair.IndexOf('=', StringComparison.Ordinal) + 1)..]);
+    }
+
+    // Case 58
+    [Fact]
+    public void Sanitize_mailto_keeps_only_to_cc_bcc_subject_and_body()
+    {
+        string result = WebContentPolicy.SanitizeMailto(
+            "mailto:recipient_b@example.test?to=recipient_c@example.test&cc=copy_d@example.test&bcc=hidden_e@example.test&subject=Hello&body=Text" +
+            "&attach=C:\\secret.txt&from=other@example.test&in-reply-to=x&x-custom=1");
+
+        string[] keys = QueryKeys(result);
+        Assert.Equal(new[] { "bcc", "body", "cc", "subject", "to" }, keys.OrderBy(key => key, StringComparer.Ordinal).ToArray());
+        Assert.StartsWith("mailto:recipient_b@example.test", result, StringComparison.Ordinal);
+        Assert.DoesNotContain("secret", result, StringComparison.OrdinalIgnoreCase);
+    }
+
+    // Case 58
+    [Theory]
+    [InlineData("attach")]
+    [InlineData("ATTACH")]
+    [InlineData("Attach")]
+    [InlineData("attachment")]
+    public void Sanitize_mailto_drops_attach_in_every_spelling(string key)
+    {
+        string result = WebContentPolicy.SanitizeMailto($"mailto:recipient_b@example.test?subject=Hi&{key}=C:\\secret.txt");
+
+        Assert.Equal(new[] { "subject" }, QueryKeys(result));
+        Assert.DoesNotContain("secret", result, StringComparison.OrdinalIgnoreCase);
+    }
+
+    // Case 58: names are compared case-insensitively, so allowed names in other spellings stay.
+    [Fact]
+    public void Sanitize_mailto_keeps_allowed_names_in_any_case()
+    {
+        string result = WebContentPolicy.SanitizeMailto("mailto:recipient_b@example.test?TO=a@example.test&Subject=Hi&CC=c@example.test&BODY=b&Bcc=d@example.test");
+
+        Assert.Equal(5, QueryKeys(result).Length);
+        Assert.Equal("Hi", QueryValue(result, "subject"));
+    }
+
+    // Case 58
+    [Fact]
+    public void Sanitize_mailto_keeps_the_meaning_of_encoded_values()
+    {
+        string result = WebContentPolicy.SanitizeMailto("mailto:recipient_b@example.test?subject=Hello%20World%20%C3%A4%26%3D&body=Line1%0D%0ALine2&attach=x");
+
+        Assert.Equal("Hello World \u00E4&=", QueryValue(result, "subject"));
+        Assert.Equal("Line1\r\nLine2", QueryValue(result, "body"));
+        Assert.DoesNotContain("attach", result, StringComparison.OrdinalIgnoreCase);
+    }
+
+    // Case 58
+    [Fact]
+    public void Sanitize_mailto_without_parameters_is_unchanged()
+    {
+        Assert.Equal("mailto:recipient_b@example.test", WebContentPolicy.SanitizeMailto("mailto:recipient_b@example.test"));
+    }
+
+    // Case 58
+    [Fact]
+    public void Sanitize_mailto_with_only_forbidden_parameters_keeps_just_the_address()
+    {
+        string result = WebContentPolicy.SanitizeMailto("mailto:recipient_b@example.test?attach=C:\\secret.txt&ATTACH=D:\\more.txt");
+
+        Assert.Equal("mailto:recipient_b@example.test", result.TrimEnd('?'));
+        Assert.Empty(QueryKeys(result));
+    }
+
+    // Case 58: what is not a mailto link is never turned into one (the call must not throw).
+    [Theory]
+    [InlineData("https://example.test/?attach=x")]
+    [InlineData("")]
+    [InlineData("garbage ::: %%%")]
+    public void Sanitize_mailto_of_something_else_does_not_throw_and_does_not_produce_a_mailto(string uri)
+    {
+        string result = string.Empty;
+
+        Exception? failure = Record.Exception(() => result = WebContentPolicy.SanitizeMailto(uri));
+
+        Assert.Null(failure);
+        Assert.False(result.StartsWith("mailto:", StringComparison.OrdinalIgnoreCase));
+        Assert.DoesNotContain("attach", result, StringComparison.OrdinalIgnoreCase);
+    }
+
+    // ---- Case 59 (K13) -------------------------------------------------------------------------------------
+
+    // Case 59
+    [Theory]
+    [InlineData("http://localhost/pixel.gif")]
+    [InlineData("https://LOCALHOST:8443/pixel.gif")]
+    [InlineData("http://127.0.0.1/pixel.gif")]
+    [InlineData("http://127.1.2.3:8080/pixel.gif")]
+    [InlineData("http://10.0.0.5/pixel.gif")]
+    [InlineData("http://10.255.255.254/pixel.gif")]
+    [InlineData("http://172.16.0.1/pixel.gif")]
+    [InlineData("http://172.31.255.1/pixel.gif")]
+    [InlineData("http://192.168.1.1/pixel.gif")]
+    [InlineData("http://169.254.169.254/pixel.gif")]
+    [InlineData("http://[::1]/pixel.gif")]
+    [InlineData("http://[fe80::1]/pixel.gif")]
+    [InlineData("http://[fd00::1]/pixel.gif")]
+    [InlineData("http://[::ffff:127.0.0.1]/pixel.gif")]
+    public void Local_and_private_addresses_are_denied_even_with_approval(string uri)
+    {
+        Assert.False(WebContentPolicy.AllowRequest(uri, isImageRequest: true, allowRemoteImages: true));
+        Assert.False(WebContentPolicy.AllowRequest(uri, isImageRequest: true, allowRemoteImages: false));
+    }
+
+    // Case 59 positive control: public hosts and addresses next to the private ranges are allowed with approval.
+    [Theory]
+    [InlineData("https://example.test/pixel.gif")]
+    [InlineData("http://8.8.8.8/pixel.gif")]
+    [InlineData("https://172.15.255.255/pixel.gif")]
+    [InlineData("https://172.32.0.1/pixel.gif")]
+    [InlineData("https://11.0.0.1/pixel.gif")]
+    [InlineData("https://192.169.0.1/pixel.gif")]
+    [InlineData("https://169.253.0.1/pixel.gif")]
+    [InlineData("https://localhost.example.test/pixel.gif")]
+    [InlineData("https://[2606:4700::1111]/pixel.gif")]
+    public void Public_hosts_are_allowed_with_approval_and_denied_without(string uri)
+    {
+        Assert.True(WebContentPolicy.AllowRequest(uri, isImageRequest: true, allowRemoteImages: true));
+        Assert.False(WebContentPolicy.AllowRequest(uri, isImageRequest: true, allowRemoteImages: false));
+    }
+
     // Case 19
     [Theory]
     [InlineData(true, true)]

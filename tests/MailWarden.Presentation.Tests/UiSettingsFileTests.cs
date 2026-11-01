@@ -41,7 +41,8 @@ public sealed class UiSettingsFileTests : IDisposable
         Assert.Equal(ReadingPaneLayout.SideBySide, defaults.Layout);
         Assert.Equal(AppTheme.System, defaults.Theme);
         Assert.Equal(280d, defaults.NavigationWidth);
-        Assert.Equal(420d, defaults.ListSize);
+        Assert.Equal(420d, defaults.ListWidth);
+        Assert.Equal(320d, defaults.ListHeight);
     }
 
     // Case 23
@@ -69,16 +70,17 @@ public sealed class UiSettingsFileTests : IDisposable
         Assert.Equal(ReadingPaneLayout.ListAbove, loaded.Layout);
         Assert.Equal(UiSettings.Default.Theme, loaded.Theme);
         Assert.Equal(UiSettings.Default.NavigationWidth, loaded.NavigationWidth);
-        Assert.Equal(UiSettings.Default.ListSize, loaded.ListSize);
+        Assert.Equal(UiSettings.Default.ListWidth, loaded.ListWidth);
+        Assert.Equal(UiSettings.Default.ListHeight, loaded.ListHeight);
     }
 
     // Case 23
     [Fact]
     public void Full_file_is_read_with_all_documented_values()
     {
-        UiSettings loaded = LoadFrom("""{"layout": "listAbove", "theme": "dark", "navigationWidth": 333.5, "listSize": 555}""");
+        UiSettings loaded = LoadFrom("""{"layout": "listAbove", "theme": "dark", "navigationWidth": 333.5, "listWidth": 555, "listHeight": 444}""");
 
-        Assert.Equal(new UiSettings(ReadingPaneLayout.ListAbove, AppTheme.Dark, 333.5, 555), loaded);
+        Assert.Equal(new UiSettings(ReadingPaneLayout.ListAbove, AppTheme.Dark, 333.5, 555, 444), loaded);
     }
 
     // Case 23
@@ -106,10 +108,11 @@ public sealed class UiSettingsFileTests : IDisposable
     [InlineData(2000)]
     public void Boundary_sizes_are_accepted(int size)
     {
-        UiSettings loaded = LoadFrom($$"""{"navigationWidth": {{size}}, "listSize": {{size}}}""");
+        UiSettings loaded = LoadFrom($$"""{"navigationWidth": {{size}}, "listWidth": {{size}}, "listHeight": {{size}}}""");
 
         Assert.Equal(size, loaded.NavigationWidth);
-        Assert.Equal(size, loaded.ListSize);
+        Assert.Equal(size, loaded.ListWidth);
+        Assert.Equal(size, loaded.ListHeight);
     }
 
     // Case 23
@@ -117,7 +120,7 @@ public sealed class UiSettingsFileTests : IDisposable
     public void Round_trip_keeps_all_values()
     {
         var store = new UiSettingsFile(SettingsPath);
-        var settings = new UiSettings(ReadingPaneLayout.ListAbove, AppTheme.Light, 301.25, 612.5);
+        var settings = new UiSettings(ReadingPaneLayout.ListAbove, AppTheme.Light, 301.25, 612.5, 287.5);
 
         store.Save(settings);
 
@@ -129,11 +132,11 @@ public sealed class UiSettingsFileTests : IDisposable
     public void Save_overwrites_an_existing_file()
     {
         var store = new UiSettingsFile(SettingsPath);
-        store.Save(new UiSettings(ReadingPaneLayout.ListAbove, AppTheme.Dark, 200, 300));
+        store.Save(new UiSettings(ReadingPaneLayout.ListAbove, AppTheme.Dark, 200, 300, 250));
 
-        store.Save(new UiSettings(ReadingPaneLayout.SideBySide, AppTheme.Light, 400, 500));
+        store.Save(new UiSettings(ReadingPaneLayout.SideBySide, AppTheme.Light, 400, 500, 350));
 
-        Assert.Equal(new UiSettings(ReadingPaneLayout.SideBySide, AppTheme.Light, 400, 500), store.Load());
+        Assert.Equal(new UiSettings(ReadingPaneLayout.SideBySide, AppTheme.Light, 400, 500, 350), store.Load());
     }
 
     // Case 23: documented keys and value spellings, UTF-8 without BOM, valid JSON, atomic write leaves no temp file.
@@ -142,7 +145,7 @@ public sealed class UiSettingsFileTests : IDisposable
     {
         var store = new UiSettingsFile(SettingsPath);
 
-        store.Save(new UiSettings(ReadingPaneLayout.ListAbove, AppTheme.Dark, 250, 450));
+        store.Save(new UiSettings(ReadingPaneLayout.ListAbove, AppTheme.Dark, 250, 450, 350));
 
         byte[] bytes = File.ReadAllBytes(SettingsPath);
         Assert.False(bytes.Length >= 3 && bytes[0] == 0xEF && bytes[1] == 0xBB && bytes[2] == 0xBF, "BOM found");
@@ -151,7 +154,9 @@ public sealed class UiSettingsFileTests : IDisposable
         Assert.Equal("listAbove", root.GetProperty("layout").GetString());
         Assert.Equal("dark", root.GetProperty("theme").GetString());
         Assert.Equal(250d, root.GetProperty("navigationWidth").GetDouble());
-        Assert.Equal(450d, root.GetProperty("listSize").GetDouble());
+        Assert.Equal(450d, root.GetProperty("listWidth").GetDouble());
+        Assert.Equal(350d, root.GetProperty("listHeight").GetDouble());
+        Assert.False(root.TryGetProperty("listSize", out _), "old key listSize written");
         Assert.Equal(new[] { UiSettingsFile.FileName }, Directory.GetFiles(_temp.RootPath).Select(path => Path.GetFileName(path)!).ToArray());
     }
 
@@ -166,12 +171,17 @@ public sealed class UiSettingsFileTests : IDisposable
     [InlineData("""{"theme": true}""", "theme")]
     [InlineData("""{"theme": "neon_secret"}""", "theme")]
     [InlineData("""{"navigationWidth": "wide_secret"}""", "navigationWidth")]
-    [InlineData("""{"listSize": "huge_secret"}""", "listSize")]
+    [InlineData("""{"listWidth": "huge_secret"}""", "listWidth")]
+    [InlineData("""{"listHeight": "huge_secret"}""", "listHeight")]
+    [InlineData("""{"listSize": 4242}""", "listSize")]
     [InlineData("""{"navigationWidth": 149}""", "navigationWidth")]
     [InlineData("""{"navigationWidth": 2001}""", "navigationWidth")]
-    [InlineData("""{"listSize": 149}""", "listSize")]
-    [InlineData("""{"listSize": 2001.5}""", "listSize")]
-    [InlineData("""{"listSize": -5}""", "listSize")]
+    [InlineData("""{"listWidth": 149}""", "listWidth")]
+    [InlineData("""{"listHeight": 149}""", "listHeight")]
+    [InlineData("""{"listWidth": 2001.5}""", "listWidth")]
+    [InlineData("""{"listHeight": 2001.5}""", "listHeight")]
+    [InlineData("""{"listWidth": -5}""", "listWidth")]
+    [InlineData("""{"listHeight": -5}""", "listHeight")]
     public void Invalid_content_throws_UiSettingsException_naming_file_and_key_without_values(string json, string? key)
     {
         UiSettingsException exception = LoadFailureOf(json);
@@ -182,7 +192,7 @@ public sealed class UiSettingsFileTests : IDisposable
             Assert.Contains(key, exception.Message, StringComparison.Ordinal);
         }
 
-        foreach (string value in new[] { "diagonal_secret", "neon_secret", "wide_secret", "huge_secret", "2001", "149", "-5" })
+        foreach (string value in new[] { "diagonal_secret", "neon_secret", "wide_secret", "huge_secret", "2001", "149", "-5", "4242" })
         {
             Assert.DoesNotContain(value, exception.Message, StringComparison.Ordinal);
         }

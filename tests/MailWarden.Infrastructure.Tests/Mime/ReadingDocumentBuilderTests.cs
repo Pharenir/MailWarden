@@ -137,6 +137,41 @@ public sealed class ReadingDocumentBuilderTests
         Assert.Equal(CspBlocked, Assert.Single(CspValues(parsed)));
     }
 
+    // Case 60 (K13): no referrer is sent; the CSP stays exactly as before.
+    [Theory(Timeout = TestTimeouts.PerTestMilliseconds)]
+    [InlineData(true, false)]
+    [InlineData(true, true)]
+    [InlineData(false, false)]
+    [InlineData(false, true)]
+    public async Task Document_contains_the_no_referrer_meta_and_the_unchanged_csp(bool withHtml, bool allowRemoteImages)
+    {
+        await Task.Yield();
+        MailContent content = ContentWith(withHtml ? "<p>body_marker</p>" : null, "plain body");
+
+        ReadingDocument document = ReadingDocumentBuilder.Build(content, allowRemoteImages);
+        IHtmlDocument parsed = Parse(document);
+
+        IElement referrer = Assert.Single(parsed.QuerySelectorAll("meta[name]"), meta => string.Equals(meta.GetAttribute("name"), "referrer", StringComparison.OrdinalIgnoreCase));
+        Assert.Equal("no-referrer", referrer.GetAttribute("content"));
+        Assert.Equal(allowRemoteImages ? CspAllowed : CspBlocked, Assert.Single(CspValues(parsed)));
+    }
+
+    // Case 60: a referrer meta inside the mail cannot weaken the policy.
+    [Fact(Timeout = TestTimeouts.PerTestMilliseconds)]
+    public async Task Referrer_meta_of_the_mail_does_not_replace_the_document_one()
+    {
+        await Task.Yield();
+
+        ReadingDocument document = ReadingDocumentBuilder.Build(
+            ContentWith("<meta name=\"referrer\" content=\"unsafe-url\"><p>body_marker</p>"),
+            allowRemoteImages: false);
+
+        IHtmlDocument parsed = Parse(document);
+        IElement referrer = Assert.Single(parsed.QuerySelectorAll("meta[name]"), meta => string.Equals(meta.GetAttribute("name"), "referrer", StringComparison.OrdinalIgnoreCase));
+        Assert.Equal("no-referrer", referrer.GetAttribute("content"));
+        Assert.DoesNotContain("unsafe-url", document.Html, StringComparison.Ordinal);
+    }
+
     // Case 17: the plain-text path also carries the allowed variant of the CSP.
     [Fact(Timeout = TestTimeouts.PerTestMilliseconds)]
     public async Task Plain_text_document_with_allowed_images_has_the_allowed_csp()

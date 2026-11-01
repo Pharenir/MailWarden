@@ -12,6 +12,8 @@ public sealed class MessageListViewModelTests
     private static string LocalText(DateTimeOffset moment, string format) =>
         TimeZoneInfo.ConvertTime(moment, TimeZoneInfo.Local).ToString(format, System.Globalization.CultureInfo.InvariantCulture);
 
+    // Row texts are shortened with SafeDisplayText.Shorten (K7): whitespace runs collapse to one space.
+
     // ---- Case 31 -------------------------------------------------------------------------------------------
 
     // Case 31
@@ -74,7 +76,7 @@ public sealed class MessageListViewModelTests
         await harness.Shell.Messages.LoadAsync(InboxView);
 
         MessageRowViewModel row = RowOf(harness, message.Id);
-        Assert.Equal("Re: x  y", row.Subject);
+        Assert.Equal("Re: x y", row.Subject);
         Assert.Equal("Sender A", row.Sender);
         Assert.Equal("preview x z", row.Preview);
     }
@@ -368,6 +370,60 @@ public sealed class MessageListViewModelTests
         Assert.Equal(junkOne.Id, Assert.Single(list.Items).Message.Id);
     }
 
+    // ---- Case 54 (K7) --------------------------------------------------------------------------------------
+
+    private const string Ellipsis = "\u2026";
+
+    // Case 54
+    [Fact(Timeout = TestTimeouts.PerTestMilliseconds)]
+    public async Task Huge_subject_sender_and_preview_are_shortened_in_the_row()
+    {
+        var harness = new ShellHarness();
+        (_, MailFolder inbox) = harness.SeedInbox("Account_A", 0);
+        MailMessage message = harness.ReadModel.AddMessage(
+            inbox,
+            subject: new string('s', 365 * 1024),
+            fromName: "N" + new string(' ', 5_000) + "M" + new string('x', 5_000),
+            preview: new string('p', 5_000));
+
+        await harness.Shell.Messages.LoadAsync(InboxView);
+
+        MessageRowViewModel row = RowOf(harness, message.Id);
+        Assert.True(row.Subject.Length <= 501, $"subject has {row.Subject.Length} characters");
+        Assert.EndsWith(Ellipsis, row.Subject, StringComparison.Ordinal);
+        Assert.True(row.Sender.Length <= 101, $"sender has {row.Sender.Length} characters");
+        Assert.StartsWith("N M", row.Sender, StringComparison.Ordinal);
+        Assert.True(row.Preview.Length <= 201, $"preview has {row.Preview.Length} characters");
+        Assert.EndsWith(Ellipsis, row.Preview, StringComparison.Ordinal);
+    }
+
+    // Case 54 positive control: texts within the limits stay as they are (after collapsing whitespace).
+    [Fact(Timeout = TestTimeouts.PerTestMilliseconds)]
+    public async Task Texts_within_the_limits_are_not_cut()
+    {
+        var harness = new ShellHarness();
+        (_, MailFolder inbox) = harness.SeedInbox("Account_A", 0);
+        MailMessage atLimit = harness.ReadModel.AddMessage(
+            inbox, subject: new string('s', 500), fromName: new string('n', 100), preview: new string('p', 200));
+        MailMessage overLimit = harness.ReadModel.AddMessage(
+            inbox, subject: new string('s', 501), fromName: new string('n', 101), preview: new string('p', 201));
+        MailMessage spaced = harness.ReadModel.AddMessage(inbox, subject: "a   b", fromName: "Sender   A", preview: "p   q");
+
+        await harness.Shell.Messages.LoadAsync(InboxView);
+
+        MessageRowViewModel exact = RowOf(harness, atLimit.Id);
+        Assert.Equal(new string('s', 500), exact.Subject);
+        Assert.Equal(new string('n', 100), exact.Sender);
+        Assert.Equal(new string('p', 200), exact.Preview);
+        MessageRowViewModel cut = RowOf(harness, overLimit.Id);
+        Assert.EndsWith(Ellipsis, cut.Subject, StringComparison.Ordinal);
+        Assert.EndsWith(Ellipsis, cut.Sender, StringComparison.Ordinal);
+        Assert.EndsWith(Ellipsis, cut.Preview, StringComparison.Ordinal);
+        MessageRowViewModel collapsed = RowOf(harness, spaced.Id);
+        Assert.Equal("a b", collapsed.Subject);
+        Assert.Equal("Sender A", collapsed.Sender);
+        Assert.Equal("p q", collapsed.Preview);
+    }
     // ---- Selection drives the reading pane -----------------------------------------------------------------
 
     // Case 31/33 glue: a selected row shows its mail; no row or another view shows Empty (D10 "List loading").

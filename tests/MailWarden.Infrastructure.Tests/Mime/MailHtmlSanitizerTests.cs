@@ -22,7 +22,7 @@ public sealed class MailHtmlSanitizerTests
 
     public static TheoryData<string> RemovedElements =>
     [
-        "script", "style", "iframe", "frame", "object", "embed", "applet", "form", "input", "button", "select",
+        "script", "style", "iframe", "frame", "object", "embed", "applet", "input", "button", "select",
         "textarea", "link", "meta", "base", "svg", "math", "video", "audio", "source", "template",
     ];
 
@@ -108,6 +108,44 @@ public sealed class MailHtmlSanitizerTests
         Assert.Contains("keep_marker", result.Html, StringComparison.Ordinal);
     }
 
+    // Case 56 (K10): the form tag goes, its content stays; input and button inside go.
+    [Fact(Timeout = TestTimeouts.PerTestMilliseconds)]
+    public async Task Form_loses_only_the_tag_and_its_text_stays()
+    {
+        await Task.Yield();
+        const string html =
+            "<form action=\"https://evil.test/\" method=\"post\"><p>form_text_marker</p><input name=\"x\" value=\"v\"><button>button_label</button>" +
+            "<select><option>o</option></select><textarea>area_text</textarea><b>bold_in_form</b></form>";
+
+        SanitizedHtml result = Sanitize(html);
+        IHtmlDocument document = Parse(result);
+
+        Assert.False(ContainsTag(result, "form"), result.Html);
+        foreach (string tag in new[] { "input", "button", "select", "textarea" })
+        {
+            Assert.Empty(document.QuerySelectorAll(tag));
+        }
+
+        Assert.DoesNotContain("evil.test", result.Html, StringComparison.Ordinal);
+        string text = document.Body!.TextContent;
+        Assert.Contains("form_text_marker", text, StringComparison.Ordinal);
+        Assert.NotNull(document.QuerySelector("b"));
+        Assert.Contains("bold_in_form", text, StringComparison.Ordinal);
+    }
+
+    // Case 56: mixed case and nesting; a mail wrapped completely in a form is not empty.
+    [Fact(Timeout = TestTimeouts.PerTestMilliseconds)]
+    public async Task Form_in_mixed_case_and_nested_forms_keep_their_text()
+    {
+        await Task.Yield();
+
+        SanitizedHtml result = Sanitize("<FoRm><div><FORM><p>wrapped_marker</p></form></div></fORM><p>outside_marker</p>");
+
+        Assert.False(ContainsTag(result, "form"), result.Html);
+        string text = Parse(result).Body!.TextContent;
+        Assert.Contains("wrapped_marker", text, StringComparison.Ordinal);
+        Assert.Contains("outside_marker", text, StringComparison.Ordinal);
+    }
     // Case 9 positive control: harmless structure and text formatting stay.
     [Fact(Timeout = TestTimeouts.PerTestMilliseconds)]
     public async Task Harmless_elements_and_text_stay()
