@@ -28,9 +28,14 @@ public sealed class ShellViewModel : ObservableObject, IDisposable
     private ReadingPaneLayout layout;
     private AppTheme theme;
     private double navigationWidth;
-    private double listSize;
+    private double listWidth;
+    private double listHeight;
     private Task pendingSelectionLoad = Task.CompletedTask;
     private bool isSubscribed;
+    private bool isDisposed;
+
+    // Last known state per account; a failed cycle reloads only when the state changes.
+    private readonly Dictionary<Guid, AccountSyncState> lastStates = [];
 
     /// <summary>Creates the shell and loads the settings. Nothing else runs before <see cref="InitializeAsync"/>.</summary>
     /// <param name="readModel">Read access to the stored mail.</param>
@@ -115,13 +120,26 @@ public sealed class ShellViewModel : ObservableObject, IDisposable
         }
     }
 
-    /// <summary>Size of the message list, limited to the range of <see cref="UiSettings"/>; a change is saved.</summary>
-    public double ListSize
+    /// <summary>Width of the list side by side, limited to the range of <see cref="UiSettings"/>; a change is saved.</summary>
+    public double ListWidth
     {
-        get => listSize;
+        get => listWidth;
         set
         {
-            if (SetProperty(ref listSize, Math.Clamp(value, UiSettings.MinimumSize, UiSettings.MaximumSize)))
+            if (SetProperty(ref listWidth, Math.Clamp(value, UiSettings.MinimumSize, UiSettings.MaximumSize)))
+            {
+                SaveSettings();
+            }
+        }
+    }
+
+    /// <summary>Height of the list above the pane, limited to the range of <see cref="UiSettings"/>; a change is saved.</summary>
+    public double ListHeight
+    {
+        get => listHeight;
+        set
+        {
+            if (SetProperty(ref listHeight, Math.Clamp(value, UiSettings.MinimumSize, UiSettings.MaximumSize)))
             {
                 SaveSettings();
             }
@@ -145,6 +163,11 @@ public sealed class ShellViewModel : ObservableObject, IDisposable
     /// <exception cref="OperationCanceledException"><paramref name="ct"/> was cancelled.</exception>
     public async Task InitializeAsync(CancellationToken ct = default)
     {
+        if (isDisposed)
+        {
+            return;
+        }
+
         if (!isSubscribed)
         {
             controller.StatusChanged += OnStatusChanged;
@@ -155,14 +178,22 @@ public sealed class ShellViewModel : ObservableObject, IDisposable
         await pendingSelectionLoad;
     }
 
-    /// <summary>Stops listening to the service. Queued status changes are ignored from now on.</summary>
+    /// <summary>
+    /// Stops listening to the service, cancels running loads and ends the reload loop: after the read that is running now
+    /// there is no further read and no log line. Queued status changes are ignored from now on.
+    /// </summary>
     public void Dispose()
     {
+        isDisposed = true;
         if (isSubscribed)
         {
             controller.StatusChanged -= OnStatusChanged;
             isSubscribed = false;
         }
+
+        Navigation.Close();
+        Messages.Close();
+        Reading.Close();
     }
 
     private UiSettings LoadSettings()
@@ -183,7 +214,8 @@ public sealed class ShellViewModel : ObservableObject, IDisposable
         layout = loaded.Layout;
         theme = loaded.Theme;
         navigationWidth = loaded.NavigationWidth;
-        listSize = loaded.ListSize;
+        listWidth = loaded.ListWidth;
+        listHeight = loaded.ListHeight;
     }
 
     // A successful save also replaced a file that could not be loaded before.
@@ -191,14 +223,14 @@ public sealed class ShellViewModel : ObservableObject, IDisposable
     {
         try
         {
-            settings.Save(new UiSettings(layout, theme, navigationWidth, listSize));
+            settings.Save(new UiSettings(layout, theme, navigationWidth, listWidth, listHeight));
             banner.Clear(ShellBanner.BannerSource.SettingsSave);
             banner.Clear(ShellBanner.BannerSource.SettingsLoad);
         }
         catch (Exception exception) when (exception is not OutOfMemoryException)
         {
             banner.Set(ShellBanner.BannerSource.SettingsSave, UiText.BannerSettingsSaveFailed);
-            log.Write(LogLevels.Critical, "ShellViewModel.SaveSettings", $"Saving the settings failed: {exception.GetType().Name}");
+            log.Write(CriticalLogLevel.Critical, "ShellViewModel.SaveSettings", $"Saving the settings failed: {exception.GetType().Name}");
         }
     }
 
@@ -211,9 +243,7 @@ public sealed class ShellViewModel : ObservableObject, IDisposable
 
     private void Refresh()
     {
-        Dictionary<Guid, AccountSyncStatus> statuses = controller.CurrentStatus
-            .GroupBy(status => status.AccountId)
-            .ToDictionary(group => group.Key, group => group.Last());
+        Dictionary<Guid, AccountSyncStatus> statuses = Navigation.ReadStatusByAccount();
         foreach (Guid accountId in Navigation.AccountIds)
         {
             AccountSyncState? state = statuses.GetValueOrDefault(accountId)?.State;
@@ -272,7 +302,8 @@ public sealed class ShellViewModel : ObservableObject, IDisposable
     }
 
     // On the UI thread. The service raises Idle without progress only when a cycle ended successfully, so new data can
-    // be there; progress updates never reload.
+    // be there. A change to an error state also reloads, because an interrupted pass has stored results as well; the same
+    // error state reported again does not. Progress updates never reload.
     private void ApplyStatus(AccountSyncStatus status)
     {
         try
@@ -282,7 +313,12 @@ public sealed class ShellViewModel : ObservableObject, IDisposable
                 return;
             }
 
-            if (status.Progress is null && status.State == AccountSyncState.Idle)
+            bool isStateChange = !lastStates.TryGetValue(status.AccountId, out AccountSyncState lastState)
+                || lastState != status.State;
+            lastStates[status.AccountId] = status.State;
+            bool isFailureChange = isStateChange
+                && status.State is AccountSyncState.WaitingAfterError or AccountSyncState.NeedsSignIn;
+            if (status.Progress is null && (status.State == AccountSyncState.Idle || isFailureChange))
             {
                 RequestReload();
             }
@@ -295,7 +331,7 @@ public sealed class ShellViewModel : ObservableObject, IDisposable
 
     private void WriteHandlerFailure(Exception exception)
     {
-        log.Write(LogLevels.Critical, "ShellViewModel.OnStatusChanged", $"Handling a status change failed: {exception.GetType().Name}");
+        log.Write(CriticalLogLevel.Critical, "ShellViewModel.OnStatusChanged", $"Handling a status change failed: {exception.GetType().Name}");
     }
 
     private void RequestReload()
@@ -361,7 +397,7 @@ public sealed class ShellViewModel : ObservableObject, IDisposable
         }
         catch (Exception exception) when (exception is not OutOfMemoryException)
         {
-            log.Write(LogLevels.Critical, source, $"Background work of the shell failed: {exception.GetType().Name}");
+            log.Write(CriticalLogLevel.Critical, source, $"Background work of the shell failed: {exception.GetType().Name}");
         }
     }
 }

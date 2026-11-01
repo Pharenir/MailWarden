@@ -43,8 +43,17 @@ public sealed class NavigationItem : ObservableObject
     public string? StatusText
     {
         get => statusText;
-        internal set => SetProperty(ref statusText, value);
+        internal set
+        {
+            if (SetProperty(ref statusText, value))
+            {
+                OnPropertyChanged(nameof(HasStatus));
+            }
+        }
     }
+
+    /// <summary>True when <see cref="StatusText"/> has a text.</summary>
+    public bool HasStatus => statusText is not null;
 
     /// <summary>Child entries.</summary>
     public IReadOnlyList<NavigationItem> Children { get; }
@@ -62,6 +71,8 @@ public sealed class NavigationViewModel : ObservableObject
     private readonly Dictionary<Guid, NavigationItem> accountItems = [];
     private NavigationItem? selectedItem;
     private int refreshGeneration;
+    private CancellationTokenSource? refreshCancellation;
+    private bool isClosed;
 
     internal NavigationViewModel(
         IMailboxReadModel readModel,
@@ -104,21 +115,31 @@ public sealed class NavigationViewModel : ObservableObject
     /// <exception cref="OperationCanceledException"><paramref name="ct"/> was cancelled.</exception>
     public async Task RefreshAsync(CancellationToken ct = default)
     {
+        if (isClosed)
+        {
+            return;
+        }
+
         int generation = ++refreshGeneration;
+        CancelPreviousRefresh();
+        using var linkedCancellation = CancellationTokenSource.CreateLinkedTokenSource(ct);
+        refreshCancellation = linkedCancellation;
+        CancellationToken token = linkedCancellation.Token;
         try
         {
-            IReadOnlyList<Account> accounts = await readModel.ListAccountsAsync(ct);
+            IReadOnlyList<Account> accounts = await readModel.ListAccountsAsync(token);
             List<NavigationItem> newItems = [.. CreateGroupItems()];
             var newAccountItems = new Dictionary<Guid, NavigationItem>();
             foreach (Account account in accounts)
             {
-                IReadOnlyList<MailFolder> folders = await readModel.ListFoldersAsync(account.Id, ct);
+                token.ThrowIfCancellationRequested();
+                IReadOnlyList<MailFolder> folders = await readModel.ListFoldersAsync(account.Id, token);
                 NavigationItem accountItem = CreateAccountItem(account, folders);
                 newAccountItems.Add(account.Id, accountItem);
                 newItems.Add(accountItem);
             }
 
-            Dictionary<MailView, int> unreadCounts = await ReadUnreadCountsAsync(newItems, ct);
+            Dictionary<MailView, int> unreadCounts = await ReadUnreadCountsAsync(newItems, token);
             if (generation != refreshGeneration)
             {
                 return;
@@ -135,11 +156,15 @@ public sealed class NavigationViewModel : ObservableObject
                 banner.Clear(ShellBanner.BannerSource.NoAccounts);
             }
         }
+        catch (OperationCanceledException) when (generation != refreshGeneration && !ct.IsCancellationRequested)
+        {
+            // Replaced by a newer refresh or closed.
+        }
         catch (Exception exception) when (exception is not OperationCanceledException and not OutOfMemoryException)
         {
             if (generation == refreshGeneration)
             {
-                log.Write(LogLevels.Critical, "NavigationViewModel.RefreshAsync", $"Reading the navigation failed: {exception.GetType().Name}");
+                log.Write(CriticalLogLevel.Critical, "NavigationViewModel.RefreshAsync", $"Reading the navigation failed: {exception.GetType().Name}");
                 banner.Set(ShellBanner.BannerSource.Navigation, UiText.BannerNavigationFailed);
                 if (Items.Count == 0)
                 {
@@ -147,6 +172,30 @@ public sealed class NavigationViewModel : ObservableObject
                 }
             }
         }
+        finally
+        {
+            if (generation == refreshGeneration)
+            {
+                refreshCancellation = null;
+            }
+        }
+    }
+
+    /// <summary>Ends the running refresh without a further read or log line; later calls do nothing.</summary>
+    internal void Close()
+    {
+        isClosed = true;
+        refreshGeneration++;
+        CancelPreviousRefresh();
+    }
+
+    /// <summary>The current status of the service per account.</summary>
+    /// <returns>Account id → latest status.</returns>
+    internal Dictionary<Guid, AccountSyncStatus> ReadStatusByAccount()
+    {
+        return controller.CurrentStatus
+            .GroupBy(status => status.AccountId)
+            .ToDictionary(group => group.Key, group => group.Last());
     }
 
     /// <summary>Shows the status on its account node.</summary>
@@ -219,6 +268,18 @@ public sealed class NavigationViewModel : ObservableObject
         return string.Join('\n', Flatten(items).Select(item => $"{item.Label}|{item.View}|{item.AccountId}|{item.Children.Count}"));
     }
 
+    private void CancelPreviousRefresh()
+    {
+        try
+        {
+            refreshCancellation?.Cancel();
+        }
+        catch (ObjectDisposedException)
+        {
+            // That refresh has just ended.
+        }
+    }
+
     private async Task<Dictionary<MailView, int>> ReadUnreadCountsAsync(List<NavigationItem> items, CancellationToken ct)
     {
         var counts = new Dictionary<MailView, int>();
@@ -226,6 +287,7 @@ public sealed class NavigationViewModel : ObservableObject
         {
             if (item.View is MailView view)
             {
+                ct.ThrowIfCancellationRequested();
                 counts[view] = await readModel.CountUnreadAsync(view.ToQuery(1, 0), ct);
             }
         }
@@ -269,9 +331,7 @@ public sealed class NavigationViewModel : ObservableObject
     // Only statuses of listed accounts are used: the service keeps the status of removed accounts.
     private void ApplyCurrentStatus()
     {
-        Dictionary<Guid, AccountSyncStatus> statuses = controller.CurrentStatus
-            .GroupBy(status => status.AccountId)
-            .ToDictionary(group => group.Key, group => group.Last());
+        Dictionary<Guid, AccountSyncStatus> statuses = ReadStatusByAccount();
         foreach ((Guid accountId, NavigationItem accountItem) in accountItems)
         {
             accountItem.StatusText = UiText.AccountStatus(statuses.GetValueOrDefault(accountId));

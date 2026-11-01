@@ -1,13 +1,14 @@
 using System.Text.Json;
 using MailWarden.Core.Classification;
 using MailWarden.Core.Text;
+using MailWarden.Infrastructure.Storage;
 
 namespace MailWarden.Presentation;
 
 /// <summary>
 /// <see cref="IUiSettingsStore"/> on a JSON file. Strict on purpose: a typo in a key or a wrong type is reported, never
 /// silently ignored. Keys: <c>layout</c> ("sideBySide", "listAbove"), <c>theme</c> ("system", "light", "dark"),
-/// <c>navigationWidth</c>, <c>listSize</c> (numbers within the limits of <see cref="UiSettings"/>).
+/// <c>navigationWidth</c>, <c>listWidth</c>, <c>listHeight</c> (numbers within the limits of <see cref="UiSettings"/>).
 /// </summary>
 public sealed class UiSettingsFile : IUiSettingsStore
 {
@@ -17,7 +18,8 @@ public sealed class UiSettingsFile : IUiSettingsStore
     private const string LayoutKey = "layout";
     private const string ThemeKey = "theme";
     private const string NavigationWidthKey = "navigationWidth";
-    private const string ListSizeKey = "listSize";
+    private const string ListWidthKey = "listWidth";
+    private const string ListHeightKey = "listHeight";
 
     private const string SideBySideValue = "sideBySide";
     private const string ListAboveValue = "listAbove";
@@ -88,7 +90,8 @@ public sealed class UiSettingsFile : IUiSettingsStore
     {
         ArgumentNullException.ThrowIfNull(settings);
         EnsureSizeInRange(settings.NavigationWidth, NavigationWidthKey);
-        EnsureSizeInRange(settings.ListSize, ListSizeKey);
+        EnsureSizeInRange(settings.ListWidth, ListWidthKey);
+        EnsureSizeInRange(settings.ListHeight, ListHeightKey);
 
         using var content = new MemoryStream();
         using (var writer = new Utf8JsonWriter(content, new JsonWriterOptions { Indented = true }))
@@ -97,27 +100,12 @@ public sealed class UiSettingsFile : IUiSettingsStore
             writer.WriteString(LayoutKey, ToValue(settings.Layout));
             writer.WriteString(ThemeKey, ToValue(settings.Theme));
             writer.WriteNumber(NavigationWidthKey, settings.NavigationWidth);
-            writer.WriteNumber(ListSizeKey, settings.ListSize);
+            writer.WriteNumber(ListWidthKey, settings.ListWidth);
+            writer.WriteNumber(ListHeightKey, settings.ListHeight);
             writer.WriteEndObject();
         }
 
-        string? directory = Path.GetDirectoryName(path);
-        if (!string.IsNullOrEmpty(directory))
-        {
-            Directory.CreateDirectory(directory);
-        }
-
-        string temporaryPath = $"{path}.{Guid.NewGuid():N}.tmp";
-        try
-        {
-            File.WriteAllBytes(temporaryPath, content.ToArray());
-            File.Move(temporaryPath, path, overwrite: true);
-        }
-        finally
-        {
-            // After a successful move the temporary file no longer exists.
-            File.Delete(temporaryPath);
-        }
+        AtomicFile.WriteAllBytes(path, content.ToArray());
     }
 
     private static string ToValue(ReadingPaneLayout layout) => layout switch
@@ -161,7 +149,8 @@ public sealed class UiSettingsFile : IUiSettingsStore
                 LayoutKey => settings with { Layout = ReadLayout(property) },
                 ThemeKey => settings with { Theme = ReadTheme(property) },
                 NavigationWidthKey => settings with { NavigationWidth = ReadSize(property) },
-                ListSizeKey => settings with { ListSize = ReadSize(property) },
+                ListWidthKey => settings with { ListWidth = ReadSize(property) },
+                ListHeightKey => settings with { ListHeight = ReadSize(property) },
                 _ => throw InvalidKey(property.Name, "is not a known setting"),
             };
         }

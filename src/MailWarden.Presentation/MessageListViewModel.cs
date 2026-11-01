@@ -16,24 +16,25 @@ public sealed class MessageRowViewModel
     {
         Message = message;
         AccountLabel = accountLabel;
-        string fromName = SafeDisplayText.Clean(message.FromName);
-        Sender = string.IsNullOrWhiteSpace(fromName) ? SafeDisplayText.Clean(message.FromAddress) : fromName;
-        string subject = SafeDisplayText.Clean(message.Subject);
-        Subject = string.IsNullOrWhiteSpace(subject) ? UiText.NoSubject : subject;
-        Preview = SafeDisplayText.Clean(message.TextPreview);
+        string fromName = SafeDisplayText.Shorten(message.FromName, MailDisplayText.MaxSenderCharacters);
+        Sender = fromName.Length == 0
+            ? SafeDisplayText.Shorten(message.FromAddress, MailDisplayText.MaxSenderCharacters)
+            : fromName;
+        Subject = MailDisplayText.Subject(message.Subject);
+        Preview = SafeDisplayText.Shorten(message.TextPreview, MailDisplayText.MaxPreviewCharacters);
         DateText = FormatDate(message.Date, now, localZone);
     }
 
     /// <summary>The message of the row.</summary>
     public MailMessage Message { get; }
 
-    /// <summary>Cleaned FromName, else cleaned FromAddress.</summary>
+    /// <summary>Shortened FromName, else shortened FromAddress.</summary>
     public string Sender { get; }
 
-    /// <summary>Cleaned subject; "(Kein Betreff)" when empty.</summary>
+    /// <summary>Shortened subject; "(Kein Betreff)" when empty.</summary>
     public string Subject { get; }
 
-    /// <summary>Cleaned text preview.</summary>
+    /// <summary>Shortened text preview.</summary>
     public string Preview { get; }
 
     /// <summary>Local time: today "HH:mm", same year "dd.MM.", otherwise "dd.MM.yyyy".</summary>
@@ -81,6 +82,7 @@ public sealed class MessageListViewModel : ObservableObject
     private bool isLoading;
     private int loadGeneration;
     private CancellationTokenSource? loadCancellation;
+    private bool isClosed;
 
     internal MessageListViewModel(
         IMailboxReadModel readModel,
@@ -130,6 +132,10 @@ public sealed class MessageListViewModel : ObservableObject
     public async Task LoadAsync(MailView view, CancellationToken ct = default)
     {
         ArgumentNullException.ThrowIfNull(view);
+        if (isClosed)
+        {
+            return;
+        }
 
         currentView = view;
         SelectedRow = null;
@@ -159,7 +165,7 @@ public sealed class MessageListViewModel : ObservableObject
     /// <exception cref="OperationCanceledException"><paramref name="ct"/> was cancelled.</exception>
     public async Task LoadMoreAsync(CancellationToken ct = default)
     {
-        if (currentView is not MailView view || !HasMore || IsLoading)
+        if (isClosed || currentView is not MailView view || !HasMore || IsLoading)
         {
             return;
         }
@@ -194,7 +200,7 @@ public sealed class MessageListViewModel : ObservableObject
     /// <exception cref="OperationCanceledException"><paramref name="ct"/> was cancelled.</exception>
     public async Task ReloadAsync(CancellationToken ct = default)
     {
-        if (currentView is not MailView view)
+        if (isClosed || currentView is not MailView view)
         {
             return;
         }
@@ -214,6 +220,14 @@ public sealed class MessageListViewModel : ObservableObject
                 };
             },
             ct);
+    }
+
+    /// <summary>Ends the running load without a further read or log line; later calls do nothing.</summary>
+    internal void Close()
+    {
+        isClosed = true;
+        loadGeneration++;
+        CancelPreviousLoad();
     }
 
     private static bool ShowsSameContent(MessageRowViewModel left, MessageRowViewModel right)
@@ -247,7 +261,7 @@ public sealed class MessageListViewModel : ObservableObject
         {
             if (generation == loadGeneration)
             {
-                log.Write(LogLevels.Critical, source, $"Reading the message list failed: {exception.GetType().Name}");
+                log.Write(CriticalLogLevel.Critical, source, $"Reading the message list failed: {exception.GetType().Name}");
                 banner.Set(ShellBanner.BannerSource.MessageList, UiText.BannerListFailed);
             }
         }
@@ -281,6 +295,7 @@ public sealed class MessageListViewModel : ObservableObject
     {
         IReadOnlyList<Account> accounts = await readModel.ListAccountsAsync(ct);
         Dictionary<Guid, string> accountLabels = accounts.ToDictionary(account => account.Id, NavigationViewModel.AccountLabel);
+        ct.ThrowIfCancellationRequested();
         IReadOnlyList<MailMessage> messages = await readModel.ListMessagesAsync(view.ToQuery(limit, offset), ct);
         DateTimeOffset now = timeProvider.GetUtcNow();
         List<MessageRowViewModel> rows = messages

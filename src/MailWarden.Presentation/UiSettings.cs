@@ -33,8 +33,14 @@ public enum AppTheme
 /// <param name="Layout">Arrangement of list and reading pane.</param>
 /// <param name="Theme">Theme of the shell.</param>
 /// <param name="NavigationWidth">Width of the navigation.</param>
-/// <param name="ListSize">Width (side by side) or height (list above) of the message list.</param>
-public sealed record UiSettings(ReadingPaneLayout Layout, AppTheme Theme, double NavigationWidth, double ListSize)
+/// <param name="ListWidth">Width of the message list in the layout side by side.</param>
+/// <param name="ListHeight">Height of the message list in the layout list above.</param>
+public sealed record UiSettings(
+    ReadingPaneLayout Layout,
+    AppTheme Theme,
+    double NavigationWidth,
+    double ListWidth,
+    double ListHeight)
 {
     /// <summary>Smallest allowed value of the sizes.</summary>
     public const double MinimumSize = 150;
@@ -42,8 +48,8 @@ public sealed record UiSettings(ReadingPaneLayout Layout, AppTheme Theme, double
     /// <summary>Largest allowed value of the sizes.</summary>
     public const double MaximumSize = 2000;
 
-    /// <summary>SideBySide, System, 280, 420.</summary>
-    public static UiSettings Default { get; } = new(ReadingPaneLayout.SideBySide, AppTheme.System, 280, 420);
+    /// <summary>SideBySide, System, 280, 420, 320.</summary>
+    public static UiSettings Default { get; } = new(ReadingPaneLayout.SideBySide, AppTheme.System, 280, 420, 320);
 }
 
 /// <summary>

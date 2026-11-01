@@ -53,6 +53,7 @@ public sealed class ReadingPaneViewModel : ObservableObject
     private MailContent? currentContent;
     private int showGeneration;
     private CancellationTokenSource? showCancellation;
+    private bool isClosed;
 
     internal ReadingPaneViewModel(IMailboxReadModel readModel, ICriticalLog log, TimeProvider timeProvider)
     {
@@ -87,28 +88,28 @@ public sealed class ReadingPaneViewModel : ObservableObject
         _ => string.Empty,
     };
 
-    /// <summary>Cleaned subject; "(Kein Betreff)" when empty; empty without a message.</summary>
+    /// <summary>Shortened subject; "(Kein Betreff)" when empty; empty without a message.</summary>
     public string Subject
     {
         get => subject;
         private set => SetProperty(ref subject, value);
     }
 
-    /// <summary>Cleaned sender.</summary>
+    /// <summary>Shortened sender.</summary>
     public string From
     {
         get => from;
         private set => SetProperty(ref from, value);
     }
 
-    /// <summary>Cleaned To recipients, comma separated.</summary>
+    /// <summary>Shortened To recipients, comma separated.</summary>
     public string To
     {
         get => to;
         private set => SetProperty(ref to, value);
     }
 
-    /// <summary>Cleaned Cc recipients, comma separated.</summary>
+    /// <summary>Shortened Cc recipients, comma separated.</summary>
     public string Cc
     {
         get => cc;
@@ -122,7 +123,10 @@ public sealed class ReadingPaneViewModel : ObservableObject
         private set => SetProperty(ref dateText, value);
     }
 
-    /// <summary>Cleaned names of the attachments; they cannot be opened or saved in this version.</summary>
+    /// <summary>
+    /// Shortened names of at most 50 attachments, then one entry with the number of the others; they cannot be opened or
+    /// saved in this version.
+    /// </summary>
     public IReadOnlyList<string> AttachmentNames
     {
         get => attachmentNames;
@@ -169,8 +173,8 @@ public sealed class ReadingPaneViewModel : ObservableObject
         State == ReadingState.Ready && BlockedRemoteResourceCount > 0 && !AreRemoteImagesAllowed;
 
     /// <summary>
-    /// Rebuilds the document with remote images allowed, without reading the EML again. The approval holds only for the
-    /// current message.
+    /// Rebuilds the document with remote images allowed, off the UI thread and without reading the EML again. The approval
+    /// holds only for the current message; a result that arrives after the next message is ignored.
     /// </summary>
     public ICommand LoadRemoteImagesCommand => loadRemoteImagesCommand;
 
@@ -189,6 +193,11 @@ public sealed class ReadingPaneViewModel : ObservableObject
     /// </exception>
     public async Task ShowAsync(MailMessage? message, CancellationToken ct = default)
     {
+        if (isClosed)
+        {
+            return;
+        }
+
         int generation = ++showGeneration;
         CancelPreviousShow();
         ShowHeader(message);
@@ -244,8 +253,9 @@ public sealed class ReadingPaneViewModel : ObservableObject
 
             throw;
         }
-        catch (Exception exception) when (exception is not OutOfMemoryException)
+        catch (Exception exception)
         {
+            // Also OutOfMemoryException: a mail too large for the memory must not leave the pane in Loading.
             if (generation == showGeneration)
             {
                 ShowFailure("ReadingPaneViewModel.ShowAsync", exception);
@@ -260,22 +270,20 @@ public sealed class ReadingPaneViewModel : ObservableObject
         }
     }
 
-    private static string CleanedJoin(IEnumerable<string> values)
+    /// <summary>Ends the running load without a further read or log line; later calls do nothing.</summary>
+    internal void Close()
     {
-        return string.Join(", ", values.Select(SafeDisplayText.Clean));
-    }
-
-    private static string CleanSubject(string subject)
-    {
-        string cleaned = SafeDisplayText.Clean(subject);
-        return string.IsNullOrWhiteSpace(cleaned) ? UiText.NoSubject : cleaned;
+        isClosed = true;
+        showGeneration++;
+        CancelPreviousShow();
     }
 
     private static string DescribeSender(MailMessage message)
     {
-        string name = SafeDisplayText.Clean(message.FromName);
-        string address = SafeDisplayText.Clean(message.FromAddress);
-        return string.IsNullOrWhiteSpace(name) ? address : $"{name} <{address}>";
+        return MailDisplayText.SenderLine(
+            string.IsNullOrWhiteSpace(SafeDisplayText.Clean(message.FromName))
+                ? message.FromAddress
+                : $"{message.FromName} <{message.FromAddress}>");
     }
 
     private void CancelPreviousShow()
@@ -304,7 +312,7 @@ public sealed class ReadingPaneViewModel : ObservableObject
         DocumentHtml = null;
         BlockedRemoteResourceCount = 0;
         AreRemoteImagesAllowed = false;
-        Subject = message is null ? string.Empty : CleanSubject(message.Subject);
+        Subject = message is null ? string.Empty : MailDisplayText.Subject(message.Subject);
         From = message is null ? string.Empty : DescribeSender(message);
         To = string.Empty;
         Cc = string.Empty;
@@ -314,15 +322,12 @@ public sealed class ReadingPaneViewModel : ObservableObject
 
     private void ShowContentHeader(MailContent content, MailMessage message)
     {
-        Subject = CleanSubject(content.Subject);
-        From = SafeDisplayText.Clean(content.From);
-        To = CleanedJoin(content.To);
-        Cc = CleanedJoin(content.Cc);
+        Subject = MailDisplayText.Subject(content.Subject);
+        From = MailDisplayText.SenderLine(content.From);
+        To = MailDisplayText.Recipients(content.To);
+        Cc = MailDisplayText.Recipients(content.Cc);
         DateText = FormatDate(content.Date ?? message.Date);
-        AttachmentNames = content.Attachments
-            .Select(attachment => SafeDisplayText.Clean(attachment.FileName))
-            .Select(name => string.IsNullOrWhiteSpace(name) ? UiText.UnnamedAttachment : name)
-            .ToList();
+        AttachmentNames = MailDisplayText.AttachmentNames(content.Attachments.Select(attachment => attachment.FileName).ToList());
     }
 
     private void ShowDocument(ReadingDocument document)
@@ -338,26 +343,54 @@ public sealed class ReadingPaneViewModel : ObservableObject
         DocumentHtml = null;
         BlockedRemoteResourceCount = 0;
         State = ReadingState.Error;
-        log.Write(LogLevels.Critical, source, $"Showing the message failed: {exception.GetType().Name}");
+        log.Write(CriticalLogLevel.Critical, source, $"Showing the message failed: {exception.GetType().Name}");
     }
 
-    // Synchronous: the command has no way to report completion, and the same input was sanitized once before.
     private void LoadRemoteImages()
     {
-        if (!CanLoadRemoteImages || currentContent is null)
+        if (CanLoadRemoteImages && currentContent is MailContent content)
         {
-            return;
+            _ = LoadRemoteImagesAsync(content);
         }
+    }
 
+    // Same guard as ShowAsync: the next message makes this result stale. Never throws, nobody can await it.
+    private async Task LoadRemoteImagesAsync(MailContent content)
+    {
+        int generation = ++showGeneration;
+        CancelPreviousShow();
+        using var cancellation = new CancellationTokenSource();
+        showCancellation = cancellation;
+
+        // At once, so the button is gone and cannot start a second build.
+        AreRemoteImagesAllowed = true;
         try
         {
-            ReadingDocument document = ReadingDocumentBuilder.Build(currentContent, allowRemoteImages: true);
-            AreRemoteImagesAllowed = true;
-            ShowDocument(document);
+            ReadingDocument document = await Task.Run(
+                () => ReadingDocumentBuilder.Build(content, allowRemoteImages: true),
+                cancellation.Token);
+            if (generation == showGeneration)
+            {
+                ShowDocument(document);
+            }
         }
-        catch (Exception exception) when (exception is not OutOfMemoryException)
+        catch (OperationCanceledException) when (generation != showGeneration)
         {
-            ShowFailure("ReadingPaneViewModel.LoadRemoteImages", exception);
+            // Replaced by the next message.
+        }
+        catch (Exception exception)
+        {
+            if (generation == showGeneration)
+            {
+                ShowFailure("ReadingPaneViewModel.LoadRemoteImagesAsync", exception);
+            }
+        }
+        finally
+        {
+            if (generation == showGeneration)
+            {
+                showCancellation = null;
+            }
         }
     }
 }

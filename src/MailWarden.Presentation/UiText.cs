@@ -129,6 +129,14 @@ public static class UiText
         return string.Create(CultureInfo.InvariantCulture, $"Bilder laden ({blockedCount} blockiert)");
     }
 
+    /// <summary>Last entry of a long attachment list.</summary>
+    /// <param name="count">Number of attachments not listed.</param>
+    /// <returns>The entry.</returns>
+    public static string MoreAttachments(int count)
+    {
+        return string.Create(CultureInfo.InvariantCulture, $"und {count} weitere");
+    }
+
     /// <summary>Status text of an account node: fixed text per state, plus counts during a sync.</summary>
     /// <param name="status">Status of the account, or null when the service has not reported one yet.</param>
     /// <returns>The status text.</returns>
