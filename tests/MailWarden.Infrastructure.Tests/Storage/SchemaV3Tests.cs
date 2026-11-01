@@ -115,7 +115,7 @@ public sealed class SchemaV3Tests
         await using SqliteDatabase database = SqliteDatabase.ForFile(databasePath);
         await database.InitializeAsync();
 
-        Assert.Equal(4, database.SchemaVersion);
+        Assert.Equal(SqliteDatabase.CurrentSchemaVersion, database.SchemaVersion);
         List<string> columns = await ReadColumnsAsync(database);
         Assert.Contains("skipped_up_to_uid", columns);
         Assert.DoesNotContain("highest_synced_uid", columns);
@@ -146,7 +146,7 @@ public sealed class SchemaV3Tests
         await using SqliteDatabase second = SqliteDatabase.ForFile(databasePath);
         await second.InitializeAsync();
 
-        Assert.Equal(4, second.SchemaVersion);
+        Assert.Equal(SqliteDatabase.CurrentSchemaVersion, second.SchemaVersion);
         Assert.Equal(9u, (await new SqliteFolderSyncStateStore(second).GetAsync(7))!.SkippedUpToUid);
     }
 
