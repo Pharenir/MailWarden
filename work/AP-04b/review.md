@@ -147,3 +147,92 @@ Let X be the rescued mail:
 - Ich bin mir unsicher: whether every IMAP server ignores a missing UID in `UID MOVE` and `UID EXPUNGE`. RFC 3501 says so for UID sets, but it is not checked against a server. It decides whether the safe row of order B completes or records a failure; X is safe either way, the other mails of that command would be retried.
 - Ich bin mir unsicher: the branch that picks `BEGIN IMMEDIATE` for `deferred: false`. I saw the strings and the call to `IsolationLevel`, not the branch itself. It matches `BeginTransaction(bool)` as documented and the builder's two-connection probe.
 - Ich bin mir unsicher: how long the wait for the lock lasts (not measured). It affects how long a user waits and window B, not the result.
+
+# review.5
+
+Delta `3f1d0f0`, `cbcb564` and merge `b768566` as they sit in `1b89d68`, 2026-11-01. Line numbers as of `1b89d68` (`src` unchanged since the merge).
+
+**Verdict: APPROVE.** No MUST: I found no scenario with a wrong folder, a wrong final number or a false log line. S1 is a one-place speed-up that X3 "the moment" needs on a big mailbox. S2 and S3 need no builder round, but they must be done before the merge to `main`.
+
+## MUST
+None.
+
+## SHOULD
+
+**S1 - The recount is slow because of one query plan, not because of the id list.** `src/MailWarden.Infrastructure/Storage/SqliteMessageStore.cs:434-438`, hot since `NavigationViewModel.cs:310-324` and `ShellViewModel.cs:840-846`
+Scenario: mailbox of 180,000 mails, one unread mail, Del. The row goes at once, the number about 1.4 s later, because `ApplyTree` applies only at the end of the pass. X3 says "the moment". Every further Del in that time restarts the pass, so while tapping the number does not move at all. Del on a read mail costs the same pass for an unchanged number (X-k), and so does each cycle that finished a removal (a second pass via `ReloadAsync`, `PendingMailState.cs:124`).
+Cause: a role view of one account filters `m.account_id`, and the planner then scans all of `messages` (`SCAN m`), even for an empty Outbox: about 65 ms each, 18 such entries, about 85 % of the pass.
+Proposal: in the role branch filter `f.account_id = $account_id` instead. The composite foreign key of `messages` makes it the same set. Measured below: 1,320 ms to 167 ms without hidden ids, 1,645 ms to 291 ms with 60,000, same counts. Ich bin mir unsicher: that `e_sqlite3` picks the same plans as the Python build; `EXPLAIN QUERY PLAN` on the real driver settles it. The planner may also postpone this until Dennis has seen the delay on his copy; then it belongs in `TODO.md`.
+
+**S2 - X4 rests on a manual test that was run with the bar on.** `src/MailWarden.App/MailWebViewHost.cs:177-178`, `work/manual-tests.md:246`
+Case 32 saw the hint with `IsStatusBarEnabled = true`. Whether `StatusBarTextChanged` still fires with `false` is not proven: the SDK doc (1.0.3179.45) says only "The developer must create the status bar and set the text", and `impl-notes.md:78` carries the same doubt. If it does not fire, a link target is invisible, which is the risk of review.1 S1. `manual-tests.md:246` still asks for tooltip **and** status bar and nothing asks for the bar off. Proposal: a new step for Dennis, link with a differing text, bar off, hint shows the true target. Add X-h and X-i to X-m to the same list; they are not in it.
+
+**S3 - Documents contradict the code (for the documenter).**
+- `README.md:77` tells the user the status bar stays on. X4 turned it off.
+- `PLAN.md:251` ("bleibt vorerst an") and `PLAN.md:255` ("**und** in der Statusleiste") contradict X4.
+- The AP-04b table of `PLAN.md` has no line for X1 to X4; its status still says S3 2348/2348, review.4.
+- `TODO.md:95` and `TODO.md:115` are stale, and `README.md:42,53` do not mention the right click in the tree or the number.
+
+## NIT
+- `src/MailWarden.Core/Storage/IMessageStore.cs:48-49` still lists "Role/AccountId/FolderId"; `ExcludedMessageIds` counts too.
+- `src/MailWarden.App/MainWindow.xaml.cs:502-503`: the comment expects a parent `TreeViewItem` above the entry. As far as I remember the control holds its items flat (`impl-notes.md` assumes this as well), then nothing bubbles to a parent. `Handled = true` is harmless either way. Ich bin mir unsicher: not checked at runtime.
+
+## Answers
+
+**1. Right click: no path empties another folder than the one clicked.**
+- `view` is read once from the entry and captured by the menu (`MainWindow.xaml.cs:508`, `:514`). A refresh that replaces the items does not touch the record, and `CanEmptyFolder` is not read again.
+- Ids cannot come back: `folders.id` and `messages.id` are `AUTOINCREMENT`.
+- Stale true: `EmptyFolderAsync` reads the folders again (`ShellViewModel.cs:1126`). Junk group after a second account got a Junk: null, nothing happens. Role changed: null, nothing happens. Folder gone: same. Stale false: no menu until the next refresh, which is the safe side.
+- `ItemFromContainer`: the event and `ApplyTree` both run on the UI thread, so they cannot interleave. A wrong answer would also have to pass the question, which names folder, account and count (`UiText.cs:220-225`) and defaults to cancel. Null means no menu. Ich bin mir unsicher: that it answers for child entries and for a `TreeViewItem` that is the root of the template. Only X-h shows that, and the failure is visible and safe.
+- Handled and menu: no other `ContextFlyout` above the tree (`MainWindow.xaml:163` is the list). Right click and context key are both covered; `TryGetPosition` false shows the menu at the entry.
+- Same path as the toolbar: one rule (`MailView.cs:53-60`), no second function for the task.
+
+**2. `ActionRowsRemoved`: nothing breaks.**
+- Delete, permanent delete and move return before `RemoveRowsAsync` when no row is left (`ShellViewModel.cs:1049`, `:1094`, `:1199`). Only the empty path can pass no rows.
+- Toolbar empty with rows: as before. Toolbar empty with none loaded: the focus stays on the button, which stays visible. Right click on the folder in the list: rows go, the focus moves to the list, as with the toolbar. Search box: `FocusMessageList` keeps out.
+- `MainWindow.xaml.cs:90` is the only subscriber in `src`; the doc at `ShellViewModel.cs:325` is now exact.
+- `Messages.ReloadAsync` at `:1163` with `HasMore` on an unrelated list merges in place and keeps the selection by id (`MessageListViewModel.cs:255-260`), so X-e holds.
+
+**3. X3.**
+- *SQL:* `m` is the alias in both shapes (`:172`, `:429`); folder, role and role plus account work. `m.id` is the primary key, and the JSON holds only formatted `long` values, so no NULL can turn `NOT IN` into nothing. Empty and null skip the clause. Parameterised.
+- *Search:* `SearchAsync` has no `MessageQuery`, so it is not affected. `PermanentDeleteWatcher.cs:94` and `MailView.ToQuery` pass nothing.
+- *`ListAsync`:* it shares the filter and honours the member, but nobody passes it there. Fine, and simpler than a second filter. Anyone who does must know that the offset logic of `MessageListViewModel` (`hiddenRowsRead`) assumes hidden rows are read.
+- *Double subtraction:* none, as nothing is subtracted. The executor deletes the rows (`CommandExecutor.cs:351`) before `CompleteAsync` (`:184`), so a command that has left the queue has no row left to be counted again. If the local delete fails (swallowed on purpose), number and row come back together until the next sync.
+- *Order, Del:* `BeginRemoval` starts pass A, `EndAction(true)` raises nothing and the set stays equal, so A stays valid. An older queue read is dropped by the sequence.
+- *Order, refusal:* `EndAction(false)` starts pass B, which replaces A. The number returns (X-j).
+- *Order, empty:* pass, store, `RefreshAsync`, event, newer pass (X-l). `BeginRemoval` with no rows raises nothing, correct.
+- *Order, cycle:* pass with the old set (right, rows gone), then `ReloadAsync` reads the queue, event, second pass (same numbers; a failed command brings its number back).
+- *Partly stored:* `EndAction(false)` clears the stored ids too, until the queue read of `ReloadAsync` brings them back. The number can rise for that moment and ends right, as the rows do.
+- *No missed event:* every change of the union passes an event (`PendingMailState.cs:124`, `:166`, `:214`); the reverse only costs a spare pass.
+- *Concurrent passes:* newest wins by generation (`NavigationViewModel.cs:146-147`, `:168`, `:184`). A replaced pass neither applies nor logs.
+- *After `Dispose`:* `ShellViewModel.cs:842` and `NavigationViewModel.cs:141` keep out; `Close` bumps the generation, so a late `ObjectDisposedException` is not logged (`NavigationViewModel.cs:190`). `RunObservedAsync` catches the rest, except `OutOfMemoryException` as everywhere.
+- *Startup:* the guard `Items.Count > 0` loses nothing. The queue is read before the first pass (`ShellViewModel.cs:349-350`), `ApplyStatus` ignores unknown accounts until the tree exists, and the first load starts from `ApplyTree`, when `Items` is filled.
+- *Cost, freeze:* no freeze. Counts and JSON run on the thread pool (`MailboxReadModel.cs:110`). On the UI thread: `HiddenMessageIds`, about 2 to 5 ms at 60,000 ids per pass (estimate), the hops, and `ApplyTree`, which raises only for changed values.
+- *Cost, queue:* no build-up. A pass holds at most one statement in the gate; the next one is cancelled in `WaitAsync` or `Task.Run`. Writes run on the own connection of `MailboxActions`; WAL keeps them from waiting for reads.
+- *Holding Del is not a load case:* `MainWindow.xaml.cs:278` ignores repeats (`WasKeyDown`, `PLAN.md` row 12), so holding acts once. The real case is tapping or the toolbar.
+- *Tapping:* `DeleteAsync` reads the roles through the same gate before `BeginRemoval` (`ShellViewModel.cs:1054`, `:988`), so the next row goes up to one count later: at most about 90 ms at 180,000 mails as built, far less with S1.
+- *Id list:* 60,000 ids add about 8 ms per count that reaches a row, plus about 4 ms of serialising and about 1.2 MB in the large object heap per count (estimate, about 50 MB per finished pass). Noticeable, not a defect. The size is reached only while a very big empty is pending.
+
+| 180,000 synthetic mails, 40 entries | One pass |
+|---|---|
+| As built, no hidden ids | 1,320-1,360 ms (worst count 81-87 ms) |
+| As built, 60,000 ids | 1,645 ms (worst count 89-91 ms), plus the serialising |
+| S1, no hidden ids | 167 ms |
+| S1, 60,000 ids | 291 ms, plus the serialising |
+
+**4. X4: nothing else relies on the bar.** `MailWebViewHost.cs:190-196` to `MainWindow.xaml.cs:333-336` is the only use; only the manual proof is missing (S2).
+
+**5. Merge `b768566`: consistent.**
+- Conflicts only in `PLAN.md` and `README.md`, no markers left, and both AP sections are complete. Both sides changed `MailWardenRuntime.cs`, which merged cleanly without conflict hunks. No AP-06 file in `Presentation` or `App`; `SqliteMessageStore` and the schema have no overlap.
+- review.4 said the classifier rescue becomes reachable from AP-06 on. It is still closed: `Act` is off (`PLAN.md`, AP-06), and `TODO.md:280` keeps the decision for Dennis.
+- **Condition:** no S3 has seen this combination. `TODO.md:80` counts the S3 of AP-06, `PLAN.md` the 2348 of verify.4. Merging to `main` needs a green S3 on the merged head.
+- `tests/test-map.json` changed on both sides; I did not open it (`tests\`), the tester should check it.
+
+## Verified how
+- **By reading:** everything above, including orders and races. No race was run.
+- **Ran:** `git show`, `git diff`, `git log`, `git status`; `dotnet build MailWarden.sln -warnaserror` (0 warnings, 0 errors; wrote only `bin`/`obj`); a lookup in the WebView2 XML doc.
+- **Ran, measurement:** a Python script in the session scratchpad. SQLite 3.50.4 from Python, not `e_sqlite3` and not C#. File database with the tables and message indexes of `SchemaMigrations` (no FTS, no foreign keys), 125 MB, WAL, default cache, warm OS cache, artificial data, 3 accounts with 12 folders each. Cold cache and a real mailbox are not measured; both will differ. The row "S1" compared the counts of all 40 entries: equal.
+- **Not run:** tests, GUI, the app, S1-S3, a real database.
+- **Estimated, not measured:** the UI-thread share, serialising in C#, the heap figures.
+- **Scope note:** `tests\` unread. `git show --stat` output listed test file names, no content.
+- Ich bin mir unsicher: how large the real database is. It decides whether S1 is noticeable; time grows about linearly with the mails.
