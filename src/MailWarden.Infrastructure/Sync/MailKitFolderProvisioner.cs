@@ -12,8 +12,8 @@ namespace MailWarden.Infrastructure.Sync;
 
 /// <summary>
 /// <see cref="IMailFolderProvisioner"/> on a MailKit session of its own. Commands on the wire besides login and session
-/// setup: <c>LIST</c>, for a missing folder <c>CREATE</c> (MailKit follows it with <c>LIST</c>) and <c>SUBSCRIBE</c>, and
-/// <c>STATUS (UIDVALIDITY)</c>. No folder is ever selected, so nothing can be expunged; the session ends with <c>LOGOUT</c>.
+/// setup: <c>LIST</c>, for a missing folder <c>CREATE</c> (MailKit follows it with <c>LIST</c>) and, after its role check,
+/// <c>SUBSCRIBE</c>, and <c>STATUS (UIDVALIDITY)</c>. No folder is ever selected, so nothing can be expunged; the session ends with <c>LOGOUT</c>.
 /// An existing server folder is not changed.
 /// </summary>
 /// <remarks>
@@ -94,7 +94,8 @@ public sealed class MailKitFolderProvisioner(AccountService accountService, IFol
         CancellationToken ct)
     {
         // IMAP folder names are case-sensitive, like the rule of FolderRoleResolver for the app folders.
-        IMailFolder serverFolder = serverFolders.FirstOrDefault(candidate => candidate.FullName == fullName)
+        IMailFolder? existingFolder = serverFolders.FirstOrDefault(candidate => candidate.FullName == fullName);
+        IMailFolder serverFolder = existingFolder
             ?? await CreateTopLevelFolderAsync(client, endpoint, fullName, ct).ConfigureAwait(false);
 
         FolderClassification classification = FolderRoleResolver.Resolve(
@@ -105,6 +106,11 @@ public sealed class MailKitFolderProvisioner(AccountService accountService, IFol
         if (classification.Role != role)
         {
             throw ProtocolFailure(endpoint, $"has a folder that cannot serve as the app folder of role {role}");
+        }
+
+        if (existingFolder is null)
+        {
+            await SubscribeIgnoringFailureAsync(serverFolder, ct).ConfigureAwait(false);
         }
 
         // STATUS reads the value without selecting the folder.
@@ -134,20 +140,21 @@ public sealed class MailKitFolderProvisioner(AccountService accountService, IFol
         }
 
         IMailFolder namespaceRoot = client.GetFolder(client.PersonalNamespaces[0]);
-        IMailFolder createdFolder = await namespaceRoot.CreateAsync(fullName, isMessageFolder: true, ct).ConfigureAwait(false)
+        return await namespaceRoot.CreateAsync(fullName, isMessageFolder: true, ct).ConfigureAwait(false)
             ?? throw ProtocolFailure(endpoint, "did not list an app folder after creating it");
+    }
 
+    // So that other clients show the folder. Not needed by this app: it lists unsubscribed folders as well.
+    private static async Task SubscribeIgnoringFailureAsync(IMailFolder createdFolder, CancellationToken ct)
+    {
         try
         {
-            // So that other clients show the folder. Not needed by this app: it lists unsubscribed folders as well.
             await createdFolder.SubscribeAsync(ct).ConfigureAwait(false);
         }
         catch (Exception exception) when (exception is not (OperationCanceledException or OutOfMemoryException))
         {
             // Ignored on purpose. A lost connection surfaces with the STATUS command that follows.
         }
-
-        return createdFolder;
     }
 
     private static MailTransportException ProtocolFailure(ServerEndpoint endpoint, string problem)
