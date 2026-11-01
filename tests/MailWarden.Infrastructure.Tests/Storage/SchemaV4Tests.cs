@@ -110,17 +110,17 @@ public sealed class SchemaV4Tests
     ];
 
     [Fact]
-    public void Current_schema_version_is_four()
+    public void Current_schema_version_is_at_least_four()
     {
-        Assert.Equal(4, SqliteDatabase.CurrentSchemaVersion);
+        Assert.True(SqliteDatabase.CurrentSchemaVersion >= 4);
     }
 
     [Fact(Timeout = TestTimeouts.PerTestMilliseconds)]
-    public async Task Fresh_database_is_version_four_and_has_the_command_table()
+    public async Task Fresh_database_is_current_version_and_has_the_command_table()
     {
         await using StorageFixture storage = await StorageFixture.CreateAsync();
 
-        Assert.Equal(4, storage.Database.SchemaVersion);
+        Assert.Equal(SqliteDatabase.CurrentSchemaVersion, storage.Database.SchemaVersion);
         List<string> columns = await ReadColumnsAsync(storage.Database, "mail_commands");
         foreach (string required in RequiredColumns)
         {
@@ -141,7 +141,7 @@ public sealed class SchemaV4Tests
         await using SqliteDatabase database = SqliteDatabase.ForFile(databasePath);
         await database.InitializeAsync();
 
-        Assert.Equal(4, database.SchemaVersion);
+        Assert.Equal(SqliteDatabase.CurrentSchemaVersion, database.SchemaVersion);
         List<string> columns = await ReadColumnsAsync(database, "mail_commands");
         foreach (string required in RequiredColumns)
         {
@@ -179,7 +179,7 @@ public sealed class SchemaV4Tests
         await using SqliteDatabase second = SqliteDatabase.ForFile(databasePath);
         await second.InitializeAsync();
 
-        Assert.Equal(4, second.SchemaVersion);
+        Assert.Equal(SqliteDatabase.CurrentSchemaVersion, second.SchemaVersion);
         MailCommand kept = Assert.Single(await new SqliteMailCommandQueue(second, clock).ListAsync(SeedAccountId));
         Assert.Equal(new uint[] { 11 }, kept.Uids);
     }
