@@ -86,6 +86,8 @@ Testzähler: 0/4 seit letztem S3 (zuletzt 2026-10-31: S3 auf `main` @ `3f74af0` 
 - [ ] Wunsch Dennis 2026-11-01 (AP-04b): Linkziel als Tooltip an der Maus statt unten links (`StatusBarTextChanged`, eigene Anzeige); Fremdtext bereinigen
 - [ ] Outlook.com zeigt Ordner mit `/` im Namen nicht über IMAP (Hinweismail von Microsoft 2026-11-01): Die App und der Vergleich `sync-check` sehen sie nicht. In `docs\auth-setup.md` festhalten; Dennis benennt den betroffenen Ordner um
 
+- [ ] Wunsch Dennis 2026-11-01 (nach D8 und AP-06): Bilder bei vertrauenswürdigen Mails direkt laden. Vorschlag des Planers: nach der Filter-Entscheidung `TrustedContact`, nicht nach dem Ordner, weil auch Altbestand, von Hand verschobene und nicht auswertbare Mails im Posteingang liegen; mit Dennis festlegen
+
 ### Vertagt aus AP-04a
 Stand: S3 1732/1732, review.6 APPROVE (fix.6: Zahlen im Baum, Kontonamen, eingebettete Bilder in Junk/Quarantäne); davor S3 1700/1700, review.5 APPROVE, Sicherheitsbefunde aus secure.4 in fix.5 behoben; eine weitere Sicherheitsprüfung
 gibt es nach Entscheidung von Dennis nicht. Alles unterhalb „Hoch“ steht hier.

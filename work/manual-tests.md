@@ -156,8 +156,8 @@ dotnet build MailWarden.sln -warnaserror
 
 **Fall 46 – neue Mail im laufenden Betrieb** (App läuft)
 - [x] Schicke von außen eine Mail an ein Konto: sie erscheint im Posteingang innerhalb von Sekunden (bis zu einigen Minuten, wenn der Anbieter kein IDLE bietet)
-- [ ] Die Ungelesen-Zahl steigt um 1
-- [ ] „Aktualisieren“ löst einen Abgleich aus, ohne dass die App hängt
+- [x] Die Ungelesen-Zahl steigt um 1
+- [x] „Aktualisieren“ löst einen Abgleich aus, ohne dass die App hängt
 
 **Fall 47 – Fehlerfälle** (zweites Terminal mit denselben Zeilen aus der Vorbereitung)
 - [x] Bei laufender erster App die Exe ein zweites Mal starten (letzte Zeile der Vorbereitung): Fenster „MailWarden kann nicht starten“ mit dem Text über den bereits verwendeten Datenordner, kein stilles Ende; die erste App läuft weiter
@@ -172,7 +172,7 @@ dotnet build MailWarden.sln -warnaserror
 - [x] Ordnerbaum: Die Ungelesen-Zahlen bleiben neben dem Scrollbalken sichtbar
 - [x] Ordnerbaum: Kontonamen sind fett und etwas größer; Auswahl und Auf-/Zuklappen funktionieren normal
 - [x] Mail in Junk oder Quarantäne mit eingebettetem Bild: kein Bild, „Bilder laden (n blockiert)“ zählt es mit; nach dem Klick erscheinen die Bilder nur für diese Mail
-- [ ] Dieselbe Mail in einem normalen Ordner (oder eine Mail im Posteingang): eingebettete Bilder erscheinen sofort
+- [x] Dieselbe Mail in einem normalen Ordner (oder eine Mail im Posteingang): eingebettete Bilder erscheinen sofort
 
 **Das meldest du an Claude** (keine Betreffs oder Adressen nötig)
 - je Fall bestanden oder nicht, bei Abweichung Fallnummer und die Beobachtung in einem Satz
