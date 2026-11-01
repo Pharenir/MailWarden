@@ -239,11 +239,12 @@ internal sealed class ClassificationHarness : IAsyncDisposable
         MailMessage message,
         DateTimeOffset classifiedAt,
         ClassificationOutcome outcome = ClassificationOutcome.Enqueued,
-        ClassificationAction action = ClassificationAction.MoveToQuarantine)
+        ClassificationAction action = ClassificationAction.MoveToQuarantine,
+        string? keyOverride = null)
     {
         var entry = new ClassificationLogEntry(
             Account.Id,
-            await KeyAsync(message),
+            keyOverride ?? await KeyAsync(message),
             Inbox.Id,
             message.Uid,
             classifiedAt,

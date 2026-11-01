@@ -221,14 +221,15 @@ public sealed class ClassificationPassDecisionTests
         Assert.Equal(ClassificationOutcome.Enqueued, (await harness.RequireEntryAsync(legit)).Outcome);
         Assert.Equal(ClassificationOutcome.Enqueued, (await harness.RequireEntryAsync(certain)).Outcome);
         IReadOnlyList<MailCommand> commands = await harness.CommandsAsync();
-        Assert.Equal(2, commands.Count);
-        // G7: readable mails without one usable sender (14, 17) are not read failures; from the Inbox they go to the Screener.
-        Assert.Equal(new uint[] { 14, 17, 18 }, CommandAssert.SingleMoveTo(commands, harness.Screener!).Uids);
+        Assert.Equal(3, commands.Count);
+        // G7/H1: readable mails without one usable sender (14, 17) are not read failures; from the Inbox they go to Junk.
+        Assert.Equal(new uint[] { 14, 17 }, CommandAssert.SingleMoveTo(commands, harness.Junk!).Uids);
+        Assert.Equal(new uint[] { 18 }, CommandAssert.SingleMoveTo(commands, harness.Screener!).Uids);
         foreach (MailMessage senderless in new[] { noFrom, noDomain })
         {
             ClassificationLogEntry entry = await harness.RequireEntryAsync(senderless);
             Assert.Equal(ClassificationOutcome.Enqueued, entry.Outcome);
-            Assert.Equal(ClassificationAction.MoveToScreener, entry.PlannedAction);
+            Assert.Equal(ClassificationAction.MoveToJunk, entry.PlannedAction);
             Assert.Null(entry.Tier);
         }
 

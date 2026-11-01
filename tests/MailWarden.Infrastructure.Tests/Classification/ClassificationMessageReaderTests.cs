@@ -211,4 +211,74 @@ public sealed class ClassificationMessageReaderTests
         Assert.NotNull(message.Input);
         Assert.Equal(500, message.Input.LinkHosts.Count);
     }
+
+    // ---- case 49 (H3): headers-only reader ------------------------------------------------------------------------------
+
+    private static async Task<string?> ReadTopReceivedAsync(byte[] eml)
+    {
+        using var stream = new MemoryStream(eml);
+        return await ClassificationInputReader.ReadTopReceivedAsync(stream);
+    }
+
+    // Case 49
+    [Theory(Timeout = TestTimeouts.PerTestMilliseconds)]
+    [InlineData("from top.example.test by mx.example.test id 1")]
+    [InlineData("from top.example.test (top.example.test [192.0.2.1])\r\n\tby mx.example.test   with ESMTP id 1;\r\n\tMon, 15 Jun 2026 10:00:00 +0200")]
+    public async Task Top_received_of_the_headers_only_reader_equals_the_one_of_the_full_reader(string received)
+    {
+        byte[] eml = ClassificationTestEml.Build("Sender A <sender_a@example.test>", [], "Body.", received: received);
+
+        string? headersOnly = await ReadTopReceivedAsync(eml);
+        ClassificationMessage full = await ReadMessageAsync(eml);
+
+        Assert.NotNull(headersOnly);
+        Assert.Equal(full.TopReceived, headersOnly);
+    }
+
+    // Case 49
+    [Fact(Timeout = TestTimeouts.PerTestMilliseconds)]
+    public async Task Headers_only_reader_gives_null_without_received()
+    {
+        Assert.Null(await ReadTopReceivedAsync(ClassificationTestEml.Build("sender_a@example.test", [], "Body.")));
+    }
+
+    // Case 49
+    [Fact(Timeout = TestTimeouts.PerTestMilliseconds)]
+    public async Task Headers_only_reader_gives_null_for_garbage_without_exception()
+    {
+        Assert.Null(await ReadTopReceivedAsync(SyncTestEml.Garbage()));
+    }
+
+    // Case 49: the value does not depend on the body or on the sender
+    [Fact(Timeout = TestTimeouts.PerTestMilliseconds)]
+    public async Task Headers_only_reader_works_for_a_message_without_a_usable_sender()
+    {
+        const string received = "from top.example.test by mx.example.test id 3";
+        byte[] eml = ClassificationTestEml.Build("undisclosed-recipients:;", [], "Body.", received: received);
+
+        Assert.Equal(received, await ReadTopReceivedAsync(eml));
+    }
+
+    // Case 49: only the top-most Received counts
+    [Fact(Timeout = TestTimeouts.PerTestMilliseconds)]
+    public async Task Headers_only_reader_returns_the_top_most_received()
+    {
+        byte[] eml = ClassificationTestEml.Build("sender_a@example.test", [], "Body.", received: "from top.example.test by mx.example.test id 1");
+        string text = Encoding.UTF8.GetString(eml).Replace("MIME-Version: 1.0\r\n", "Received: from lower.example.test by other.example.test\r\nMIME-Version: 1.0\r\n", StringComparison.Ordinal);
+
+        string? top = await ReadTopReceivedAsync(Encoding.UTF8.GetBytes(text));
+
+        Assert.NotNull(top);
+        Assert.StartsWith("from top.example.test", top, StringComparison.Ordinal);
+        Assert.DoesNotContain("lower.example.test", top, StringComparison.Ordinal);
+    }
+
+    // Case 49: stream failures propagate like in the full reader
+    [Fact(Timeout = TestTimeouts.PerTestMilliseconds)]
+    public async Task Headers_only_reader_propagates_stream_failures()
+    {
+        using var stream = new ThrowingStream();
+
+        await Assert.ThrowsAsync<IOException>(() => ClassificationInputReader.ReadTopReceivedAsync(stream));
+    }
 }

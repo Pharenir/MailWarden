@@ -55,6 +55,28 @@ public sealed class ClassificationRoutingTests
         Assert.Throws<ArgumentOutOfRangeException>(() => ClassificationRouting.Route(sourceRole, (SpamTier)(-1)));
     }
 
+    // Case 48 / H1
+    [Fact]
+    public void Message_without_a_usable_sender_goes_from_the_inbox_to_junk_and_stays_in_junk()
+    {
+        Assert.Equal(ClassificationAction.MoveToJunk, ClassificationRouting.RouteWithoutSender(FolderRole.Inbox));
+        Assert.Equal(ClassificationAction.None, ClassificationRouting.RouteWithoutSender(FolderRole.Junk));
+    }
+
+    // Case 48
+    [Theory]
+    [InlineData(FolderRole.None)]
+    [InlineData(FolderRole.Sent)]
+    [InlineData(FolderRole.Trash)]
+    [InlineData(FolderRole.Archive)]
+    [InlineData(FolderRole.Screener)]
+    [InlineData(FolderRole.Quarantine)]
+    [InlineData(FolderRole.Outbox)]
+    public void Route_without_sender_for_any_other_role_throws(FolderRole sourceRole)
+    {
+        Assert.Throws<ArgumentOutOfRangeException>(() => ClassificationRouting.RouteWithoutSender(sourceRole));
+    }
+
     [Fact]
     public void Action_values_are_the_documented_numbers()
     {

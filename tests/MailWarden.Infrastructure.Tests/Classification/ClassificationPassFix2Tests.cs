@@ -260,7 +260,7 @@ public sealed class ClassificationPassFix2Tests
     // Case 42
     [Theory(Timeout = TestTimeouts.PerTestMilliseconds)]
     [MemberData(nameof(SenderlessFromValues))]
-    public async Task Senderless_inbox_mail_goes_to_the_screener_in_act_mode(string from)
+    public async Task Senderless_inbox_mail_goes_to_junk_in_act_mode(string from)
     {
         await using ClassificationHarness harness = await ClassificationHarness.CreateAsync();
         await harness.SeedMarkerAsync(harness.Inbox);
@@ -270,11 +270,13 @@ public sealed class ClassificationPassFix2Tests
 
         ClassificationLogEntry entry = await harness.RequireEntryAsync(mail);
         Assert.Equal(ClassificationOutcome.Enqueued, entry.Outcome);
-        Assert.Equal(ClassificationAction.MoveToScreener, entry.PlannedAction);
+        Assert.Equal(ClassificationAction.MoveToJunk, entry.PlannedAction);
         Assert.Null(entry.Tier);
         Assert.Equal(0, entry.Score);
         Assert.Equal(NoSenderText, entry.Override);
-        Assert.Equal(new uint[] { 11 }, CommandAssert.SingleMoveTo(await harness.CommandsAsync(), harness.Screener!).Uids);
+        IReadOnlyList<MailCommand> commands = await harness.CommandsAsync();
+        Assert.Equal(new uint[] { 11 }, CommandAssert.SingleMoveTo(commands, harness.Junk!).Uids);
+        CommandAssert.NoMoveTo(commands, harness.Screener!);
         Assert.Equal(0, report.Classified);
         Assert.Equal(0, report.ReadFailed);
         Assert.All(Enum.GetValues<SpamTier>(), tier => Assert.Equal(0, report.TierCounts.TryGetValue(tier, out int count) ? count : 0));
@@ -293,7 +295,7 @@ public sealed class ClassificationPassFix2Tests
 
         ClassificationLogEntry entry = await harness.RequireEntryAsync(mail);
         Assert.Equal(ClassificationOutcome.Recorded, entry.Outcome);
-        Assert.Equal(ClassificationAction.MoveToScreener, entry.PlannedAction);
+        Assert.Equal(ClassificationAction.MoveToJunk, entry.PlannedAction);
         Assert.Null(entry.Tier);
         Assert.Equal(NoSenderText, entry.Override);
         Assert.Empty(await harness.CommandsAsync());
@@ -319,12 +321,44 @@ public sealed class ClassificationPassFix2Tests
         Assert.Equal(0, report.Classified);
     }
 
-    // Case 42: no Screener on the server -> TargetMissing
+    // H2: the key of a senderless mail contains Received: same Message-ID, other Received = two decisions
     [Fact(Timeout = TestTimeouts.PerTestMilliseconds)]
-    public async Task Senderless_inbox_mail_without_a_screener_gives_target_missing()
+    public async Task Senderless_mails_with_the_same_message_id_and_different_received_are_two_decisions()
     {
-        await using ClassificationHarness harness = await ClassificationHarness.CreateAsync(withScreener: false);
-        harness.Provisioner.CreateFolders = false;
+        await using ClassificationHarness harness = await ClassificationHarness.CreateAsync();
+        await harness.SeedMarkerAsync(harness.Inbox);
+        byte[] first = ClassificationTestEml.Build("undisclosed-recipients:;", [], "Body.", received: "from mx1.example.test by host.example.test id 1");
+        byte[] second = ClassificationTestEml.Build("undisclosed-recipients:;", [], "Body.", received: "from mx2.example.test by host.example.test id 2");
+        await harness.AddRawAsync(harness.Inbox, 11, first, "<campaign@example.test>");
+        await harness.AddRawAsync(harness.Inbox, 12, second, "<campaign@example.test>");
+
+        await harness.RunAsync(ClassificationHarness.Act);
+
+        Assert.Equal(2L, await harness.LogCountAsync());
+        Assert.Equal(new uint[] { 11, 12 }, CommandAssert.SingleMoveTo(await harness.CommandsAsync(), harness.Junk!).Uids);
+    }
+
+    // H2, control: the same Message-ID with the same Received is one decision
+    [Fact(Timeout = TestTimeouts.PerTestMilliseconds)]
+    public async Task Senderless_mails_with_the_same_message_id_and_the_same_received_are_one_decision()
+    {
+        await using ClassificationHarness harness = await ClassificationHarness.CreateAsync();
+        await harness.SeedMarkerAsync(harness.Inbox);
+        byte[] eml = ClassificationTestEml.Build("undisclosed-recipients:;", [], "Body.", received: "from mx1.example.test by host.example.test id 1");
+        await harness.AddRawAsync(harness.Inbox, 11, eml, "<campaign@example.test>");
+        await harness.AddRawAsync(harness.Inbox, 12, eml, "<campaign@example.test>");
+
+        ClassificationPassReport report = await harness.RunAsync(ClassificationHarness.Act);
+
+        Assert.Equal(1L, await harness.LogCountAsync());
+        Assert.Equal(1, report.SkippedKnown);
+    }
+
+    // Case 42/47: no Junk folder -> TargetMissing
+    [Fact(Timeout = TestTimeouts.PerTestMilliseconds)]
+    public async Task Senderless_inbox_mail_without_a_junk_folder_gives_target_missing()
+    {
+        await using ClassificationHarness harness = await ClassificationHarness.CreateAsync(withJunk: false);
         await harness.SeedMarkerAsync(harness.Inbox);
         MailMessage mail = await harness.AddRawAsync(harness.Inbox, 11, Senderless("undisclosed-recipients:;"), "<senderless@example.test>");
 
@@ -347,7 +381,9 @@ public sealed class ClassificationPassFix2Tests
 
         Assert.Equal(ClassificationOutcome.ReadFailed, (await harness.RequireEntryAsync(garbage)).Outcome);
         Assert.Equal(ClassificationOutcome.Enqueued, (await harness.RequireEntryAsync(senderless)).Outcome);
-        Assert.Equal(new uint[] { 12 }, Assert.Single(await harness.CommandsAsync()).Uids);
+        MailCommand only = Assert.Single(await harness.CommandsAsync());
+        Assert.Equal(new uint[] { 12 }, only.Uids);
+        Assert.Equal(harness.Junk!.Id, only.TargetFolderId);
     }
 
     // ---- case 43: retention does not repeat (G6) -----------------------------------------------------------------------------------
@@ -450,5 +486,66 @@ public sealed class ClassificationPassFix2Tests
         Assert.Equal(2, report.RetentionDeletesEnqueued);
         Assert.Equal(0, report.RetentionDeletesRejected);
         Assert.Equal(new uint[] { 1, 2 }, Assert.Single(await harness.CommandsAsync()).Uids);
+    }
+
+    // ---- case 50 (H3): retention reads headers only -----------------------------------------------------------------------
+
+    private const string DueReceived = "from mx1.example.test by host.example.test id 5";
+
+    private static byte[] WithBody(string contentHeaders, string body) =>
+        Encoding.Latin1.GetBytes(
+            "Received: " + DueReceived + "\r\n" +
+            "MIME-Version: 1.0\r\n" +
+            "From: Offer <offer@qzxkvb73.top>\r\n" +
+            "To: recipient_a@example.test\r\n" +
+            "Subject: sample_subject\r\n" +
+            "Date: Mon, 15 Jun 2026 10:00:00 +0200\r\n" +
+            "Message-ID: <due_corrupt@example.test>\r\n" +
+            contentHeaders + "\r\n\r\n" + body);
+
+    public static TheoryData<string, string, string> CorruptBodies() => new()
+    {
+        { "intact plain body (control)", "Content-Type: text/plain; charset=utf-8", "Plain body." },
+        { "multipart without boundary", "Content-Type: multipart/mixed", "--nonsense\r\nthis part never ends\r\n\x01\x02\x03" },
+        { "multipart with a broken boundary", "Content-Type: multipart/mixed; boundary=\"missing_end\"", "--missing_end\r\nContent-Type: text/plain\r\n\r\nopen part without any closing boundary \xff\xfe" },
+        { "invalid base64 body", "Content-Type: text/plain; charset=utf-8\r\nContent-Transfer-Encoding: base64", "!!!@@@ not base64 ###\r\n====\r\n" },
+        { "unknown charset with invalid quoted-printable", "Content-Type: text/plain; charset=no-such-charset-xyz\r\nContent-Transfer-Encoding: quoted-printable", "=ZZ=4 broken =\r\n=G1" },
+    };
+
+    // Case 50
+    [Theory(Timeout = TestTimeouts.PerTestMilliseconds)]
+    [MemberData(nameof(CorruptBodies))]
+    public async Task Quarantine_mail_with_a_corrupt_body_but_readable_headers_is_deleted_when_due(
+        string description, string contentHeaders, string body)
+    {
+        await using ClassificationHarness harness = await ClassificationHarness.CreateAsync();
+        MailMessage message = await harness.AddRawAsync(
+            harness.Quarantine!, 1, WithBody(contentHeaders, body), "<due_corrupt@example.test>", AncientDate);
+        // The key is built from the readable headers alone, independent of what is wrong in the body.
+        await harness.SeedEntryAsync(
+            message,
+            harness.Clock.GetUtcNow() - TimeSpan.FromDays(100),
+            keyOverride: MessageKey.For(message, DueReceived));
+        Assert.False(string.IsNullOrEmpty(description));
+
+        ClassificationPassReport report = await harness.RunAsync(ClassificationHarness.ActWithRetention(30));
+
+        MailCommand command = Assert.Single(await harness.CommandsAsync());
+        Assert.Equal(MailCommandKind.DeletePermanently, command.Kind);
+        Assert.Equal(new uint[] { 1 }, command.Uids);
+        Assert.Equal(1, report.RetentionDeletesEnqueued);
+    }
+
+    // Case 50, safety: a quarantine mail whose headers are unreadable is never deleted
+    [Fact(Timeout = TestTimeouts.PerTestMilliseconds)]
+    public async Task Quarantine_mail_with_an_unreadable_file_is_never_deleted()
+    {
+        await using ClassificationHarness harness = await ClassificationHarness.CreateAsync();
+        MailMessage message = await harness.AddMessageWithMissingFileAsync(harness.Quarantine!, 1, "<due_missing@example.test>");
+        await harness.SeedEntryAsync(message, harness.Clock.GetUtcNow() - TimeSpan.FromDays(100), keyOverride: MessageKey.For(message, null));
+
+        await harness.RunAsync(ClassificationHarness.ActWithRetention(30));
+
+        Assert.Empty(await harness.CommandsAsync());
     }
 }
