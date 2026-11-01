@@ -23,4 +23,9 @@ public enum ClassificationOutcome
     /// <summary>EML missing, unreadable or no message at all; no tier. The message stays where it is and this outcome is
     /// final.</summary>
     ReadFailed = 6,
+
+    /// <summary>The message parsed, but building the classifier input or classifying it threw. This points to a programming
+    /// error rather than to the sender, so nothing moves: no tier, no action, the message stays and this outcome is
+    /// final.</summary>
+    EvaluationFailed = 7,
 }

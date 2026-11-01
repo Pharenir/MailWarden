@@ -15,6 +15,8 @@ namespace MailWarden.Infrastructure.Classification;
 /// <param name="TierCounts">Classified messages per tier; every tier is present, also with 0.</param>
 /// <param name="RetentionDeletesRejected">Messages of retention delete commands the queue rejected; the next pass tries
 /// them again.</param>
+/// <param name="EvaluationFailed">Messages stored with outcome <see cref="ClassificationOutcome.EvaluationFailed"/>; part of
+/// neither <paramref name="Classified"/> nor <paramref name="ReadFailed"/>.</param>
 public sealed record ClassificationPassReport(
     int Classified,
     int SkippedKnown,
@@ -23,4 +25,5 @@ public sealed record ClassificationPassReport(
     int RetentionDeletesEnqueued,
     bool ActSuspendedNoContacts,
     IReadOnlyDictionary<SpamTier, int> TierCounts,
-    int RetentionDeletesRejected);
+    int RetentionDeletesRejected,
+    int EvaluationFailed);

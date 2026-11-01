@@ -39,9 +39,9 @@ public static class ClassificationRouting
     }
 
     /// <summary>
-    /// Action for a readable message without a tier, because it has no single usable From address or could not be
-    /// evaluated. The sender causes this, so it must not stay unfiltered, and must not be a way to choose a better target
-    /// than the classifier would: from the Inbox it goes to Junk; in Junk it stays.
+    /// Action for a readable message without a tier, because it has no single usable From address. The sender causes this, so
+    /// it must not stay unfiltered, and must not be a way to choose a better target than the classifier would: from the Inbox
+    /// it goes to Junk; in Junk it stays.
     /// </summary>
     /// <param name="sourceRole">Role of the folder the message is in.</param>
     /// <returns>The action to carry out.</returns>

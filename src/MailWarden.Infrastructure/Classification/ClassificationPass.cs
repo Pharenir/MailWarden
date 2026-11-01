@@ -28,8 +28,10 @@ namespace MailWarden.Infrastructure.Classification;
 /// </para>
 /// <para>
 /// A message whose EML is missing or no message at all gets the final outcome <see cref="ClassificationOutcome.ReadFailed"/>
-/// and stays where it is. A readable message without one usable From address, or one whose input or classification fails,
-/// is caused by the sender and is routed with <see cref="ClassificationRouting.RouteWithoutSender"/>, without a tier.
+/// and stays where it is. A readable message without one usable From address is caused by the sender and is routed with
+/// <see cref="ClassificationRouting.RouteWithoutSender"/>, without a tier. When building the input or classifying throws on a
+/// message that parsed, the outcome is <see cref="ClassificationOutcome.EvaluationFailed"/> and nothing moves: a programming
+/// error must not become a mass move, and the mail may be from a contact.
 /// </para>
 /// <para>
 /// No report or exception of this class contains subject, body or address text. Reason texts go to the local decision
@@ -38,7 +40,7 @@ namespace MailWarden.Infrastructure.Classification;
 /// </remarks>
 public sealed class ClassificationPass
 {
-    // Fixed text, no message data: stands in the Override column of a decision about a readable message without a tier.
+    // Fixed text, no message data: stands in the Override column of a decision about a message without one usable sender.
     private const string NoUsableSenderReason = "Message has no single usable sender";
 
     private readonly IAccountStore accounts;
@@ -53,6 +55,7 @@ public sealed class ClassificationPass
     private readonly ClassifierSettings settings;
     private readonly ClassificationPolicy policy;
     private readonly TimeProvider timeProvider;
+    private readonly IReadOnlyList<ISpamSignal>? signals;
 
     /// <summary>Creates the pass. Settings and policy are validated here (fail fast).</summary>
     /// <param name="accounts">Account store.</param>
@@ -67,7 +70,8 @@ public sealed class ClassificationPass
     /// <param name="settings">Classifier thresholds and lists.</param>
     /// <param name="policy">Mode and retention.</param>
     /// <param name="timeProvider">Clock of the decision time and of the retention.</param>
-    /// <exception cref="ArgumentNullException">A parameter is null.</exception>
+    /// <param name="signals">Signals of the classifier; null means <see cref="SpamClassifier.CreateDefaultSignals"/>.</param>
+    /// <exception cref="ArgumentNullException">A required parameter is null.</exception>
     /// <exception cref="ArgumentException">The settings or the policy are invalid.</exception>
     public ClassificationPass(
         IAccountStore accounts,
@@ -81,7 +85,8 @@ public sealed class ClassificationPass
         IMailFolderProvisioner provisioner,
         ClassifierSettings settings,
         ClassificationPolicy policy,
-        TimeProvider timeProvider)
+        TimeProvider timeProvider,
+        IReadOnlyList<ISpamSignal>? signals = null)
     {
         this.accounts = accounts ?? throw new ArgumentNullException(nameof(accounts));
         this.folders = folders ?? throw new ArgumentNullException(nameof(folders));
@@ -95,6 +100,7 @@ public sealed class ClassificationPass
         this.settings = settings ?? throw new ArgumentNullException(nameof(settings));
         this.policy = policy ?? throw new ArgumentNullException(nameof(policy));
         this.timeProvider = timeProvider ?? throw new ArgumentNullException(nameof(timeProvider));
+        this.signals = signals;
         settings.Validate();
         policy.Validate();
     }
@@ -114,7 +120,7 @@ public sealed class ClassificationPass
         Account account = await accounts.GetAsync(accountId, ct).ConfigureAwait(false)
             ?? throw new ArgumentException($"Unknown account id {accountId}.", nameof(accountId));
         ContactSenderDirectory senderDirectory = await CreateSenderDirectoryAsync(ct).ConfigureAwait(false);
-        var classifier = new SpamClassifier(settings, senderDirectory, SpamClassifier.CreateDefaultSignals());
+        var classifier = new SpamClassifier(settings, senderDirectory, signals ?? SpamClassifier.CreateDefaultSignals());
 
         // Step 2: without contacts every authenticated mail would land in the Screener, so Act is suspended.
         bool actSuspended = policy.Mode == ClassificationMode.Act && senderDirectory.ContactCount == 0;
@@ -156,7 +162,8 @@ public sealed class ClassificationPass
             state.RetentionDeletesEnqueued,
             actSuspended,
             state.TierCounts,
-            state.RetentionDeletesRejected);
+            state.RetentionDeletesRejected,
+            state.EvaluationFailed);
     }
 
     private static MailFolder? FindFolder(IEnumerable<MailFolder> accountFolders, FolderRole role)
@@ -176,15 +183,15 @@ public sealed class ClassificationPass
         };
     }
 
-    // A failure on a message that parsed is caused by its content. Exception messages can quote message data and are not
-    // kept.
+    // A failure on a message that parsed points to a programming error. Exception messages can quote message data and are
+    // not kept.
     private static ClassificationResult? TryClassify(SpamClassifier classifier, ClassificationInput input)
     {
         try
         {
             return classifier.Classify(input);
         }
-        catch (Exception exception) when (exception is not OutOfMemoryException)
+        catch (Exception exception) when (exception is not (OperationCanceledException or OutOfMemoryException))
         {
             return null;
         }
@@ -339,10 +346,16 @@ public sealed class ClassificationPass
         }
 
         ClassificationResult? result = content.Input is null ? null : TryClassify(state.Classifier, content.Input);
+        if (content.InputFailed || (content.Input is not null && result is null))
+        {
+            state.EvaluationFailed++;
+            return CreateEntry(folder, message, messageKey, state, ClassificationOutcome.EvaluationFailed, ClassificationAction.None, null, null);
+        }
+
         ClassificationAction action;
         if (result is null)
         {
-            // Readable, but no single usable sender, or the input or the classifier failed.
+            // Readable, but no single usable sender.
             action = ClassificationRouting.RouteWithoutSender(folder.Role);
         }
         else
@@ -530,5 +543,7 @@ public sealed class ClassificationPass
         public int RetentionDeletesEnqueued { get; set; }
 
         public int RetentionDeletesRejected { get; set; }
+
+        public int EvaluationFailed { get; set; }
     }
 }

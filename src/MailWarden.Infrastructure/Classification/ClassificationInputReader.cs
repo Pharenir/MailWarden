@@ -37,7 +37,8 @@ public static partial class ClassificationInputReader
     /// Parses the EML. Never throws for unparsable bytes: <see cref="ClassificationMessage.Parsed"/> is false then, also for
     /// bytes in which no header was found. TopReceived is read before the input is built, so a failure there does not lose
     /// it. Input is null when no single usable From address with '@' and a domain exists (no From header, more than one From
-    /// header, more than one address, an empty group, or an address without a domain) or when building the input failed.
+    /// header, more than one address, an empty group, or an address without a domain) or when building the input failed; the
+    /// latter also sets <see cref="ClassificationMessage.InputFailed"/>. Parsed with <see cref="MimeParserDefaults.Create"/>.
     /// In the input, FromName is the display name ("" when absent), ReplyToAddress the first Reply-To address (null when
     /// absent), BodyText at most 200,000 characters of <see cref="MimeBodyText.Extract"/>, and LinkHosts the lower-cased hosts
     /// of http/https links from <c>&lt;a href&gt;</c> of the HTML body or, without an HTML body, from URLs in the text;
@@ -57,14 +58,16 @@ public static partial class ClassificationInputReader
 
         try
         {
-            using MimeMessage message = await MimeMessage.LoadAsync(eml, ct).ConfigureAwait(false);
+            using MimeMessage message = await MimeMessage
+                .LoadAsync(MimeParserDefaults.Create(), eml, ct)
+                .ConfigureAwait(false);
             if (message.Headers.Count == 0)
             {
                 return NoMessage();
             }
 
             string? topReceived = GetTopReceived(message.Headers);
-            return new ClassificationMessage(true, topReceived, TryCreateInput(message));
+            return CreateParsedMessage(message, topReceived);
         }
         catch (Exception exception) when (IsUnparsableContent(exception))
         {
@@ -88,7 +91,9 @@ public static partial class ClassificationInputReader
 
         try
         {
-            HeaderList headers = await HeaderList.LoadAsync(eml, ct).ConfigureAwait(false);
+            HeaderList headers = await HeaderList
+                .LoadAsync(MimeParserDefaults.Create(), eml, ct)
+                .ConfigureAwait(false);
             return GetTopReceived(headers);
         }
         catch (Exception exception) when (IsUnparsableContent(exception))
@@ -106,16 +111,17 @@ public static partial class ClassificationInputReader
         return exception is not (IOException or OperationCanceledException or ObjectDisposedException or OutOfMemoryException);
     }
 
-    // The message parsed, so a failure here is caused by its content; the pass routes it like a message without a sender.
-    private static ClassificationInput? TryCreateInput(MimeMessage message)
+    // The message parsed, so a failure here points to a programming error. It is reported apart from "no usable sender", and
+    // the exception is dropped because it can quote message data.
+    private static ClassificationMessage CreateParsedMessage(MimeMessage message, string? topReceived)
     {
         try
         {
-            return CreateInput(message);
+            return new ClassificationMessage(true, topReceived, CreateInput(message));
         }
         catch (Exception exception) when (exception is not (OperationCanceledException or OutOfMemoryException))
         {
-            return null;
+            return new ClassificationMessage(true, topReceived, null) { InputFailed = true };
         }
     }
 
