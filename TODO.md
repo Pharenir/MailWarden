@@ -280,6 +280,7 @@ Erledigt aus AP-07c: D8, J4 (Bremse) und die Sichtbarkeit von `EvaluationFailed`
 - [ ] Eine neue Mail in Junk löst keinen Zyklus aus: Im Fall 18 (4-Minuten-Lauf) gab es keinen Zyklus, denn IDLE überwacht nur den Posteingang. Die Rettung wartet bis zum nächsten Abruf. Vor `Act` entscheiden, ob Junk kürzer abgefragt wird
 
 **Ohne Bedingung:**
+- [ ] Helle Schrift kann auf dem hellen Blatt landen, wenn der Filter den dunklen Hintergrund einer Mail entfernt (`<body style="background:#111">` mit `<td style="color:#eee">`). Bekannte Grenze, auf `main` schon so; Abhilfe wäre Raten der Helligkeit (AP-04d, F2)
 - [ ] Ein dauerhafter Fehler des Durchlaufs bremst den Abgleich des Kontos auf höchstens alle 30 Minuten (review S3)
 - [ ] Zurück von `act` auf `recordOnly` stoppt bereits eingestellte Befehle nicht (review N2)
 - [ ] Scheitert der zweite Ordner (Junk) eines Durchlaufs, erreichen die Zahlen des ersten weder Hinweis noch Logzeile; die

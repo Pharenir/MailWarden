@@ -28,6 +28,8 @@ internal static class OwnColorDetector
     private static readonly FrozenSet<string> TextRepaintingProperties = new[]
     {
         "all", "filter", "backdrop-filter", "mix-blend-mode", "box-shadow",
+        // A remote image without <img>: after approval a logo with a transparent ground would land on the dark page.
+        "content", "list-style-image",
     }.ToFrozenSet(StringComparer.OrdinalIgnoreCase);
 
     /// <summary>
