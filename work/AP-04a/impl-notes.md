@@ -291,3 +291,84 @@ number of open formatting elements to an estimate; above 100,000 every further s
 - **L4:** comments dropped over the budget and flattening below depth 256 also set `WasReduced`. Attributes of end tags and `xmp`-like tags do not.
 - **L8:** `127.0.0.1.nip.io` stays allowed: a public name resolving to a private address is accepted by the planner.
 - **L11:** `LimiterProbe.csproj` refers to the worktree by its fixed path, also in the copy; if the worktree is gone, change the path in that file. It opens the database with `Mode=ReadOnly` and only needs table `messages` and column `eml_path`.
+
+## fix.4 (M1a, M2–M8)
+All implemented, base `0816649`. **No test was run**, and the GUI was not started. "Probe" means a self-check under `_scratch\`, no proof.
+The test projects are not touched; the planner's decision about the strict CSP of the plain-text document needs only a test change.
+
+### Probe of the parser callbacks
+`OnCreated` does **not** see copied formatting elements (`_scratch\oncreated-probe`: `formatBomb` 64 x 100: 168 callbacks, 6,568 elements). `OnToken` carries (`_scratch\ontoken-probe`):
+it fires for every token, also while the tree is built, including `Character`, `Comment` and `EndOfFile`. An exception from it reaches the caller unchanged and ends the parser.
+
+| Case, parser alone, budget 256 MB or 3 s per token | Result | Tokens | Time | Allocated | Process peak |
+|---|---|---|---|---|---|
+| `formatBomb` 1000 x 18,000 | aborted | 2,064 | 854 ms | 256 MB | 268 MB |
+| `fmtObject` 1000 x 16,000 | aborted | 7,094 | 641 ms | 256 MB | 282 MB |
+| `fmtTable` 1000 x 16,000 | aborted | 10,989 | 757 ms | 256 MB | 287 MB |
+| `formatBomb` 64 x 18,000 | aborted | 17,028 | 615 ms | 256 MB | 290 MB |
+| `<p>x</p>` x 150,000 | not aborted | 450,004 | 226 ms | 112 MB | |
+| `<p>x</p>` x 10,000 | not aborted | 30,004 | 8 ms | 7 MB | |
+
+The check is between tokens, so one token can overshoot; 256 MB was never exceeded by more than the rounding here.
+
+| M | State | Checked by probe | Only built or read |
+|---|---|---|---|
+| M1a | done: `ParseWithinBudget` in `MailHtmlSanitizer`; own parser with the CSS configuration of the package; on abort `MimeBodyText.ExtractFromHtml`, encoded, `WasReduced` true | on the calling thread and on a pool thread aborted without markup, text kept; a thread with 1.2 GB allocated before is not reduced for a normal mail; reading pane shows the notice | |
+| M2 | done | `<!---->`, `<!-->`, `<!--->`, `<!----!>`, `<!-- x --!>` end there; `<!--!>a-->b` and `<!---!>a-->b` end at `-->`; 70,000 characters with `<` dropped, also `data:`; without `<` kept | |
+| M3 | done | same mail, clock standing: waits, one build, document, no notice; clock past the limit: text and notice; rebuild with images running, same mail: waits, then a second build without images, no wrong document; the four flows of the addendum unchanged | |
+| M4 | done | `rfc822` depth 40 opaque, not listed; name of 100 unchanged (line 124), 101 cut (line 125), address visible | |
+| M5 | done, also: a name without end tag is not searched again, otherwise a list of `<svg>` would be quadratic | all cases of 85 and 86; `iframe`, `noembed`, `noframes` reduced; `style`, `script`, `title` not | |
+| M6 | done: `Multipart` with `Count` 0 and non-blank `Preamble` | no boundary and unusable boundary opaque; empty multipart and normal preamble not | |
+| M7 | done as revised: opaque only for `multipart/*` and `message/rfc822` parts left at the depth limit, and M6 | `message/feedback-report`, `message/partial`, delivery report: listed, no notice | |
+| M8 | done | 200 unclosed `<a name=x>`, 2,000 links: not reduced | |
+
+### Measurements
+`DOTNET_GCHeapHardLimit` 2 GB, Debug build, 1.5 MB stack, one machine. Baseline of the process about 57 MB. All inputs 100,000 unless given.
+
+| `secprobe6` | ms | reduced | peak MB |
+|---|---|---|---|
+| `bangStart` (secure.3: 7.4 s for 259 KB) | 859 (first run, JIT) | yes | 60 |
+| `bangStart2` | 182 | yes | 59 |
+| `dashBang` | 183 | yes | 59 |
+| `doctypeQuote` / `doctypeQuote2` | 169 / 159 | yes | 59 |
+| `cdata` / `pi` / `bogusEnd` | 160 / 159 / 163 | yes | 59 |
+| `commentSpace` / `commentNewline` / `commentOneDash` / `commentBangSpace` | 178 / 178 / 183 / 177 | no, stays one comment | 74 |
+| `commentNested` / `commentEmpty` | 181 / 182 | yes | 59 |
+| `unquotedQuote` / `selfClose` / `bangData` | 176 / 170 / 191 | yes | 59 |
+| `upperSpace` / `endSlash` / `endNewline` | 191 / 183 / 181 | yes | 59 |
+| `incompleteEnd` | 155 | no | 59 |
+| `svgCdata` / `svgUpper` / `mathText` | 185 / 186 / 183 | yes | 59 |
+| `xmpComment` / `plaintextComment` | 193 / 180 | no, stays one comment | 77 / 75 |
+| `fmtObject` 1000 16000 (secure.3: over 5 GB) | **1,217** | yes, abort | **308** |
+| `fmtTable` 1000 16000 | **1,129** | yes, abort | **314** |
+| `fmtSeed` 0 18000 | 1,392 | yes | 188 |
+
+| `secprobe4 time` | ms | peak MB |
+|---|---|---|
+| `scriptCommentDiv` / `styleCommentDiv` / `titleCommentDiv` / `textareaCommentDiv` | 242 / 247 / 248 / 239 | 83 |
+| `scriptDataSrcDiv` / `styleDataSrcDiv` | 244 / 243 | 83 |
+| `scriptCommentAttrs` / `scriptCommentStyle` | 183 / 171 | 57 |
+| `scriptCommentSiblings` | 333 | 92 |
+| `attrs` / `styleUnknown` | 174 / 167 | 57 |
+| `formatBomb` 1000 18000 / `formatBombEsc` 1000 18000 | 1,458 / 1,134 | 189 / 135 |
+
+`secprobe5`: `titleValueAttrs` 182, `titleValueStyle` 165, `styleValueAttrs` 180, `noRawControlAttrs` 158 ms. `secprobe4 safety`: 34 of 34 ok. `lan`: 63 blocked as before. `secprobe6 hide`: as M5, MIME without boundary opaque; `deepFlag`: opaque, not listed.
+Regression: `spanDiv` 1,707, `aDiv` 1,250, `bDiv` 1,175 ms; 20,000 unknown siblings 2.1 s (slowest of all, outside the named cases). Fuzz 510,000 inputs without exception or suspicious output, 40,000 parallel runs identical; fix.2 and fix.3 self-checks unchanged except as below.
+
+### What the budget costs ordinary mail (`_scratch\budget-probe`)
+| Input | Allocated by `Sanitize` | Result |
+|---|---|---|
+| `<p>` x 20,000 / `<i>` x 20,000 / `<span>text` x 20,000 | 49 / 52 / 60 MB | markup kept |
+| table report 3,000 rows, 410 KB | 301 MB in total | markup kept |
+| inline-styled `span` or `i` x 15,000 | about 625 MB in total | markup kept |
+| **inline-styled `span`, `i` or `td` x 19,000–20,000, about 500 KB** | 270 MB up to the abort | **text without markup** |
+| `<td>a` outside a table x 20,000, `a</x>` x 20,000 (97 KB) | 262 MB up to the abort | text without markup |
+
+Parsing an inline `style` allocates about 14 KB per element, and text split many times into pieces allocates quadratically. So a mail with **about 19,000 or more inline-styled tags** now falls back to plain text, below the 20,000 tags of the pre-scan. Consequence of the budget of 256 MB, built as decided. The real data (2,664 mails, largest 313,586 characters) should stay far below; `limiter-probe` shows it, its code did not need a change.
+
+### Deviations and open points
+- **M1a:** "the CSS configuration of the package" is copied, because `HtmlParser` does not expose its context. Checked by the same output for one styled case and unchanged results of the 57 payloads of `secprobe` (only the changes of L1 show in a comparison with the fix.2 state: `xmp` and `plaintext`).
+- **M1a:** no notice distinguishes the abort from other limits: both use `ContentReduced`.
+- **Case 80:** as decided, over the pre-scan limits the text stays with `WasReduced` true and the first 20,000 tags keep their markup. `<p>x</p>` x 100,001 ends so, without an abort.
+- **M3:** the running build no longer stops when its caller is cancelled before it has started, so that the same mail selected again can use it. A selection that is already outdated when the build would start throws before starting.
+- `secprobe2 sync`, `secprobe3`: older binaries must be rebuilt, because `MailContent` got new constructor parameters since fix.2.
