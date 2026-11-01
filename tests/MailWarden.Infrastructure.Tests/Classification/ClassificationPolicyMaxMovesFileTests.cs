@@ -82,11 +82,11 @@ public sealed class ClassificationPolicyMaxMovesFileTests : IDisposable
 
     // Case 7: outside the range, names the key but not the value.
     [Theory]
-    [InlineData("0", "0")]
+    [InlineData("0", null)]
     [InlineData("-1", "-1")]
     [InlineData("1001", "1001")]
     [InlineData("987654321", "987654321")]
-    public void Limit_outside_the_range_is_rejected(string limit, string value)
+    public void Limit_outside_the_range_is_rejected(string limit, string? value)
     {
         AssertLoadFails($"{{ \"{Key}\": {limit} }}", value);
     }

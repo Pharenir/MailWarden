@@ -73,6 +73,21 @@ public sealed class ClassificationPassBrakeTests
         Assert.Equal(limit + 1L, await harness.LogCountAsync());
     }
 
+    // Case 8 / D2: with the maximum limit of 1000, 1001 planned moves are held as a whole (replaces the old split into 2 commands).
+    [Fact(Timeout = 120_000)]
+    public async Task More_than_the_maximum_limit_is_held_as_a_whole()
+    {
+        await using ClassificationHarness harness = await ClassificationHarness.CreateAsync();
+        await harness.SeedMarkerAsync(harness.Inbox);
+        await AddCertainSpamAsync(harness, harness.Inbox, 1001);
+
+        ClassificationPassReport report = await harness.RunAsync(ClassificationHarness.ActWithLimit(1000));
+
+        Assert.Empty(await harness.CommandsAsync());
+        Assert.Equal(1001, report.BrakeHeld);
+        Assert.Equal(0, report.MovesEnqueued);
+    }
+
     // Case 8: the limit counts planned moves of the folder, whatever their target (here Screener and Quarantine).
     [Fact(Timeout = TestTimeouts.PerTestMilliseconds)]
     public async Task Moves_to_different_targets_of_one_folder_count_together()
