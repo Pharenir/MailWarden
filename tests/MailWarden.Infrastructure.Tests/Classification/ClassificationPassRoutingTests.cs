@@ -402,18 +402,17 @@ public sealed class ClassificationPassRoutingTests
         }
     }
 
-    // Case 25 (bulk insert of up to 2,500 rows is slower than the standard limit)
+    // Case 25 (bulk insert of rows is slower than the standard limit). AP-07d: the brake maximum (1000 moves per folder and
+    // pass) equals the command size, so only 1000 mails can still move; 1001 and more are held (ClassificationPassBrakeTests).
     [Theory(Timeout = 120_000)]
     [InlineData(1000, 1)]
-    [InlineData(1001, 2)]
-    [InlineData(2500, 3)]
     public async Task Moves_are_split_into_commands_of_at_most_1000_uids_and_cover_every_mail(int mailCount, int minimumCommands)
     {
         await using ClassificationHarness harness = await ClassificationHarness.CreateAsync();
         await harness.SeedMarkerAsync(harness.Inbox);
         await AddBulkAsync(harness, mailCount);
 
-        ClassificationPassReport report = await harness.RunAsync(ClassificationHarness.Act);
+        ClassificationPassReport report = await harness.RunAsync(ClassificationHarness.ActWithLimit(1000));
 
         IReadOnlyList<MailCommand> commands = await harness.CommandsAsync();
         Assert.True(commands.Count >= minimumCommands, $"{commands.Count} commands for {mailCount} mails");
