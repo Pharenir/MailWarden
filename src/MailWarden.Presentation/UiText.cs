@@ -135,7 +135,7 @@ public static class UiText
 
     /// <summary>Notice: only the plain text is shown, because the document would take too long.</summary>
     public static string ContentShownAsText =>
-        "Die Aufbereitung dieser Nachricht dauert zu lange oder eine andere läuft noch; sie wird daher nur als Text angezeigt.";
+        "Die Aufbereitung dieser Nachricht dauert zu lange; sie wird daher nur als Text angezeigt.";
 
     /// <summary>Notice: parts below the depth limit cannot be shown.</summary>
     public static string ContentHasOpaqueParts =>

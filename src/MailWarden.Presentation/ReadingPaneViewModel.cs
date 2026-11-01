@@ -59,6 +59,7 @@ public sealed class ReadingPaneViewModel : ObservableObject
 
     // The newest build. It cannot be stopped once it runs, so it may outlive the message it was started for.
     private Task? runningBuild;
+    private long runningBuildMessageId;
 
     internal ReadingPaneViewModel(
         IMailboxReadModel readModel,
@@ -215,9 +216,11 @@ public sealed class ReadingPaneViewModel : ObservableObject
 
     /// <summary>
     /// Shows a message, or the empty pane for null. A failure ends in <see cref="ReadingState.Error"/> with a fixed text and
-    /// a critical log line with the type name. At most one document build runs at a time: after
-    /// <see cref="BuildTimeLimit"/>, or while another build still runs, the plain text is shown with a notice, and a later
-    /// result of that build is ignored.
+    /// a critical log line with the type name. At most one document build runs at a time. While the build of another mail
+    /// runs, the pane stays in <see cref="ReadingState.Loading"/> and waits for its end, at most
+    /// <see cref="BuildTimeLimit"/> from this call; only the newest call survives the wait and then builds normally. When
+    /// the wait or the own build exceeds the limit, or the same mail is being built already, the plain text is shown with a
+    /// notice, and a later result of that build is ignored.
     /// </summary>
     /// <param name="message">Message to show, or null.</param>
     /// <param name="ct">Cancellation token.</param>
@@ -259,7 +262,7 @@ public sealed class ReadingPaneViewModel : ObservableObject
                 return;
             }
 
-            BuiltDocument document = await BuildWithinLimitAsync(content, allowRemoteImages: false, linkedCancellation.Token);
+            BuiltDocument document = await BuildWithinLimitAsync(message.Id, content, allowRemoteImages: false, linkedCancellation.Token);
             if (generation != showGeneration)
             {
                 return;
@@ -331,15 +334,19 @@ public sealed class ReadingPaneViewModel : ObservableObject
     }
 
     // Sanitizing a large mail takes noticeable time, so it leaves the UI thread here. The plain text is linear in its length.
-    private async Task<BuiltDocument> BuildWithinLimitAsync(MailContent content, bool allowRemoteImages, CancellationToken ct)
+    private async Task<BuiltDocument> BuildWithinLimitAsync(long messageId, MailContent content, bool allowRemoteImages, CancellationToken ct)
     {
-        if (runningBuild is { IsCompleted: false })
+        if (!await WaitForRunningBuildAsync(messageId, ct))
         {
             return new BuiltDocument(ReadingDocumentBuilder.BuildFromPlainText(content), IsPlainTextFallback: true);
         }
 
         Task<ReadingDocument> build = Task.Run(() => documentBuilder(content, allowRemoteImages), ct);
         runningBuild = build;
+        runningBuildMessageId = messageId;
+
+        // The build may go on without a reader.
+        ObserveFault(build);
         using var limitCancellation = CancellationTokenSource.CreateLinkedTokenSource(ct);
         Task limit = Task.Delay(BuildTimeLimit, timeProvider, limitCancellation.Token);
         if (await Task.WhenAny(build, limit) == build)
@@ -348,10 +355,36 @@ public sealed class ReadingPaneViewModel : ObservableObject
             return new BuiltDocument(await build, IsPlainTextFallback: false);
         }
 
-        // The build goes on without a reader; a cancelled wait ends here with its exception.
-        ObserveFault(build);
+        // A cancelled wait ends here with its exception.
         await limit;
         return new BuiltDocument(ReadingDocumentBuilder.BuildFromPlainText(content), IsPlainTextFallback: true);
+    }
+
+    // True when a build may start now. False for the mail that is being built already, and when the build of another mail
+    // does not end within the limit. A newer call cancels this wait, so intermediate selections never build anything.
+    private async Task<bool> WaitForRunningBuildAsync(long messageId, CancellationToken ct)
+    {
+        if (runningBuild is not { IsCompleted: false })
+        {
+            return true;
+        }
+
+        if (runningBuildMessageId == messageId)
+        {
+            return false;
+        }
+
+        using var limitCancellation = CancellationTokenSource.CreateLinkedTokenSource(ct);
+        Task limit = Task.Delay(BuildTimeLimit, timeProvider, limitCancellation.Token);
+        if (await Task.WhenAny(runningBuild, limit) != runningBuild)
+        {
+            await limit;
+            return false;
+        }
+
+        await limitCancellation.CancelAsync();
+        ct.ThrowIfCancellationRequested();
+        return true;
     }
 
     private void CancelPreviousShow()
@@ -419,14 +452,14 @@ public sealed class ReadingPaneViewModel : ObservableObject
 
     private void LoadRemoteImages()
     {
-        if (CanLoadRemoteImages && currentContent is MailContent content)
+        if (CanLoadRemoteImages && currentContent is MailContent content && CurrentMessage is MailMessage message)
         {
-            _ = LoadRemoteImagesAsync(content);
+            _ = LoadRemoteImagesAsync(message.Id, content);
         }
     }
 
     // Same guard as ShowAsync: the next message makes this result stale. Never throws, nobody can await it.
-    private async Task LoadRemoteImagesAsync(MailContent content)
+    private async Task LoadRemoteImagesAsync(long messageId, MailContent content)
     {
         int generation = ++showGeneration;
         CancelPreviousShow();
@@ -437,7 +470,7 @@ public sealed class ReadingPaneViewModel : ObservableObject
         AreRemoteImagesAllowed = true;
         try
         {
-            BuiltDocument document = await BuildWithinLimitAsync(content, allowRemoteImages: true, cancellation.Token);
+            BuiltDocument document = await BuildWithinLimitAsync(messageId, content, allowRemoteImages: true, cancellation.Token);
             if (generation == showGeneration)
             {
                 ShowDocument(document, content);
