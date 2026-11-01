@@ -273,3 +273,18 @@ Never prints subjects, addresses, domains or folder names. Only ever used on a *
 - Review APPROVE and security review without Critical or High (trigger: classifier actions that delete).
 - Documenter: `docs\classifier.md` (pass, modes, safety rules, retention), `README.md`, PLAN rows AP-07 #1, #3, #4, #4b, #7, #8.
 - Cases 32 and 33 done; D8 only after both APs are on `main`.
+
+## Decisions author.0 (planner, 2026-11-01, questions of the tester)
+- Policy file errors: `InvalidDataException`, as in `ClassifierSettingsFile`. Values of `mode` are exact and
+  case-sensitive; comments in the file are not allowed.
+- Report: `Classified` counts entries with a tier (without `ReadFailed` and `SkippedKnown`). `MovesEnqueued` and
+  `RetentionDeletesEnqueued` count **mails (UIDs)**, not commands.
+- `MessageKey`: an empty or whitespace-only Message-ID counts as absent (`h:` form). Hash input is UTF-8; the date is
+  `date.UtcDateTime.ToString("O", CultureInfo.InvariantCulture)`.
+- Log entries have no foreign key to the folder: they stay when a folder is deleted (a decision must survive moves and
+  folder changes). Only the marker goes with the folder; the log goes with the account.
+- `AuthenticationFailedException` from the provisioner propagates like `MailTransportException` (case 18).
+- Input reader: with an HTML body only `<a href>` counts for `LinkHosts`, not `img` and not URLs in the text part.
+  `BodyText` limit is exactly 200,000 characters. A From without a domain (`sender_a@`) gives null.
+- Constructors: `new SqliteClassificationLog(SqliteDatabase)`, `new SqliteContactStore(SqliteDatabase)`. Namespace of
+  `ClassificationPass`, `ClassificationInputReader`: `MailWarden.Infrastructure.Classification`.
