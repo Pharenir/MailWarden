@@ -214,3 +214,34 @@ A new exception `EmptyFolderChangedException` in `MailWarden.Core.Commands`, and
 **Cost:** one more pass over the tree (one count per entry, as after every cycle) per removal, and the ids of a big empty as JSON per count. Not measured with a real database of that size.
 **Read and unread are not in it.** Only half of it would come for free: excluding ids with a wanted Seen covers "read", but "unread" would have to add a mail, which an exclusion cannot do. Not built.
 **Tested (self-check, no proof):** the filter on real SQLite, including 60,000 ids; X-i to X-m on fakes. **Only Dennis can see:** the number in the tree (`UnreadCount` is bound already), the status bar gone, the hint alone showing the link target.
+
+## Y1-Y3 (after review.5 and secure.4)
+| # | Where | What |
+|---|---|---|
+| Y1 | `MailHtmlSanitizer.AllowedAttributes` | `title` removed. |
+| Y2 | `MainWindow.ApplyLinkHint` | `LinkHint.MaxWidth` before `Measure`: at most 600, the window width minus both edge distances, at least 100. The constant replaces `MaxWidth="600"` in the XAML, so the limit has one place. |
+| Y3 | `SqliteMessageStore.ApplyViewFilter` | In the role branch `f.account_id`; folder view and account alone stay on `m.account_id`. |
+| NIT | `IMessageStore.CountUnreadAsync` | The doc names `ExcludedMessageIds`. |
+
+### Y3: plans on the real driver
+SQLite 3.53.3 through `Microsoft.Data.Sqlite` 9.0.x, file database with the schema of `SchemaMigrations`, 180,000 artificial mails, no `ANALYZE` (the app runs none either). `_scratch\ap04bplan`. SQL rebuilt from the store's fragments.
+| Query | Before (`m.account_id`) | After (`f.account_id`) |
+|---|---|---|
+| Count, role of one account | `SCAN m`, `SEARCH f USING INTEGER PRIMARY KEY` | `SEARCH f USING INDEX sqlite_autoindex_folders_1 (account_id=?)`, `SEARCH m USING INDEX ix_messages_folder_date (folder_id=?)` |
+| List, role of one account | `SCAN m USING INDEX ix_messages_date`, `SEARCH f USING INTEGER PRIMARY KEY` | `SEARCH f USING INDEX sqlite_autoindex_folders_1 (account_id=?)`, `SEARCH m USING INDEX sqlite_autoindex_messages_1 (folder_id=?)`, `USE TEMP B-TREE FOR ORDER BY` |
+
+The plan no longer scans `messages`, but **the recount does not get faster in every mailbox**: a scan costs about 18 ms, reading a big folder through its index costs more than that. The 18 role entries of one pass, best of three:
+| Spread of the 180,000 mails | Before | After | 6 group entries, unchanged |
+|---|---|---|---|
+| Mostly in ordinary folders | 319 ms | 55 ms | 54 ms |
+| Most in the inboxes of 3 accounts | 326 ms | 451 ms | 442 ms |
+| All in the inbox of one account | 312 ms | 500 ms | 509 ms |
+
+Single queries, in the second spread: first page of a big inbox 0 ms before, about 22 ms after; first page of an empty role view 500-550 ms before, 0 ms after; count of an empty view 18 ms before, 0 ms after.
+The group entries were never helped by this: their plan is `SCAN f`, `SEARCH m USING INDEX ix_messages_folder_date`.
+
+Built as decided, because the plan condition holds, in a commit of its own. **What would help everywhere (not built):** one query over the unread mails grouped by folder, about one table scan, and all entries computed from it. This needs a new member on the read model.
+
+### Getting a result
+**Tested (self-check, no proof; artificial data):** Y-a through the real sanitizer: `<p><a href="https://evil.example.test/"><span>Text</span></a></p>`. Y-b on the real store with 180,000 mails: 120 views (folder, role, role and account, account, all), with and without excluded ids, each equal to a count over the same rows.
+**Untested, only Dennis can see it:** Y2 in a narrow window, Y-c, and a real mailbox. **Not run:** S1-S3, tests, GUI.
