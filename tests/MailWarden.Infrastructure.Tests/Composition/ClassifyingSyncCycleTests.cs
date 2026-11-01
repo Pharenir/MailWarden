@@ -30,6 +30,7 @@ public sealed class ClassifyingSyncCycleTests
                     SyncArguments.Add((accountId, progress, ct));
                     return SyncBehavior(accountId, progress, ct);
                 },
+                (_, _) => Task.FromResult(new ContactHarvestReport(0, 0, 0)),
                 (accountId, ct) =>
                 {
                     Order.Add("classify");

@@ -3,23 +3,47 @@ using MailWarden.Core.Classification;
 namespace MailWarden.Infrastructure.Classification;
 
 /// <summary>
-/// In-memory snapshot of the contacts plus the addresses of all accounts. Addresses are compared case-insensitively and
-/// exactly. Allow/block lists come with AP-06; until then <see cref="GetListMembership"/> returns
-/// <see cref="ListMembership.None"/> for every address.
+/// In-memory snapshot of the contacts, the addresses of all accounts and the allow/block lists. Contacts are compared
+/// case-insensitively and exactly. An address entry wins over a domain entry; a domain entry applies when the sender's domain
+/// equals it or is a sub-domain of it, so <c>mail.example.test</c> does not cover <c>example.test</c>. Among the domain entries
+/// that apply to a sender, Blocked wins over Allowed, also when they name different levels of its domain. Domains compare in
+/// the form of <see cref="AddressRules.NormalizeDomain"/>, so a Punycode entry matches the Unicode form and the other way
+/// round. Plus and dot variants of an address are different addresses. Blocked is tolerant about the spelling of a sender; an
+/// allow entry applies only to a sender that passes <see cref="AddressRules.IsExactSender"/>.
 /// </summary>
 public sealed class ContactSenderDirectory : ISenderDirectory
 {
-    private readonly HashSet<string> knownAddresses;
+    // The IDNA label separators: when IdnMapping refuses a whole domain, the look-alike dots are still in it.
+    private static readonly char[] LabelSeparators = ['.', '\u3002', '\uFF0E', '\uFF61'];
 
-    /// <summary>Takes the snapshot.</summary>
+    private readonly HashSet<string> knownAddresses;
+    private readonly Dictionary<string, ListMembership> addressEntries = new(StringComparer.OrdinalIgnoreCase);
+    private readonly Dictionary<string, ListMembership> domainEntries = new(StringComparer.OrdinalIgnoreCase);
+
+    /// <summary>Takes the snapshot, with empty allow/block lists.</summary>
     /// <param name="contactAddresses">Addresses from the address book.</param>
     /// <param name="ownAddresses">Addresses of all accounts.</param>
     /// <exception cref="ArgumentNullException">A list is null.</exception>
     /// <exception cref="ArgumentException">A list contains a null entry.</exception>
     public ContactSenderDirectory(IEnumerable<string> contactAddresses, IEnumerable<string> ownAddresses)
+        : this(contactAddresses, ownAddresses, [])
+    {
+    }
+
+    /// <summary>Takes the snapshot.</summary>
+    /// <param name="contactAddresses">Addresses from the address book.</param>
+    /// <param name="ownAddresses">Addresses of all accounts.</param>
+    /// <param name="lists">Entries of the allow/block lists.</param>
+    /// <exception cref="ArgumentNullException">A list is null.</exception>
+    /// <exception cref="ArgumentException">A list contains a null entry, or a list entry has no kind.</exception>
+    public ContactSenderDirectory(
+        IEnumerable<string> contactAddresses,
+        IEnumerable<string> ownAddresses,
+        IEnumerable<SenderListEntry> lists)
     {
         ArgumentNullException.ThrowIfNull(contactAddresses);
         ArgumentNullException.ThrowIfNull(ownAddresses);
+        ArgumentNullException.ThrowIfNull(lists);
 
         var contacts = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
         foreach (string contactAddress in contactAddresses)
@@ -37,6 +61,21 @@ public sealed class ContactSenderDirectory : ISenderDirectory
         ContactCount = contacts.Count(contact => !own.Contains(contact));
         contacts.UnionWith(own);
         knownAddresses = contacts;
+
+        foreach (SenderListEntry entry in lists)
+        {
+            if (entry?.Entry is null)
+            {
+                throw new ArgumentException("A list entry is null.", nameof(lists));
+            }
+
+            if (entry.Kind is not (ListMembership.Allowed or ListMembership.Blocked))
+            {
+                throw new ArgumentException("A list entry must be allowed or blocked.", nameof(lists));
+            }
+
+            AddListEntry(entry);
+        }
     }
 
     /// <summary>Number of distinct contact addresses; own addresses do not count.</summary>
@@ -52,6 +91,66 @@ public sealed class ContactSenderDirectory : ISenderDirectory
     }
 
     /// <inheritdoc />
-    /// <returns>Always <see cref="ListMembership.None"/> until AP-06 adds the lists.</returns>
-    public ListMembership GetListMembership(string emailAddress) => ListMembership.None;
+    /// <returns>The list of the address entry, else of the domain entry; <see cref="ListMembership.None"/> for a blank or
+    /// malformed address.</returns>
+    public ListMembership GetListMembership(string emailAddress)
+    {
+        string? lookupForm = AddressRules.ToLookupForm(emailAddress);
+        if (lookupForm is null)
+        {
+            return ListMembership.None;
+        }
+
+        // A blurred sender cannot be allowed, but its blurred spelling must not hide it from a block entry of its domain.
+        bool mayBeAllowed = AddressRules.IsExactSender(emailAddress);
+        if (addressEntries.TryGetValue(lookupForm, out ListMembership addressKind)
+            && (addressKind == ListMembership.Blocked || mayBeAllowed))
+        {
+            return addressKind;
+        }
+
+        ListMembership domainKind = GetDomainMembership(DomainNames.GetDomain(lookupForm));
+        return domainKind == ListMembership.Blocked || mayBeAllowed ? domainKind : ListMembership.None;
+    }
+
+    // Walks from the sender's domain up to its last label. Empty labels ("a..b") are dropped, as DomainNames does. Each level
+    // is normalised on its own: IdnMapping refuses a whole domain for one unusual label, which must not hide a blocked parent.
+    private ListMembership GetDomainMembership(string senderDomain)
+    {
+        string[] labels = senderDomain.Split(LabelSeparators, StringSplitOptions.RemoveEmptyEntries);
+        ListMembership membership = ListMembership.None;
+        for (int firstLabel = 0; firstLabel < labels.Length; firstLabel++)
+        {
+            ListMembership kind = domainEntries.GetValueOrDefault(AddressRules.NormalizeDomain(string.Join('.', labels[firstLabel..])));
+            if (kind == ListMembership.Blocked)
+            {
+                return ListMembership.Blocked;
+            }
+
+            if (kind == ListMembership.Allowed)
+            {
+                membership = ListMembership.Allowed;
+            }
+        }
+
+        return membership;
+    }
+
+    private static void Merge(Dictionary<string, ListMembership> entries, string key, ListMembership kind)
+    {
+        // Two spellings can reach one key here (NOCASE in the store only knows ASCII letters).
+        entries[key] = entries.GetValueOrDefault(key) == ListMembership.Blocked ? ListMembership.Blocked : kind;
+    }
+
+    private void AddListEntry(SenderListEntry entry)
+    {
+        if (entry.IsDomain)
+        {
+            Merge(domainEntries, AddressRules.NormalizeDomain(entry.Entry), entry.Kind);
+        }
+        else if (AddressRules.ToLookupForm(entry.Entry) is string lookupForm)
+        {
+            Merge(addressEntries, lookupForm, entry.Kind);
+        }
+    }
 }

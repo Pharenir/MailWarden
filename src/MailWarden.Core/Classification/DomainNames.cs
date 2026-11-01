@@ -80,6 +80,20 @@ public static class DomainNames
         return suffixLabelCount == 0 ? string.Empty : string.Join('.', labels[^suffixLabelCount..]);
     }
 
+    /// <summary>
+    /// True when the domain itself is a public suffix: a single label ("com") or a known multi-label suffix ("co.uk") of the
+    /// built-in list. A suffix outside that list is not recognised.
+    /// </summary>
+    /// <param name="domain">Host or domain name.</param>
+    /// <returns>True for a public suffix.</returns>
+    /// <exception cref="ArgumentNullException"><paramref name="domain"/> is null.</exception>
+    /// <exception cref="ArgumentException"><paramref name="domain"/> contains no label.</exception>
+    public static bool IsPublicSuffix(string domain)
+    {
+        var labels = SplitLabels(domain);
+        return labels.Length == 1 || MultiLabelPublicSuffixes.Contains(string.Join('.', labels));
+    }
+
     /// <summary>True when both domains have the same organisational domain (relaxed DMARC-style alignment).</summary>
     /// <param name="domainA">First host or domain name.</param>
     /// <param name="domainB">Second host or domain name.</param>
@@ -89,6 +103,31 @@ public static class DomainNames
     public static bool AreAligned(string domainA, string domainB)
     {
         return string.Equals(GetOrganizationalDomain(domainA), GetOrganizationalDomain(domainB), StringComparison.Ordinal);
+    }
+
+    /// <summary>
+    /// True when both values name the same domain, or one is a parent of the other by whole labels. A public suffix is never a
+    /// parent, so "test" is not related to "example.test" and "co.uk" not to "example.co.uk". Siblings are not related.
+    /// </summary>
+    /// <param name="domainA">First host or domain name, or null.</param>
+    /// <param name="domainB">Second host or domain name, or null.</param>
+    /// <returns>False as well when a value is null or contains no label.</returns>
+    internal static bool AreSameOrParentAndChild(string? domainA, string? domainB)
+    {
+        var labelsA = TrySplitLabels(domainA);
+        var labelsB = TrySplitLabels(domainB);
+        if (labelsA is null || labelsB is null)
+        {
+            return false;
+        }
+
+        var (shorter, longer) = labelsA.Length <= labelsB.Length ? (labelsA, labelsB) : (labelsB, labelsA);
+        if (!shorter.SequenceEqual(longer[^shorter.Length..]))
+        {
+            return false;
+        }
+
+        return shorter.Length == longer.Length || !IsPublicSuffix(string.Join('.', shorter));
     }
 
     /// <summary>Non-throwing variant of <see cref="GetDomain"/> for untrusted values.</summary>

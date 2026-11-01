@@ -6,7 +6,8 @@ namespace MailWarden.Infrastructure.Storage;
 
 /// <summary>
 /// <see cref="IContactStore"/> on the <c>contacts</c> table. The address column is unique with <c>NOCASE</c>, so two
-/// spellings of one address are the same contact; the latest write wins for all its values.
+/// spellings of one address are the same contact; the latest <see cref="UpsertAsync"/> wins for all its values, while
+/// <see cref="AddIfMissingAsync"/> never changes an existing contact.
 /// </summary>
 /// <param name="database">Initialised database.</param>
 public sealed class SqliteContactStore(SqliteDatabase database) : IContactStore
@@ -71,6 +72,65 @@ public sealed class SqliteContactStore(SqliteDatabase database) : IContactStore
         catch (SqliteException exception)
         {
             throw SqliteValues.Wrap("Storing the contact", exception);
+        }
+    }
+
+    /// <inheritdoc />
+    public async Task<Contact> AddIfMissingAsync(Contact contact, CancellationToken ct = default)
+    {
+        ArgumentNullException.ThrowIfNull(contact);
+        if (string.IsNullOrWhiteSpace(contact.EmailAddress))
+        {
+            throw new ArgumentException("A contact needs an address.", nameof(contact));
+        }
+
+        try
+        {
+            // RETURNING gives no row on a conflict, so the stored contact is read separately. One caller per connection.
+            await using (var insertCommand = database.Connection.CreateCommand())
+            {
+                insertCommand.CommandText = """
+                    INSERT INTO contacts (email_address, display_name, source)
+                    VALUES ($email_address, $display_name, $source)
+                    ON CONFLICT (email_address) DO NOTHING;
+                    """;
+                insertCommand.Parameters.AddWithValue("$email_address", contact.EmailAddress);
+                insertCommand.Parameters.AddWithValue("$display_name", contact.DisplayName);
+                insertCommand.Parameters.AddWithValue("$source", (int)contact.Source);
+                await insertCommand.ExecuteNonQueryAsync(ct).ConfigureAwait(false);
+            }
+
+            await using var selectCommand = database.Connection.CreateCommand();
+            selectCommand.CommandText = """
+                SELECT id, email_address, display_name, source
+                FROM contacts
+                WHERE email_address = $email_address;
+                """;
+            selectCommand.Parameters.AddWithValue("$email_address", contact.EmailAddress);
+            await using var reader = await selectCommand.ExecuteReaderAsync(ct).ConfigureAwait(false);
+            await reader.ReadAsync(ct).ConfigureAwait(false);
+            return ReadContact(reader);
+        }
+        catch (SqliteException exception)
+        {
+            throw SqliteValues.Wrap("Adding the contact", exception);
+        }
+    }
+
+    /// <inheritdoc />
+    public async Task RemoveAsync(string emailAddress, CancellationToken ct = default)
+    {
+        ArgumentNullException.ThrowIfNull(emailAddress);
+        try
+        {
+            await using var command = database.Connection.CreateCommand();
+            command.CommandText = "DELETE FROM contacts WHERE email_address = $email_address;";
+            command.Parameters.AddWithValue("$email_address", emailAddress);
+            await command.ExecuteNonQueryAsync(ct).ConfigureAwait(false);
+        }
+        catch (SqliteException exception)
+        {
+            throw SqliteValues.Wrap("Removing the contact", exception);
         }
     }
 

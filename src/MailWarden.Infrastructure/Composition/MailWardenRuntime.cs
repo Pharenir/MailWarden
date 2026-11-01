@@ -181,6 +181,7 @@ public sealed class MailWardenRuntime : IAsyncDisposable
             MailWardenRuntime? runtime = null;
             var cycle = new ClassifyingSyncCycle(
                 cycleSteps?.Sync ?? pipelines.SyncAccountAsync,
+                cycleSteps?.Harvest ?? pipelines.HarvestAccountAsync,
                 cycleSteps?.Classify ?? pipelines.ClassifyAccountAsync,
                 accountId => service!.TriggerAccount(accountId),
                 summary => runtime!.RaiseClassificationPassCompleted(summary),

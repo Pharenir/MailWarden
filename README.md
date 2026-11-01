@@ -18,7 +18,7 @@ the Gmail folder "Important". A command queue (local to server: flags, move, tra
 "Command queue") and a background service with schedule and IDLE (see "Background service") are implemented as
 libraries; the app starts the background service. The app works on mail through the command queue; accounts are
 still added with the AuthProbe tool, and attachments cannot be opened or saved yet (AP-04c). The spam filter runs after every sync in the app, but by
-default it only records its decisions and moves no mail (see "Spam filter").
+default it only records its decisions and moves no mail (see "Spam filter"). The address book fills itself from sent mail (see "Address book").
 
 ## Using the app
 The app shows the mail of all accounts and keeps it current through the background service. You can mark mail as
@@ -92,7 +92,7 @@ with all reasons. Mail that was already there when a folder was first synced is 
   records its decisions. It moves and deletes nothing.
 - **Mode `act`:** only if you set `"mode": "act"` in `classification-policy.json`. Then new mail is moved to Screener,
   Junk or Quarantine through the command queue, soon after it arrived. It pauses while the address book is empty.
-  The address book cannot be filled yet (AP-06), so `act` does not move anything yet.
+  The address book fills itself from sent mail (see "Address book"); there is no screen for it yet.
 - **Brake:** the key `maxMovesPerPass` (whole number 1 to 1000, default 100) limits the moves of one folder in one
   pass. If more mails would be moved, **none** of them is moved. They stay in their folder and are not decided again.
 - **Notice in the app:** the info bar shows "Spamfilter seit dem Start: nicht bewertet N, von der Bremse
@@ -108,6 +108,22 @@ with all reasons. Mail that was already there when a folder was first synced is 
 The filter works on the local copy. On the server it only creates the folders Screener and Quarantine and sends the
 move commands, both only in mode `act`. It has not been tried against a real mail server in the running app yet.
 Details: `docs\classifier.md`.
+
+## Address book
+The address book fills itself, so that the spam filter knows your contacts. There is no screen for it yet (AP-08).
+
+- **Collected automatically:** the recipients (To, Cc, Bcc) of the mails in the Sent folder of each account. A mail
+  counts only if its From is one of your own account addresses. Incoming mail never creates a contact. The first run
+  reads the whole Sent folder, later runs only the new mails. It runs in every cycle after the sync, before the spam
+  filter.
+- **Not collected:** your own addresses, addresses such as `noreply` or `mailer-daemon`, and recipients of automatic
+  mails (automatic replies, delivery reports, calendar replies, bulk mail). There are no contacts from automatic
+  replies. An existing contact is never changed, so a name you entered or imported stays.
+- **A contact alone is not trusted:** a mail from a contact is only rated `TrustedContact` if its sender check
+  (SPF/DKIM/DMARC) passes. Details: `docs\classifier.md`.
+- **Allow and block lists and import** exist, but without a screen: allowed and blocked senders (an address or a whole
+  domain) and the import of vCard and CSV files are used by the program internally and come with AP-08. A domain entry
+  also covers its subdomains.
 
 ## Command queue
 Actions that change the server (flags, move, move to Trash, permanent delete, empty folder) are never executed
@@ -185,7 +201,7 @@ Layout:
 
 | Entry | Content |
 |---|---|
-| `mailwarden.db` | SQLite database (schema version 5): accounts, folders, message metadata, full-text search index, sync state per folder (initial-window limit and change counter; every message missing locally is fetched on the next sync), command queue, contacts, classification decisions with their reasons. An older database is upgraded automatically on start. |
+| `mailwarden.db` | SQLite database (schema version 6): accounts, folders, message metadata, full-text search index, sync state per folder (initial-window limit and change counter; every message missing locally is fetched on the next sync), command queue, contacts, allow and block lists, progress of the contact collection per folder, classification decisions with their reasons. An older database is upgraded automatically on start. |
 | `mail\` | one `.eml` file per message, stored per account and folder |
 | `credentials\` | DPAPI-encrypted sign-in tokens, one `.bin` file per entry |
 | `auth-config.json` | optional OAuth client configuration (see Environment variables) |
