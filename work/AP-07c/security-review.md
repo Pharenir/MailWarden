@@ -39,3 +39,9 @@ Closed: H2, N1, N3. H1 closed at its core, rest M2 and N1 below.
 | – | unsure | Latin-1 bytes count as separators in the tokenizer | fix.3 H5 |
 
 Reviewer's status: code reading only, nothing executed.
+
+# secure.3 (2026-11-01, HEAD c21d041)
+
+**Result: 0 Critical, 0 High, 0 Medium, 2 Low.** M1-neu, M3, N3, retention parsing and tokenizer closed. N1: a programming
+error moves all new mail to Junk unnoticed → fix.4 J1, J2, J4. N2: subject marker only as strong as its choice → random
+marker per run, count taken from the mails actually sent (case 33 instructions). F4 not relevant in practice.

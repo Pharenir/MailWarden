@@ -31,3 +31,8 @@ Reviewer's status: derived from the code, not executed; `tests\` not read by rul
 
 Questions: unstable `Received` → `Act` stays off until case 33 (fix.3). Case 33 flow: completed sync on the copy with
 `sync-probe` → `pass` (marker) → test mails + sync → `pass` → `execute` → sync. Failed commands blocking retention → H8.
+
+# review.3 (2026-11-01, HEAD d40d4cd)
+
+**Verdict: APPROVE**, one SHOULD: the exception branch of H2 turns a programming error into a silent mass move to Junk
+(`ClassificationPass.cs:179-191`) → fix.4 J1, J2, J3. NITs: `Trim` in the parser (TODO), probe count (J5).

@@ -422,3 +422,35 @@ reconsidered before `Act` is used: a changing key means a rescued mail is decide
 | 49 | `ReadTopReceivedAsync`: same value as `ReadMessageAsync().TopReceived` on normal mail and folded header; no Received; garbage | equal; null; null, no exception |
 | 50 | Retention with a quarantine mail whose body part is corrupt but whose headers are readable | key still matches, deleted when due |
 | 51 | Tokenizer: value containing bytes 0xA0 and 0x85 from the Latin-1 raw value, followed by a real `dmarc=fail` | status stays failed, nothing splits at these bytes; ASCII space and tab still separate (positive control) |
+
+## Result case 32 (planner, 2026-11-01, copy of probe-data, read-only, counts only)
+- Stock: Inbox 28 (all `LikelyLegit`, 24 authenticated), Junk 7 (2 `CertainSpam`, 3 `LikelySpam`, 2 `LikelyLegit`).
+  Simulated address book: 418 addresses. No crash.
+- Inbox and Junk: 0 mails without `Received`, 0 without a usable From, 0 different Message-IDs sharing a top `Received`.
+- All 2,664 stored mails: 0 top `Received` values shared by different Message-IDs. On Outlook.com the top `Received` mostly
+  has no id token and whole seconds only, so a salvo with a fixed Message-ID, delivered in the same second over the same
+  servers, could share a key. **Decision: no body hash for now (measured 0), remaining risk documented in
+  `docs\classifier.md`.** Mails without `Received` get no special rule either (none in Inbox or Junk).
+
+## Decisions fix.4 (planner, 2026-11-01, after verify.3 PASS 1259/1259, review.3 APPROVE, secure.3 0/0/0/2)
+Binding. This **withdraws the exception part of H2**, which was the planner's own decision: both reviews show that it
+turns a programming error into a silent mass move to Junk, including mail from contacts.
+- **J1.** An exception while building the input or from `Classify`, on a message that parsed (cancellation and
+  out-of-memory excepted): new outcome `ClassificationOutcome.EvaluationFailed = 7`. Tier null, action `None`, no command,
+  the mail stays where it is, the marker advances, no exception text. `TopReceived` stays part of the key. A readable mail
+  without one usable From still goes to Junk as in H1.
+- **J2.** `ClassificationPassReport` gets a last member `int EvaluationFailed` (mails). It is not part of `Classified` or
+  `ReadFailed`. D8 and the probe show it.
+- **J3 (testability).** `ClassificationPass` gets a last optional constructor parameter
+  `IReadOnlyList<ISpamSignal>? signals = null`; null means `CreateDefaultSignals`.
+- **J4 (for D8, not now).** D8 adds a brake: when one pass would enqueue more moves than a limit, it records and warns
+  instead of moving. The limit is decided with D8.
+- **J5 (probe `stock`).** Counts `EvaluationFailed` next to the actions, so case 32 does not understate it.
+- **Not changed:** `Trim` in `AuthenticationResultsParser` (F4, review N1): no attack, `TODO.md`.
+
+### Additional test cases (fix.4)
+| # | Case | Expected |
+|---|---|---|
+| 52 | Throwing signal with a marker text (via J3), Inbox and Junk, Act | outcome `EvaluationFailed`, tier null, no command, mail stays, marker raised, `EvaluationFailed` = count, `Classified` and `ReadFailed` 0, marker text nowhere |
+| 53 | Same mail again after a fixed signal (key known) | `SkippedKnown`, stays |
+| 54 | Positive control: same setup without the throwing signal | normal tier and move |
