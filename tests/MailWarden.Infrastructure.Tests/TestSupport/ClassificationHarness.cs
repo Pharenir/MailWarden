@@ -2,6 +2,7 @@ using System.Text;
 using Microsoft.Data.Sqlite;
 using MailWarden.Core.Classification;
 using MailWarden.Core.Commands;
+using MailWarden.Core.Sync;
 using MailWarden.Infrastructure.Classification;
 using MailWarden.Infrastructure.Commands;
 

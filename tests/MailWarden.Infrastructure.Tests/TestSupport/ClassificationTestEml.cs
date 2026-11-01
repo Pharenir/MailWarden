@@ -3,7 +3,7 @@ using System.Text;
 namespace MailWarden.Infrastructure.Tests.TestSupport;
 
 /// <summary>The four classifier outcomes the pass fixtures are built to reach with the real default signals.</summary>
-internal enum MailKind
+public enum MailKind
 {
     /// <summary>Sender is the contact <see cref="ClassificationTestEml.ContactAddress"/>, DMARC/SPF/DKIM pass.</summary>
     Trusted,
