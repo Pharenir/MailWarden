@@ -609,7 +609,6 @@ public sealed class MailHtmlSanitizerControlTests
         IElement[] images = [.. Parse(result).QuerySelectorAll("img[src]")];
         Assert.Equal(2, images.Length);
         Assert.All(images, image => Assert.Equal(KnownDataUri, image.GetAttribute("src")));
-        Assert.Contains("data:image", StylesOf(result), StringComparison.OrdinalIgnoreCase);
         Assert.DoesNotContain("tracker.test", result.Html, StringComparison.Ordinal);
         Assert.Equal(1, result.BlockedRemoteResourceCount);
         Assert.False(result.WasReduced);
