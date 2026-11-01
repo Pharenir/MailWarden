@@ -21,7 +21,12 @@ namespace MailWarden.Infrastructure.Mime;
 /// <param name="Html">The cleaned body content.</param>
 /// <param name="BlockedRemoteResourceCount">Number of remote images and remote style URLs that were blocked.</param>
 /// <param name="WasReduced">True when a limit for crafted input dropped markup or the inline image budget was hit.</param>
-public sealed record SanitizedHtml(string Html, int BlockedRemoteResourceCount, bool WasReduced = false);
+/// <param name="HasOwnColors">
+/// True when the mail brings colors or images of its own, also when a blocked image or style URL is the reason, and when the
+/// HTML could not be parsed within its budget. Only the plain answer leaves the sanitizer, and it changes nothing in
+/// <paramref name="Html"/>.
+/// </param>
+public sealed record SanitizedHtml(string Html, int BlockedRemoteResourceCount, bool WasReduced = false, bool HasOwnColors = true);
 
 /// <summary>
 /// Cleans the HTML body of a mail with an allow-list. Before parsing, <see cref="HtmlNestingLimiter"/> bounds the work
@@ -128,7 +133,9 @@ public static partial class MailHtmlSanitizer
     /// <c>cid:</c> and <c>data:</c> images, in <c>img src</c> and CSS <c>url()</c>, because a broken image decoder is the one
     /// code path that an opened mail could reach without a click. Inserted inline images use at most 34,000,000 characters per document;
     /// images over this budget are removed. When parsing exceeds 256 MB of allocation or 3 s, or the output would exceed
-    /// 64,000,000 characters, the result is the encoded text of the HTML without any markup.
+    /// 64,000,000 characters, the result is the encoded text of the HTML without any markup. It also tells whether the mail
+    /// brings colors of its own, see <see cref="OwnColorDetector.HoldsOwnColors"/>; the answer is the same for all image
+    /// approvals, and true for that encoded text, because the mail could not be judged.
     /// </summary>
     /// <param name="html">Raw HTML of a mail body.</param>
     /// <param name="inlineImages">Content-ID → data URI, the targets of <c>cid:</c> image sources.</param>
@@ -160,6 +167,9 @@ public static partial class MailHtmlSanitizer
 
         bool wasFlattened = PruneElements(body);
         PackageSanitizer.SanitizeDom(document, body);
+
+        // Before the URL rules: the page must not change from dark to light when the user approves the images.
+        bool hasOwnColors = OwnColorDetector.HoldsOwnColors(body);
         var inlineImageBudget = new InlineImageBudget();
         var imageRules = new ImageRules(inlineImages, inlineImageBudget, allowRemoteImages, allowEmbeddedImages);
         int blockedCount = ApplyUrlRules(body, imageRules);
@@ -171,12 +181,13 @@ public static partial class MailHtmlSanitizer
         return new SanitizedHtml(
             body.ChildNodes.ToHtml(PackageSanitizer.OutputFormatter),
             blockedCount,
-            limited.WasReduced || wasFlattened || inlineImageBudget.WasExhausted);
+            limited.WasReduced || wasFlattened || inlineImageBudget.WasExhausted,
+            hasOwnColors);
     }
 
     private static SanitizedHtml ToTextOnly(LimitedHtml limited)
     {
-        return new SanitizedHtml(WebUtility.HtmlEncode(MimeBodyText.ExtractFromHtml(limited.Html)), 0, true);
+        return new SanitizedHtml(WebUtility.HtmlEncode(MimeBodyText.ExtractFromHtml(limited.Html)), 0, WasReduced: true, HasOwnColors: true);
     }
 
     // Sum of the attribute values of all elements and the text, stopping at the budget. Iterative like PruneElements.

@@ -45,7 +45,7 @@ public sealed class ReadingPaneViewModel : ObservableObject
     private readonly ICriticalLog log;
     private readonly TimeProvider timeProvider;
     private readonly RelayCommand loadRemoteImagesCommand;
-    private readonly Func<MailContent, bool, bool, ReadingDocument> documentBuilder;
+    private readonly Func<MailContent, bool, bool, ReadingTheme, ReadingDocument> documentBuilder;
     private ReadingState state = ReadingState.Empty;
     private string subject = string.Empty;
     private string from = string.Empty;
@@ -57,6 +57,11 @@ public sealed class ReadingPaneViewModel : ObservableObject
     private int blockedRemoteResourceCount;
     private bool areRemoteImagesAllowed;
     private MailContent? currentContent;
+
+    // How the shown document came about; a theme change repeats it. Only meaningful together with currentContent.
+    private ImageApproval currentApproval;
+    private bool isCurrentDocumentFallback;
+    private ReadingTheme theme = ReadingTheme.Light;
     private int showGeneration;
     private CancellationTokenSource? showCancellation;
     private bool isClosed;
@@ -66,12 +71,13 @@ public sealed class ReadingPaneViewModel : ObservableObject
     private Task<ReadingDocument>? runningBuild;
     private long runningBuildMessageId;
     private ImageApproval runningBuildApproval;
+    private ReadingTheme runningBuildTheme;
 
     internal ReadingPaneViewModel(
         IMailboxReadModel readModel,
         ICriticalLog log,
         TimeProvider timeProvider,
-        Func<MailContent, bool, bool, ReadingDocument> documentBuilder)
+        Func<MailContent, bool, bool, ReadingTheme, ReadingDocument> documentBuilder)
     {
         this.readModel = readModel;
         this.log = log;
@@ -227,8 +233,8 @@ public sealed class ReadingPaneViewModel : ObservableObject
     /// a critical log line with the type name. At most one document build runs at a time. While the build of another mail
     /// runs, the pane stays in <see cref="ReadingState.Loading"/> and waits for its end, at most
     /// <see cref="BuildTimeLimit"/> from this call; only the newest call survives the wait and then builds normally. The
-    /// same mail with the same image approval waits for the running build instead of starting a second one. When a wait
-    /// exceeds the limit, the plain text is shown with a notice, and a later result of that build is ignored.
+    /// same mail with the same image approval and theme waits for the running build instead of starting a second one. When a
+    /// wait exceeds the limit, the plain text is shown with a notice, and a later result of that build is ignored.
     /// </summary>
     /// <param name="message">Message to show, or null.</param>
     /// <param name="ct">Cancellation token.</param>
@@ -277,7 +283,7 @@ public sealed class ReadingPaneViewModel : ObservableObject
             }
 
             var approval = new ImageApproval(Remote: false, Embedded: folderRole is not (null or FolderRole.Junk or FolderRole.Quarantine));
-            BuiltDocument document = await BuildWithinLimitAsync(message.Id, content, approval, linkedCancellation.Token);
+            BuiltDocument document = await BuildForCurrentThemeAsync(message.Id, content, approval, linkedCancellation.Token);
             if (generation != showGeneration)
             {
                 return;
@@ -285,7 +291,7 @@ public sealed class ReadingPaneViewModel : ObservableObject
 
             currentContent = content;
             ShowContentHeader(content, message);
-            ShowDocument(document, content);
+            ShowDocument(document, content, approval);
         }
         catch (OperationCanceledException) when (generation != showGeneration && !ct.IsCancellationRequested)
         {
@@ -319,6 +325,28 @@ public sealed class ReadingPaneViewModel : ObservableObject
         }
     }
 
+    /// <summary>
+    /// Takes over the theme the application actually shows. The shown document is built again from the content already held,
+    /// off the UI thread and without a read from the store or the server; message, image approval and state stay, and the old
+    /// document stays visible until the new one is there. Without a shown document nothing is built. A show or image load that
+    /// is running builds for the new theme by itself. A document that replaced a build over the limit stays plain text.
+    /// </summary>
+    /// <param name="newTheme">The theme the window reports.</param>
+    /// <returns>A task that completes when the new document is shown or a newer call replaced it; it never fails.</returns>
+    public Task ApplyThemeAsync(ReadingTheme newTheme)
+    {
+        if (newTheme == theme)
+        {
+            return Task.CompletedTask;
+        }
+
+        theme = newTheme;
+        bool isDocumentIdle = !isClosed && showCancellation is null && State == ReadingState.Ready;
+        return isDocumentIdle && currentContent is MailContent content && CurrentMessage is MailMessage message
+            ? RebuildAsync(message.Id, content, currentApproval, isCurrentDocumentFallback, "ReadingPaneViewModel.ApplyThemeAsync")
+            : Task.CompletedTask;
+    }
+
     /// <summary>Ends the running load without a further read or log line; later calls do nothing.</summary>
     internal void Close()
     {
@@ -348,19 +376,34 @@ public sealed class ReadingPaneViewModel : ObservableObject
             TaskScheduler.Default);
     }
 
+    // A theme change during the build makes its result stale; it builds again, so the old theme is never shown.
+    private async Task<BuiltDocument> BuildForCurrentThemeAsync(long messageId, MailContent content, ImageApproval approval, CancellationToken ct)
+    {
+        while (true)
+        {
+            ReadingTheme requestedTheme = theme;
+            BuiltDocument document = await BuildWithinLimitAsync(messageId, content, approval, requestedTheme, ct);
+            if (requestedTheme == theme)
+            {
+                return document;
+            }
+        }
+    }
+
     // Sanitizing a large mail takes noticeable time, so it leaves the UI thread (see StartBuild). The plain text is linear in
     // its length.
-    private async Task<BuiltDocument> BuildWithinLimitAsync(long messageId, MailContent content, ImageApproval approval, CancellationToken ct)
+    private async Task<BuiltDocument> BuildWithinLimitAsync(long messageId, MailContent content, ImageApproval approval, ReadingTheme requestedTheme, CancellationToken ct)
     {
         bool isOwnBuildRunning = runningBuild is { IsCompleted: false }
             && runningBuildMessageId == messageId
-            && runningBuildApproval == approval;
+            && runningBuildApproval == approval
+            && runningBuildTheme == requestedTheme;
         if (!isOwnBuildRunning && !await WaitForOtherBuildAsync(ct))
         {
-            return new BuiltDocument(ReadingDocumentBuilder.BuildFromPlainText(content), IsPlainTextFallback: true);
+            return new BuiltDocument(ReadingDocumentBuilder.BuildFromPlainText(content, requestedTheme), IsPlainTextFallback: true);
         }
 
-        Task<ReadingDocument> build = isOwnBuildRunning ? runningBuild! : StartBuild(messageId, content, approval);
+        Task<ReadingDocument> build = isOwnBuildRunning ? runningBuild! : StartBuild(messageId, content, approval, requestedTheme);
         using var limitCancellation = CancellationTokenSource.CreateLinkedTokenSource(ct);
         Task limit = Task.Delay(BuildTimeLimit, timeProvider, limitCancellation.Token);
         if (await Task.WhenAny(build, limit) == build)
@@ -371,12 +414,12 @@ public sealed class ReadingPaneViewModel : ObservableObject
 
         // A cancelled wait ends here with its exception.
         await limit;
-        return new BuiltDocument(ReadingDocumentBuilder.BuildFromPlainText(content), IsPlainTextFallback: true);
+        return new BuiltDocument(ReadingDocumentBuilder.BuildFromPlainText(content, requestedTheme), IsPlainTextFallback: true);
     }
 
     // On a thread of its own with a large stack, in the background so that it does not keep the process alive. Not cancelled
     // together with its caller: the same mail selected again keeps waiting for this task. It may go on without a reader.
-    private Task<ReadingDocument> StartBuild(long messageId, MailContent content, ImageApproval approval)
+    private Task<ReadingDocument> StartBuild(long messageId, MailContent content, ImageApproval approval, ReadingTheme requestedTheme)
     {
         var completion = new TaskCompletionSource<ReadingDocument>(TaskCreationOptions.RunContinuationsAsynchronously);
         var buildThread = new Thread(
@@ -384,7 +427,7 @@ public sealed class ReadingPaneViewModel : ObservableObject
             {
                 try
                 {
-                    completion.SetResult(documentBuilder(content, approval.Remote, approval.Embedded));
+                    completion.SetResult(documentBuilder(content, approval.Remote, approval.Embedded, requestedTheme));
                 }
                 catch (Exception exception)
                 {
@@ -403,12 +446,14 @@ public sealed class ReadingPaneViewModel : ObservableObject
         runningBuild = build;
         runningBuildMessageId = messageId;
         runningBuildApproval = approval;
+        runningBuildTheme = requestedTheme;
         ObserveFault(build);
         return build;
     }
 
     // True when a build may start now, false when the running build does not end within the limit. A newer call cancels this
-    // wait, so intermediate selections never build anything. A build with other image approvals counts as another mail.
+    // wait, so intermediate selections never build anything. A build with other image approvals or for another theme counts
+    // as another mail.
     private async Task<bool> WaitForOtherBuildAsync(CancellationToken ct)
     {
         if (runningBuild is not { IsCompleted: false })
@@ -475,8 +520,10 @@ public sealed class ReadingPaneViewModel : ObservableObject
         AttachmentNames = MailDisplayText.AttachmentNames(content.Attachments.Select(attachment => attachment.FileName).ToList());
     }
 
-    private void ShowDocument(BuiltDocument built, MailContent content)
+    private void ShowDocument(BuiltDocument built, MailContent content, ImageApproval approval)
     {
+        currentApproval = approval;
+        isCurrentDocumentFallback = built.IsPlainTextFallback;
         BlockedRemoteResourceCount = built.Document.BlockedRemoteResourceCount;
         ContentNotice = DescribeMissingContent(built, content);
         DocumentHtml = built.Document.Html;
@@ -497,26 +544,29 @@ public sealed class ReadingPaneViewModel : ObservableObject
     {
         if (CanLoadRemoteImages && currentContent is MailContent content && CurrentMessage is MailMessage message)
         {
-            _ = LoadRemoteImagesAsync(message.Id, content);
+            // At once, so the button is gone and cannot start a second build.
+            AreRemoteImagesAllowed = true;
+            _ = RebuildAsync(message.Id, content, new ImageApproval(Remote: true, Embedded: true), keepPlainText: false, "ReadingPaneViewModel.LoadRemoteImagesAsync");
         }
     }
 
-    // Same guard as ShowAsync: the next message makes this result stale. Never throws, nobody can await it.
-    private async Task LoadRemoteImagesAsync(long messageId, MailContent content)
+    // A new document for the message already shown, from the content already held. Same guard as ShowAsync: the next message
+    // makes this result stale. Never throws, nobody has to await it.
+    private async Task RebuildAsync(long messageId, MailContent content, ImageApproval approval, bool keepPlainText, string logSource)
     {
         int generation = ++showGeneration;
         CancelPreviousShow();
         using var cancellation = new CancellationTokenSource();
         showCancellation = cancellation;
-
-        // At once, so the button is gone and cannot start a second build.
-        AreRemoteImagesAllowed = true;
         try
         {
-            BuiltDocument document = await BuildWithinLimitAsync(messageId, content, new ImageApproval(Remote: true, Embedded: true), cancellation.Token);
+            // A mail that went over the limit once does not get a second long build for another color.
+            BuiltDocument document = keepPlainText
+                ? new BuiltDocument(ReadingDocumentBuilder.BuildFromPlainText(content, theme), IsPlainTextFallback: true)
+                : await BuildForCurrentThemeAsync(messageId, content, approval, cancellation.Token);
             if (generation == showGeneration)
             {
-                ShowDocument(document, content);
+                ShowDocument(document, content, approval);
             }
         }
         catch (OperationCanceledException) when (generation != showGeneration)
@@ -527,7 +577,7 @@ public sealed class ReadingPaneViewModel : ObservableObject
         {
             if (generation == showGeneration)
             {
-                ShowFailure("ReadingPaneViewModel.LoadRemoteImagesAsync", exception);
+                ShowFailure(logSource, exception);
             }
         }
         finally

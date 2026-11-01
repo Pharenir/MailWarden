@@ -1,5 +1,6 @@
 using System.ComponentModel;
 using MailWarden.Infrastructure.Logging;
+using MailWarden.Infrastructure.Mime;
 using MailWarden.Infrastructure.Storage;
 using MailWarden.Presentation;
 using Microsoft.UI.Xaml;
@@ -72,6 +73,10 @@ public sealed partial class MainWindow : Window
         NavigationColumn.Width = new GridLength(ViewModel.NavigationWidth);
         UpdateReadingView();
 
+        // The grid also changes when the Windows setting decides.
+        RootGrid.ActualThemeChanged += OnRootThemeChanged;
+        RootGrid.Loaded += OnRootLoaded;
+
         // Once here: a settings load error set the banner before this window existed.
         ApplyBanner();
     }
@@ -129,6 +134,28 @@ public sealed partial class MainWindow : Window
             AppTheme.Dark => ElementTheme.Dark,
             _ => ElementTheme.Default,
         };
+        ApplyReadingTheme();
+    }
+
+    // What the window actually shows, also when the Windows setting decides. Background first: the new document must not load
+    // on the old one. ApplyThemeAsync does not fail and does nothing when the theme stays.
+    private void ApplyReadingTheme()
+    {
+        ReadingTheme actualTheme = RootGrid.ActualTheme == ElementTheme.Dark ? ReadingTheme.Dark : ReadingTheme.Light;
+        (byte red, byte green, byte blue) = ReadingDocumentBuilder.PageBackground(actualTheme);
+        webViewHost.SetDefaultBackground(Windows.UI.Color.FromArgb(255, red, green, blue));
+        _ = ViewModel.Reading.ApplyThemeAsync(actualTheme);
+    }
+
+    private void OnRootThemeChanged(FrameworkElement sender, object args)
+    {
+        ApplyReadingTheme();
+    }
+
+    // Before the window is shown, the element may not know yet what the system theme resolves to.
+    private void OnRootLoaded(object sender, RoutedEventArgs args)
+    {
+        ApplyReadingTheme();
     }
 
     // Only moves the three parts inside the same grid, so the browser control keeps its document.

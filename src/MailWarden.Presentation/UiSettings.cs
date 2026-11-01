@@ -13,7 +13,8 @@ public enum ReadingPaneLayout
 }
 
 /// <summary>
-/// Theme of the application shell; mail content always stays on a light background.
+/// Theme of the application shell. The reading pane follows what it resolves to; a mail with colors of its own stays on a
+/// light sheet.
 /// </summary>
 public enum AppTheme
 {

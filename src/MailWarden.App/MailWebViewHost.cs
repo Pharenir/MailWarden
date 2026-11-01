@@ -93,6 +93,16 @@ internal sealed class MailWebViewHost
         }
     }
 
+    /// <summary>Sets the color the browser shows until a document has painted; also before the browser has started.</summary>
+    /// <param name="color">The page background of the current theme.</param>
+    public void SetDefaultBackground(Windows.UI.Color color)
+    {
+        if (!isClosed)
+        {
+            webView.DefaultBackgroundColor = color;
+        }
+    }
+
     /// <summary>Ends the browser processes of this control.</summary>
     public void Close()
     {
@@ -127,7 +137,6 @@ internal sealed class MailWebViewHost
     {
         try
         {
-            webView.DefaultBackgroundColor = Microsoft.UI.Colors.White;
             environment = await CoreWebView2Environment.CreateWithOptionsAsync(
                 string.Empty,
                 userDataFolder,
