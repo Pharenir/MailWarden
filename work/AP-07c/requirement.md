@@ -374,3 +374,51 @@ stated. Binding; they change D1, D4, D6, D7, D9.
 | 44 | Retention: queue rejects the delete | `RetentionDeletesRejected` counts it, `RetentionDeletesEnqueued` does not, no exception |
 | 45 | `Route` with an undefined tier value | ArgumentOutOfRangeException |
 | 46 | More than 10,000 links | at most 10,000 hosts, no exception |
+
+## Decisions fix.3 (planner, 2026-11-01, after verify.2 PASS 1229/1229, review.2 APPROVE, secure.2 0/0/3/3)
+Binding; they change G3, G7, F1 of fix.2 and G14. **`Act` stays off on real accounts until case 33 shows that the top
+`Received` survives a MOVE, including one mail moved back by hand (retention 0).** If it does not survive, the key is
+reconsidered before `Act` is used: a changing key means a rescued mail is decided again.
+
+### Fixes
+- **H1 (secure M1-neu, changes G7).** A readable message without one usable From goes from the Inbox to **Junk**, not the
+  Screener: a sender must not be able to choose the better target by writing two From addresses.
+  `RouteWithoutSender(Inbox)` → `MoveToJunk`; from Junk `None`. Retention never touches it (action is not
+  `MoveToQuarantine`). Cases 42 and the G7 tests change accordingly.
+- **H2 (secure N3, review N1, changes F1).** `TopReceived` is computed before the input is built. An exception while
+  building the input or from `Classify`, on a message that parsed, routes like H1 (tier null, fixed `Override`).
+  `ReadFailed` is only for a missing or unreadable EML and `Parsed` false.
+- **H3 (review S1, secure N2).** Retention reads headers only:
+  `ClassificationInputReader.ReadTopReceivedAsync(Stream, CancellationToken)` returns the same raw value as `TopReceived`,
+  via one shared helper. It does not build the input. Key and result as before; an unreadable file means never delete.
+- **H4 (review N2).** `MailKitFolderProvisioner`: `SUBSCRIBE` only after the role check of the folder it just created.
+- **H5 (secure, unsure part).** `AuthenticationResultsTokenizer` treats only ASCII whitespace and ASCII control characters
+  as separators, so bytes such as 0xA0 or 0x80–0x9F stay in the value.
+- **H6 (probe, secure M3, review S2; not committed, in `_scratch`, replaces the 20-UID rule of G14).**
+  - `pass` and `execute` refuse to run unless the data root contains a marker file `probe-copy.marker`.
+  - `execute <address> <expectedUidCount> <subjectMarker>`: refuses unless the sum of UIDs of all pending commands of the
+    account equals `expectedUidCount`, all commands are `Move`, and the subject of every affected mail contains
+    `subjectMarker` (case-sensitive). Nothing is executed when one check fails. Output numbers only.
+  - `DeletePermanently` is refused without exception.
+- **H7 (probe, secure M2, N1, review N4).** `stock` also prints per account:
+  - how many mails with **different** Message-IDs share the same top `Received`;
+  - how many mails have no `Received`;
+  - how many mails have a top `Authentication-Results` that stands below all `Received` headers (hints at a header by the
+    sender);
+  - how many mails have no usable From.
+- **H8 (documentation, documenter).** `docs\classifier.md`: a folder whose first sync never completes is never classified;
+  a failed subscribe is not repeated; retention 0 holds for this app only, the provider can clean Junk; failed commands
+  block retention for their UIDs until discarded (AP-04b).
+
+### Decided after the measurement (planner, case 32)
+- Different Message-IDs sharing a top `Received` (H7) > 0: add a hash of the body text to the key. Without Received > 0:
+  such mails are never `SkippedKnown` and never deleted by retention. Both only if the measurement shows it.
+
+### Additional test cases (fix.3)
+| # | Case | Expected |
+|---|---|---|
+| 47 | Two From addresses or empty group from the Inbox, Act / RecordOnly; from Junk | `Enqueued` to Junk / `Recorded` with `MoveToJunk`; `NoAction`. Also replaces the Screener expectation in case 42 |
+| 48 | `RouteWithoutSender` for Inbox, Junk, another role | `MoveToJunk`, `None`, ArgumentOutOfRangeException |
+| 49 | `ReadTopReceivedAsync`: same value as `ReadMessageAsync().TopReceived` on normal mail and folded header; no Received; garbage | equal; null; null, no exception |
+| 50 | Retention with a quarantine mail whose body part is corrupt but whose headers are readable | key still matches, deleted when due |
+| 51 | Tokenizer: value containing bytes 0xA0 and 0x85 from the Latin-1 raw value, followed by a real `dmarc=fail` | status stays failed, nothing splits at these bytes; ASCII space and tab still separate (positive control) |

@@ -21,3 +21,21 @@ Notes for later:
   case 32 (G14).
 
 Reviewer's status: code reading only; nothing executed; `tests\` not read by rule.
+
+# secure.2 (2026-11-01, HEAD 52b336a)
+
+**Result: 0 Critical, 0 High, 3 Medium, 3 Low.** Condition: `Act` only after cases 32/33 show that the top `Received`
+survives a MOVE; otherwise a mail moved back is decided again, and with retention lost (would be High).
+Closed: H2, N1, N3. H1 closed at its core, rest M2 and N1 below.
+
+| Id | Level | Finding | Decision |
+|---|---|---|---|
+| M1-neu | Medium | `RouteWithoutSender` lets a sender pick the Screener instead of Junk or Quarantine | fix.3 H1 |
+| M2 | Medium | Top `Received` of Outlook.com possibly not unique per delivery (second resolution): a salvo with a fixed Message-ID could stay unfiltered | measure (H7), then body hash |
+| M3 | Medium | Probe `execute` can do more than intended on the real server | fix.3 H6 |
+| N1 | Low | Mail without `Received` keeps a key the sender controls | measure (H7) |
+| N2 | Low | Retention parses every quarantine mail every pass | fix.3 H3 |
+| N3 | Low | Rest bypass through exceptions in reader or classifier | fix.3 H2 |
+| – | unsure | Latin-1 bytes count as separators in the tokenizer | fix.3 H5 |
+
+Reviewer's status: code reading only, nothing executed.
