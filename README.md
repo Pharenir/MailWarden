@@ -53,7 +53,12 @@ the command queue (see "Command queue"). Opening a message does not mark it as r
 - **Empty folder:** "Ordner leeren" works in Trash and Junk only. The confirmation names the account, the folder and
   the number of messages. Only the messages you were shown are deleted. If a message arrived since (or the folder
   changed on the server), nothing is deleted, you get a notice and are asked again with the new number. It is also
-  refused while messages are still being moved out of that folder.
+  refused while messages are still being moved out of that folder. The entry is also in the right-click menu (or
+  context key) of a folder in the folder tree, only on folders that can be emptied: a single Trash or Junk folder.
+  Other entries show no menu. It acts on the folder you clicked; the selected view stays.
+- **Unread number:** the number in the folder tree drops at once when messages leave the view (delete, permanent
+  delete, move, empty folder). If the action fails and the messages come back, the number comes back too. Marking as
+  read or unread does not change this behaviour.
 - **Search:** the box "Suchen" searches all local mail (at most 500 hits), shown in the list like a view with the
   account. Empty text returns to the previous view. Search stays on this computer.
 - **Settings:** the button "Einstellungen" has the switch "Beim Anzeigen als gelesen markieren" (off by default). When
@@ -74,8 +79,8 @@ Safe display of mail:
   and loads them for this message only; the next message is blocked again. Loading pictures tells the sender that you
   opened the mail.
 - Links open only in your default browser (web links and mailto), never inside the app. When the mouse is over a
-  link, a tooltip shows the real target (long targets start with the host). The status bar of the web view stays on
-  as well for now.
+  link, a tooltip shows the real target (long targets start with the host). The status bar of the web view is off, so
+  this tooltip is the only display of a link target. A `title` set by a mail is not shown.
 - Control and direction-changing characters are removed from names, subjects and folder names.
 - If a message is built unusually (very large, deeply nested or slow to prepare), it is shown in a simplified form or
   as text only. A notice above the message says so. Pictures and links of such a message may be missing.

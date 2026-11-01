@@ -4,7 +4,7 @@
 - [ ] **Dennis: manuelle Tests nach `work\manual-tests.md`** (AP-02a Fälle 28–30, AP-03a Fall 28,
   Begründungstexte AP-07a/b, AP-04a Fälle 42–48 = Teil 6) – ersetzt die Einzelpunkte unten; „fertig“ erst danach
 - [ ] Wunsch Dennis 2026-11-01: je Ordner eine Grenze für Archivierung und eine eigene für Löschung einstellbar (gehört zu AP-08/AP-09; offen beim Planen: Grenze nach Alter, Anzahl oder Größe; Löschen nur über die Warteschlange, Standard aus)
-- [ ] Wunsch Dennis 2026-11-01 (AP-04b): beim Auswählen als gelesen markieren per Schalter in den Einstellungen, Standard aus; läuft als Befehl über die Warteschlange – umgesetzt in AP-04b (verify.4 2348/2348); manueller Test (Fall 21/22) offen
+- [ ] Wunsch Dennis 2026-11-01 (AP-04b): beim Auswählen als gelesen markieren per Schalter in den Einstellungen, Standard aus; läuft als Befehl über die Warteschlange – umgesetzt in AP-04b (verify.6 2655/2655); manueller Test (Fall 21/22) offen
 - [ ] AP-13: `.ico` aus `assets\mailwarden-512.png` erzeugen (Exe-Icon, Installer)
 - [ ] AP-13: WindowsAppSDK-Metapaket zieht ~38 MB KI-Komponenten (onnxruntime/DirectML) → nur benötigte Teilpakete? (Paketentscheidung Dennis)
 - [x] AP-04: ungültiges `MAILWARDEN_DATA_DIR` beendet die App beim Start stumm → Logger + Meldungsfenster (AP-04a: Fehlerfenster + Log; am Fenster Fall 47 offen)
@@ -92,7 +92,7 @@ Testzähler: 0/4 seit letztem S3 (zuletzt 2026-11-01: S3 auf `feat/ap-06-address
 - [ ] AP-07c (D8): beim Verschieben prüfen, ob Id und `EmlPath` gleich bleiben; sonst zeigt die offene Mail bis zur nächsten Auswahl die alte Bilder-Regel (review.6)
 - [ ] CSS `url(data:)` zählt als blockiert, bleibt aber auch nach der Freigabe entfernt; der Button verspricht dort etwas mehr (review.6)
 
-- [ ] Wunsch Dennis 2026-11-01 (AP-04b): Linkziel als Tooltip an der Maus statt unten links (`StatusBarTextChanged`, eigene Anzeige); Fremdtext bereinigen – umgesetzt in AP-04b (Statusleiste bleibt vorerst an); manueller Test Fall 32 offen, danach Entscheidung über die Statusleiste
+- [ ] Wunsch Dennis 2026-11-01 (AP-04b): Linkziel als Tooltip an der Maus statt unten links (`StatusBarTextChanged`, eigene Anzeige); Fremdtext bereinigen – umgesetzt in AP-04b (Statusleiste aus, der Tooltip ist die einzige Anzeige; `title` aus Mails wird nicht gezeigt); Fall 32 sah Dennis mit eingeschalteter Statusleiste, offen: Nachweis mit ausgeschalteter Statusleiste (Y5, Y-c)
 - [ ] Outlook.com zeigt Ordner mit `/` im Namen nicht über IMAP (Hinweismail von Microsoft 2026-11-01): Die App und der Vergleich `sync-check` sehen sie nicht. In `docs\auth-setup.md` festhalten; Dennis benennt den betroffenen Ordner um
 
 - [ ] Wunsch Dennis 2026-11-01 (nach D8 und AP-06): Bilder bei vertrauenswürdigen Mails direkt laden. Vorschlag des Planers: nach der Filter-Entscheidung `TrustedContact`, nicht nach dem Ordner, weil auch Altbestand, von Hand verschobene und nicht auswertbare Mails im Posteingang liegen; mit Dennis festlegen
@@ -112,7 +112,7 @@ gibt es nach Entscheidung von Dennis nicht. Alles unterhalb „Hoch“ steht hie
 - [ ] Ein hängender Aufbau des Lesedokuments kostet jede weitere Mail bis zu 5 s (nur ein Aufbau zugleich)
 - [ ] Mögliche spätere Härtung: HTML-Aufbereitung in einem eigenen Hilfsprozess (Dennis hat die Extrarunde fix.5
   vorgezogen)
-- [ ] Zu erledigen in AP-04c: Konten-UI, Anhänge öffnen/speichern (Aktionen und Suche: AP-04b, Stand: Tests, Review und Security grün, manuelle Fälle 21, 22, 32 offen)
+- [ ] Zu erledigen in AP-04c: Konten-UI, Anhänge öffnen/speichern (Aktionen und Suche: AP-04b, Stand: verify.6 S3 2655/2655, review.5 APPROVE, secure.4 ohne Kritisch/Hoch; manuell offen: Fall 21 mit Nachtests, 22, 32, X-h, Y-c und Y5)
 
 ## Stand 2026-10-31 (Session 2, Ende)
 **CPM erledigt:** `chore/app-icon`, AP-01, AP-07a, AP-02a per `--no-ff` nach `main` gemergt, Build grün
