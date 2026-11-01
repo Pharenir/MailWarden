@@ -49,3 +49,23 @@ Positive controls: case 8 (control recipient in each mail), 9 (Sent folder read)
 9. Domain list entry for a sub-domain (e.g. `mail.blocked.test`) is not tested: D3 only says "organisational domain".
 10. Domain wins/loses between lists: duplicates with both kinds are fed straight to the directory constructor (the store itself keeps one kind).
 11. Compilation not checked in author.0 (no builder code on this branch).
+
+## fix.2 (author.1): cases 20-26
+
+| Case | Test | Notes |
+|---|---|---|
+| 20 | tests\MailWarden.Core.Tests\Classification\AllowListAndAlignmentTests.cs | Authenticated -> TrustedContact; no header, softfail+dmarc=none, dmarc=fail+compauth=pass, neutral -> LikelyLegit with override naming the allow list; failed as before; allow equals contact for Unknown |
+| 21 | same file | evil.com.pl via dkim and spf not authenticated; same domain, child, parent (From a@mail.firma.com.pl), DMARC pass authenticated and TrustedContact; sibling sub-domain not |
+| 22 | tests\MailWarden.Infrastructure.Tests\Classification\ContactHarvesterOriginTests.cs | other From, two From addresses, unusable From, auto-replied/auto-generated, multipart/report skipped; own address (any case, other account), Auto-Submitted: no, multipart/mixed read |
+| 23 | ...\ContactSenderDirectoryHardeningTests.cs | Kelvin sign and trailing NBSP: no Allowed, Blocked matches; ASCII case controls |
+| 24 | same file | quoted local part, Punycode vs U-form both ways, plus/dot variants exact, `*` rejected (4 forms) with plain-domain control, one store row for Punycode and U-form |
+| 25 | ...\ContactImportCsvTests.cs | unterminated quote in row 2 of 5 -> 1 Rejected, 4 Added; control with closed quote |
+| 26 | ...\ContactBookTests.cs | trimmed address; `Hans <a@x.test>`, no domain, no `@`, empty -> ArgumentException |
+
+Changed existing tests: `SpamClassifierTests.Allow_list_with_unknown_authentication_is_trusted_contact` renamed to
+`Allow_list_with_unknown_authentication_is_at_most_likely_legit` (R1: expects LikelyLegit). No existing AP-07a test on sibling
+sub-domains for DKIM/SPF was found (`DomainNamesTests` only tests `AreAligned`, which R2 does not change); the sibling cases are new.
+`ClassificationHarness.AddSentAsync` got optional `from`, `extraHeader`, `contentType`.
+
+Assumptions: the override text for the non-authenticated allow case contains "allow list"; an `*` anywhere in a list entry is rejected;
+`dkim=pass header.d=com.pl` (public suffix as parent) is not tested because "real parent" is ambiguous there.

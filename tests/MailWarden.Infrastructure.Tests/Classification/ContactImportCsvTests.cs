@@ -241,6 +241,43 @@ public sealed class ContactImportCsvTests
         await Assert.ThrowsAsync<InvalidDataException>(() => ImportAsync(Utf8(large.ToString())));
     }
 
+    // Case 25 (R6): an unterminated quote costs only its own physical line
+    [Fact(Timeout = TestTimeouts.PerTestMilliseconds)]
+    public async Task Unterminated_quote_rejects_only_that_line_and_the_other_rows_are_read()
+    {
+        string text =
+            "Name,Email\r\n" +
+            "Contact A,contact_a@example.test\r\n" +
+            "\"Broken Name,contact_x@example.test\r\n" +
+            "Contact C,contact_c@example.test\r\n" +
+            "Contact D,contact_d@example.test\r\n" +
+            "Contact E,contact_e@example.test\r\n";
+
+        (ContactImportReport report, IReadOnlyList<Contact> contacts) = await ImportAsync(Utf8(text));
+
+        Assert.Equal(1, report.Rejected);
+        Assert.Equal(4, report.Added);
+        Assert.Equal(4, contacts.Count);
+        Assert.DoesNotContain(contacts, contact => contact.EmailAddress.StartsWith("contact_x", StringComparison.OrdinalIgnoreCase));
+        Assert.NotNull(Find(contacts, "contact_e@example.test"));
+    }
+
+    // Case 25: control, the same file with the quote closed rejects nothing
+    [Fact(Timeout = TestTimeouts.PerTestMilliseconds)]
+    public async Task Closed_quote_in_the_same_position_rejects_nothing()
+    {
+        string text =
+            "Name,Email\r\n" +
+            "Contact A,contact_a@example.test\r\n" +
+            "\"Broken Name\",contact_x@example.test\r\n" +
+            "Contact C,contact_c@example.test\r\n";
+
+        (ContactImportReport report, _) = await ImportAsync(Utf8(text));
+
+        Assert.Equal(0, report.Rejected);
+        Assert.Equal(3, report.Added);
+    }
+
     // Case 17 (decision): entries over the limit of 50,000 are Rejected
     [Fact(Timeout = TestTimeouts.PerTestMilliseconds * 2)]
     public async Task Entries_over_the_limit_of_50000_are_rejected()
