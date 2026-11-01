@@ -1,4 +1,4 @@
-STEP-RESULT: done (implement.1; D8 is not part of this step)
+STEP-RESULT: done (fix.2: G1–G14 done, see section "fix.2"; D8 is not part of this step)
 
 # AP-07c – Implementation notes (Builder, implement.1)
 
@@ -131,6 +131,92 @@ Source: MailKit tag **4.18.1**, because `4.18.2` (the package in use) has no tag
    UID is below the marker it is never classified and stays where it is. Fails safe, for `docs\classifier.md`.
 7. **The probe's `pass` in Act never executes the queue.** Case 33 ("Act moves test mails") also needs a command cycle,
    e.g. the existing `command-probe`, whose guard only allows Junk actions. It may need its own runner.
+
+## fix.2 (decisions G1–G14 of `requirement.md`, including the planner's precision on G2)
+Questions 1, 2 and 4 above are answered by G2, G7 and G6. Question 7 by G14. Questions 3, 5 and 6 are decided under "Not
+fixed, on purpose".
+
+### Check of secure H2 (G4): confirmed
+`Header.Value` decodes encoded words: `Header.cs:484` in MimeKit tag 4.18.1 is
+`textValue ??= Unfold (Rfc2047.DecodeText (Options, rawValue));`. `RawValue` is the value "before any decoding" (`Header.cs:463-470`).
+There is no 4.18.2 tag on GitHub, so this was also checked by running against the package in use (4.18.2), with artificial data in
+the self-check. The header was `mx.example.test; spf=none smtp.mailfrom==?utf-8?B?<base64 of ;dmarc=pass header.from=example.test>?=; dmarc=fail header.from=example.test`, the sender a contact:
+
+| Value given to the classifier | AuthStatus | Tier |
+|---|---|---|
+| `Header.Value` (implement.1) | Authenticated | TrustedContact |
+| raw value (fix.2) | Failed | LikelySpam |
+
+So H2 was a real, exploitable defect of implement.1, not only a conditional one.
+
+### Implementation per decision
+| G | Status | Where | Note |
+|---|---|---|---|
+| G1 | done | `ClassificationPass.cs:205` | constructor parameter after `IFolderStore`; no state → folder skipped entirely. Retention does not look at the sync state: it is not in step 4 and its check is by key |
+| G2 | done | `MessageKey.cs`, `ClassificationPass.cs:244-245`, `452-459` | `For` normalises itself; null, empty and whitespace give the same key. Pass and retention both use `TryReadContentAsync`, then `MessageKey.For(message, content.TopReceived)` |
+| G3 | done | `ClassificationInputReader.cs`, `ClassificationMessage.cs` | `ReadAsync` is the thin wrapper |
+| G4 | done, **reading to check** | `ClassificationInputReader.cs`, `GetRawValue` | see below |
+| G5 | done | `ClassificationInputReader.cs` | also `Parsed` false for a parse with no header at all |
+| G6 | done | `ClassificationPass.cs:435-443` | any command of the folder with the same UIDVALIDITY counts, see below |
+| G7 | done | `ClassificationPass.cs`, `Decide`; `ClassificationRouting.RouteWithoutSender` | new public method, see below |
+| G8 | done | `ClassificationPassReport.cs`, `ClassificationPass.cs:480` | last record member |
+| G9 | done | `ClassificationRouting.cs` | explicit arms in both tables, undefined tier throws |
+| G10 | done | class remarks and comment in `HandleFolderAsync` | |
+| G11 | done | `ClassificationInputReader.cs`, `AddHost` and both loops | HTML and text |
+| G12 | done | `MailKitFolderProvisioner.cs:143` | `SUBSCRIBE %F` (`ImapFolder.cs:1428-1433`, tag 4.18.1); only for a folder just created; failure ignored except cancellation; interface doc adjusted |
+| G13 | no code | | already built so in implement.1; docs of `IMailFolderProvisioner` now state it |
+| G14 | done, not started | `_scratch\classification-probe\Program.cs` | not in git, see below |
+
+### Readings and additions where the decisions are open
+- **G4/G3 "raw value": unfolded and trimmed.** The bytes are `Encoding.Latin1.GetString(header.RawValue)` as ordered, then
+  `Header.Unfold`, which only removes CR, LF and the outer whitespace and decodes nothing. Without it the value would begin
+  with a space and end in CRLF (checked on 4.18.2). Unfolded is what `Header.Value` delivered for ordinary headers, so ordinary
+  values do not change. An empty Received value gives `TopReceived` null. Planner: if the literal byte-exact string is meant,
+  it is one line in `GetRawValue`; `MessageKey.For` normalises either way.
+- **D7 order changes for G2:** the EML is read before the known check, because the key needs it. A known mail now costs a parse.
+- **Retention reads every due-candidate EML each pass** (only in Act with days > 0; UIDs already queued are skipped first).
+  With a large Quarantine that is a full parse per mail per pass. Accepted for now; N2 (streaming) is already in the AP-08 list.
+- **Retention requires `Parsed` true** as well as a readable EML: otherwise the key would be computed without a Received value.
+- **G6:** a command of an older UIDVALIDITY does not block a UID, because it addresses another message. SetFlags commands do block,
+  as "a command of the queue" says; a failed one blocks the delete until it is discarded (fails safe).
+- **G7:** `ClassificationRouting.RouteWithoutSender` is an addition to D1, so the table stays in one place. Such a mail counts in
+  neither `Classified` nor `ReadFailed`, but in `MovesEnqueued` when moved.
+- **D7 kept against the wording of G7:** an exception from `Classify` still gives `ReadFailed`, although G7 says "only" EML and
+  `Parsed` false. Inputs from the reader should not trigger it. See question F1.
+- **Existing decisions:** keys from before fix.2 no longer match. No database with real decisions exists yet (case 33 has not
+  run), so no migration was built. Any test copy from before fix.2 should be taken fresh.
+
+### Probe (G14)
+- `stock`, added: `{role} | no Received header`; `same Message-ID in several folders | groups/mails: share the top Received / differ in
+  the top Received / some without Received`, over all folder roles, by account; `provider X | top Authentication-Results: none / no
+  authserv-id / provider authserv-id / other authserv-id`, and the derived `provider X | without provider-stamped top
+  Authentication-Results`. Outlook.com writes no authserv-id, so that form counts as stamped for Microsoft only.
+- `Ich bin mir unsicher:` whether the Microsoft domain list in `IsProviderAuthServId` is complete. An "other authserv-id" count that looks
+  large should be read with that in mind. A mail without a usable From is not in these AR counts.
+- `execute <address>`: runs `CommandExecutor.ExecutePendingAsync` once. The guard counts pending commands only (Failed ones do not run)
+  and fires before anything connects.
+- `pass`: new constructor parameter, prints `RetentionDeletesRejected`.
+
+### Tested / not tested (fix.2)
+**Tested by me (self-control, no proof, no replacement for a tester run):**
+- `dotnet build src\MailWarden.Infrastructure\MailWarden.Infrastructure.csproj -warnaserror`: 0 errors, 0 warnings.
+- `_scratch\classification-probe` with `-warnaserror`: 0 errors, 0 warnings; **not started**. Its repeated-Message-ID SQL was run once in
+  the self-check on artificial data.
+- `_scratch\ap07c-selfcheck` (not in git, artificial data, real queue, fake provisioner): all checks passed, now including cases 34
+  (first two steps), 35, 36, 37, 38, 39, 40, 41, 42, 43, 44, 45, 46, and a Quarantine mail with a missing EML that is never deleted.
+
+**Not tested:**
+- `dotnet build MailWarden.sln` and every test: the tests do not compile against the new contract, which the coordinator expected.
+- `MailKitFolderProvisioner` incl. SUBSCRIBE: never run; read and compiled only.
+- Whether the top-most `Received` really stays the same across a MOVE at Outlook.com and Gmail. **G2 depends on it**: if it changes, a mail
+  moved back by hand gets a new key and is decided again. Cases 32 and 33 show this.
+- The probe in all three modes.
+
+### Questions to the planner (fix.2)
+- **F1** `ClassificationPass.cs`, `TryClassify`: keep `ReadFailed` for an exception from `Classify` (D7), or treat it like G7? Built as D7.
+- **F2** `ClassificationInputReader.cs`, `GetRawValue`: is unfolded and trimmed acceptable as "raw value", or should it be byte-exact?
+- **F3** Mail without any `Received` header keeps the sender-controlled key (`m:` + Message-ID + LF). A provider always stamps delivered mail,
+  so this should not occur for fetched mail; `stock` now counts it. If the count is not 0, the campaign bypass stays open for these mails.
 
 ## Note for the next patch script
 The shell tool collapsed `\\` to `\` inside a heredoc: `'\\'` broke one Python script and `\\r` became a real CR in
