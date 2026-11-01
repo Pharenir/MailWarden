@@ -42,3 +42,18 @@ S3 green on the branch merged with `main`, reviewer APPROVE, security-reviewer w
 - `<body bgcolor>` and `<body style>` never reach the sanitized HTML either, so they do not count.
 - The D4 check runs before the URL rules, so a blocked `background-image` or a removed `<img>` still counts as own colours. This errs towards light and stops the page jumping to light on "Bilder laden". Accepted.
 - Scroll position after a theme change: it may jump to the top for mails without own colours, because the page is navigated anew. Accepted: a theme change is rare and scripts stay off.
+
+## Decisions fix.1 (planner, 2026-11-01, after review.1 CHANGES and secure.1)
+- F1 (review.1 M1, secure.1 L1): D4 also counts the declarations that repaint text: `all`, `filter`, `backdrop-filter`, `mix-blend-mode`, `box-shadow`, and any `border-image*`, as a named set in `OwnColorDetector`. Reason: a mail that is readable today must stay readable in the dark theme. `border`, `outline` and `text-shadow` do not count: they would turn ordinary mails light, and crafted overlays could already hide text in the light-only version.
+- F2 (review.1 S1): Known limit, no code: light text can end up on the light sheet when its dark background was removed by the sanitizer (`<body style="background:#111">` with `<td style="color:#eee">`). `main` behaves the same. Guessing at brightness is not in scope. It goes to `PLAN.md` (risk) and `TODO.md`; Dennis sees it in the report.
+- F3 (review.1 S3): The background setter gets the same protection as before, a throw there must not end the process.
+- F4 (review.1 N4): A failed theme rebuild keeps the readable document instead of showing the error state; the critical log records the type name.
+- F5 (review.1 N1, N2, N3): links in `<mark>` get a readable colour; comments on the fail-safe branches and on the build limit are corrected.
+- F6 (review.1 S2): Old white sheet visible for a moment when going to a plain mail: watch it in case 13, change it only if Dennis sees it.
+
+### Additional test cases (fix.1)
+| # | Situation | Expected |
+|---|---|---|
+| 14 | Each of `all:initial`, `filter:brightness(0)`, `backdrop-filter:blur(1px)`, `mix-blend-mode:multiply`, `box-shadow:0 0 1px 9999px #fff`, `border-image:linear-gradient(#fff,#fff) 1 fill`, dark | Light sheet |
+| 15 | `border:1px solid #ccc`, `outline:1px solid #ccc`, `text-shadow:1px 1px #ccc`, dark | Dark style |
+| 16 | The builder fails during a theme change with a readable mail open | The document stays, state stays `Ready`, type name in the log |
