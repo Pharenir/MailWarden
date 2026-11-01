@@ -152,7 +152,7 @@ public sealed class MailHtmlSanitizerHostileInputTests
         SanitizedHtml result = await SanitizeAsync(html);
 
         Assert.True(result.WasReduced);
-        Assert.True(Regex.Matches(result.Html, @"<b[\s>]").Count <= 64 + 1, "more than 64 <b> start tags survived");
+        Assert.Equal(64, Regex.Matches(result.Html, @"<b[\s>]").Count);
         Assert.Contains("text_marker", result.Html, StringComparison.Ordinal);
     }
 }

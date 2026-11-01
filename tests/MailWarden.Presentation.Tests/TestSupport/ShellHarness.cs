@@ -1,4 +1,5 @@
 using MailWarden.Infrastructure.Background;
+using MailWarden.Infrastructure.Mime;
 
 namespace MailWarden.Presentation.Tests.TestSupport;
 
@@ -7,7 +8,7 @@ internal sealed class ShellHarness
 {
     public static readonly DateTimeOffset FixedNow = new(2026, 10, 31, 12, 0, 0, TimeSpan.Zero);
 
-    public ShellHarness(UiSettings? initialSettings = null, TimeProvider? clock = null)
+    public ShellHarness(UiSettings? initialSettings = null, TimeProvider? clock = null, Func<MailContent, bool, ReadingDocument>? documentBuilder = null)
     {
         ReadModel = new FakeMailboxReadModel();
         Controller = new FakeMailboxController();
@@ -15,7 +16,7 @@ internal sealed class ShellHarness
         Settings = new FakeUiSettingsStore { Stored = initialSettings ?? UiSettings.Default };
         Log = new FakeCriticalLog();
         Clock = clock ?? new FixedClock(FixedNow);
-        Shell = new ShellViewModel(ReadModel, Controller, Dispatcher, Settings, Log, Clock);
+        Shell = new ShellViewModel(ReadModel, Controller, Dispatcher, Settings, Log, Clock, documentBuilder);
     }
 
     public FakeMailboxReadModel ReadModel { get; }
