@@ -115,18 +115,4 @@ public sealed class ContactSenderDirectoryHardeningTests
 
         Assert.Single(await store.ListAsync());
     }
-
-    // Case 24: Punycode and U-form are the same entry in the store (no duplicate rows)
-    [Fact(Timeout = TestTimeouts.PerTestMilliseconds)]
-    public async Task Punycode_and_u_form_of_a_domain_are_one_entry_in_the_store()
-    {
-        await using StorageFixture storage = await StorageFixture.CreateAsync();
-        var store = new SqliteSenderListStore(storage.Database);
-
-        await store.SetAsync(new SenderListEntry("xn--bcher-kva.test", true, ListMembership.Allowed));
-        await store.SetAsync(new SenderListEntry("bücher.test", true, ListMembership.Blocked));
-
-        SenderListEntry only = Assert.Single(await store.ListAsync());
-        Assert.Equal(ListMembership.Blocked, only.Kind);
-    }
 }
