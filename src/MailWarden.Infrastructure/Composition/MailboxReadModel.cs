@@ -16,6 +16,7 @@ internal sealed class MailboxReadModel : IMailboxReadModel
     private readonly SqliteFolderStore folders;
     private readonly SqliteMessageStore messages;
     private readonly IEmlStore emlStore;
+    private bool isClosed;
 
     public MailboxReadModel(SqliteDatabase database, IEmlStore emlStore)
     {
@@ -53,6 +54,23 @@ internal sealed class MailboxReadModel : IMailboxReadModel
         return Task.Run(() => ReadContentCoreAsync(message, ct), ct);
     }
 
+    /// <summary>
+    /// Waits for the running query and refuses later ones, so that the connection can be closed safely afterwards.
+    /// </summary>
+    /// <returns>A task that completes when no query runs any more.</returns>
+    public async Task CloseAsync()
+    {
+        await connectionGate.WaitAsync().ConfigureAwait(false);
+        try
+        {
+            isClosed = true;
+        }
+        finally
+        {
+            connectionGate.Release();
+        }
+    }
+
     private async Task<MailContent?> ReadContentCoreAsync(MailMessage message, CancellationToken ct)
     {
         if (message.EmlPath is null)
@@ -83,6 +101,7 @@ internal sealed class MailboxReadModel : IMailboxReadModel
                 await connectionGate.WaitAsync(ct).ConfigureAwait(false);
                 try
                 {
+                    ObjectDisposedException.ThrowIf(isClosed, this);
                     return await query(ct).ConfigureAwait(false);
                 }
                 finally

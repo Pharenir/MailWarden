@@ -138,7 +138,10 @@ public sealed class MailboxService : IAsyncDisposable
         }
     }
 
-    /// <summary>Acquires the data-folder lock (D1), reads the accounts and starts one loop + one IDLE watcher per account.</summary>
+    /// <summary>
+    /// Acquires the data-folder lock (D1), unless the constructor received a held lock, reads the accounts and starts one
+    /// loop + one IDLE watcher per account.
+    /// </summary>
     /// <param name="ct">Cancels acquiring and reading the accounts; does not stop the started loops.</param>
     /// <returns>A task that completes when all loops are started (not when their first cycle ends).</returns>
     /// <exception cref="InvalidOperationException">

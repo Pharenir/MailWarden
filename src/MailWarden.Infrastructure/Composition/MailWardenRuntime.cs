@@ -17,6 +17,7 @@ public sealed class MailWardenRuntime : IAsyncDisposable
 
     private readonly DataFolderLock folderLock;
     private readonly RuntimeConnections connections;
+    private readonly MailboxReadModel readModel;
     private readonly Lock disposeGate = new();
     private Task? disposeTask;
 
@@ -25,13 +26,13 @@ public sealed class MailWardenRuntime : IAsyncDisposable
         DataFolderLock folderLock,
         RuntimeConnections connections,
         MailboxService service,
-        IMailboxReadModel readModel)
+        MailboxReadModel readModel)
     {
         Paths = paths;
         this.folderLock = folderLock;
         this.connections = connections;
         Service = service;
-        ReadModel = readModel;
+        this.readModel = readModel;
     }
 
     /// <summary>Paths of the opened data folder.</summary>
@@ -41,7 +42,7 @@ public sealed class MailWardenRuntime : IAsyncDisposable
     public MailboxService Service { get; }
 
     /// <summary>Read access for the user interface.</summary>
-    public IMailboxReadModel ReadModel { get; }
+    public IMailboxReadModel ReadModel => readModel;
 
     /// <summary>
     /// Takes the data-folder lock BEFORE opening or migrating the database, loads the auth configuration from
@@ -90,8 +91,8 @@ public sealed class MailWardenRuntime : IAsyncDisposable
                 new TimeProviderServiceDelay(timeProvider),
                 timeProvider,
                 folderLock);
-            var readModel = new MailboxReadModel(readDatabase, new FileEmlStore(paths));
-            return new MailWardenRuntime(paths, folderLock, connections, service, readModel);
+            var mailboxReadModel = new MailboxReadModel(readDatabase, new FileEmlStore(paths));
+            return new MailWardenRuntime(paths, folderLock, connections, service, mailboxReadModel);
         }
         catch
         {
@@ -134,6 +135,8 @@ public sealed class MailWardenRuntime : IAsyncDisposable
         {
             try
             {
+                // A read of the user interface may still run: it ends before its connection closes.
+                await readModel.CloseAsync().ConfigureAwait(false);
                 await connections.DisposeAsync().ConfigureAwait(false);
             }
             finally
