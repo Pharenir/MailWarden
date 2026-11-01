@@ -69,3 +69,15 @@ sub-domains for DKIM/SPF was found (`DomainNamesTests` only tests `AreAligned`, 
 
 Assumptions: the override text for the non-authenticated allow case contains "allow list"; an `*` anywhere in a list entry is rejected;
 `dkim=pass header.d=com.pl` (public suffix as parent) is not tested because "real parent" is ambiguous there.
+
+## fix.3 (author.2): cases 27-31 and the planner's later decisions
+
+| Case | Test | Notes |
+|---|---|---|
+| 24 (changed) | ContactSenderDirectoryHardeningTests | quoted local part hits a Block entry (existing test) and never an Allow entry (new), unquoted Allow entry is the control |
+| 27 | ContactSenderDirectoryHardeningTests | look-alikes U+FF45, U+3002, U+FF41 (placed in the domain of the address entry), mathematical letters: Allowed -> None, Blocked -> Blocked; controls ASCII and real Punycode sender |
+| 28 | same | `sub.xn--mller-kva.example`, `ab--cd.xn--mller-kva.example`, the parent itself blocked; other domain None |
+| 29 | Core.Tests AllowListAndAlignmentTests | DMARC pass for evil.com.pl not authenticated; same, child, parent-header.from authenticated |
+| 30 | ContactBookTests | `RemoveContactAsync` with spaces and other case removes, the other contact stays |
+| 31 | ContactHarvesterOriginTests | X-Autoreply, X-Autorespond, Precedence auto_reply/bulk/junk/BULK, Content-Class calendarmessage, text/calendar METHOD=REPLY skipped; Precedence list and METHOD=REQUEST read |
+| decisions | ContactHarvesterOriginTests, ContactImportCsvTests, ContactBookTests | `Auto-Submitted: no (x)` and `nobody` skipped; other account's address is own; `"a"b` row Rejected (rest read), quote closing in a later line is a multi-line field; null address -> ArgumentException |

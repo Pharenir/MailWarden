@@ -71,6 +71,32 @@ public sealed class ContactBookTests
         Assert.Equal("contact_a@example.test", Assert.Single(await new SqliteContactStore(storage.Database).ListAsync()).EmailAddress);
     }
 
+    // Case 30 (T4): removal trims like the add
+    [Fact(Timeout = TestTimeouts.PerTestMilliseconds)]
+    public async Task Remove_contact_trims_the_address()
+    {
+        await using StorageFixture storage = await StorageFixture.CreateAsync();
+        ContactBook book = Create(storage);
+        await book.AddContactAsync("contact_a@example.test", "Contact A");
+        await book.AddContactAsync("contact_b@example.test", "Contact B");
+
+        await book.RemoveContactAsync(" CONTACT_A@example.test \t");
+
+        Contact remaining = Assert.Single(await new SqliteContactStore(storage.Database).ListAsync());
+        Assert.Equal("contact_b@example.test", remaining.EmailAddress);
+    }
+
+    // Case 26: a null address is an ArgumentException
+    [Fact(Timeout = TestTimeouts.PerTestMilliseconds)]
+    public async Task Null_address_is_refused_with_argument_exception()
+    {
+        await using StorageFixture storage = await StorageFixture.CreateAsync();
+
+        await Assert.ThrowsAnyAsync<ArgumentException>(() => Create(storage).AddContactAsync(null!, "Contact A"));
+
+        Assert.Empty(await new SqliteContactStore(storage.Database).ListAsync());
+    }
+
     // Case 26 (R7): malformed addresses are refused and nothing is stored
     [Theory(Timeout = TestTimeouts.PerTestMilliseconds)]
     [InlineData("Hans <a@x.test>")]

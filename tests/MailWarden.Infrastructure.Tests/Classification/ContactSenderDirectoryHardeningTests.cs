@@ -66,6 +66,61 @@ public sealed class ContactSenderDirectoryHardeningTests
         Assert.Equal(ListMembership.None, directory.GetListMembership("\"other\"@addr.example.test"));
     }
 
+    // Case 24 (fix.3): a quoted local part is not an exact sender, so it never hits an allow entry; the unquoted one does
+    [Fact]
+    public void Quoted_local_part_never_hits_an_allow_entry()
+    {
+        ContactSenderDirectory directory = Create(Address("friend@x.test", ListMembership.Allowed));
+
+        Assert.Equal(ListMembership.None, directory.GetListMembership("\"friend\"@x.test"));
+        Assert.Equal(ListMembership.Allowed, directory.GetListMembership("friend@x.test"));
+    }
+
+    // Case 27 (T1): look-alike characters are not an exact sender: no Allowed, Blocked still matches
+    [Theory]
+    [InlineData("sender_a@ｅxample.test")]
+    [InlineData("sender_a@example。test")]
+    [InlineData("person_a@ａllowaddr.test")]
+    [InlineData("sender_a@\U0001D41Axample.test")]
+    [InlineData("person_a@\U0001D41Allowaddr.test")]
+    public void Look_alike_senders_never_hit_allow_entries_but_still_hit_block_entries(string sender)
+    {
+        ContactSenderDirectory allowed = Create(
+            Domain("example.test", ListMembership.Allowed), Address("person_a@allowaddr.test", ListMembership.Allowed));
+        ContactSenderDirectory blocked = Create(
+            Domain("example.test", ListMembership.Blocked), Address("person_a@allowaddr.test", ListMembership.Blocked));
+
+        Assert.Equal(ListMembership.None, allowed.GetListMembership(sender));
+        Assert.Equal(ListMembership.Blocked, blocked.GetListMembership(sender));
+    }
+
+    // Case 27: positive controls with the same entries
+    [Fact]
+    public void Plain_ascii_and_real_punycode_senders_are_allowed()
+    {
+        ContactSenderDirectory directory = Create(
+            Domain("example.test", ListMembership.Allowed),
+            Address("person_a@allowaddr.test", ListMembership.Allowed),
+            Domain("bücher.test", ListMembership.Allowed));
+
+        Assert.Equal(ListMembership.Allowed, directory.GetListMembership("sender_a@example.test"));
+        Assert.Equal(ListMembership.Allowed, directory.GetListMembership("person_a@allowaddr.test"));
+        Assert.Equal(ListMembership.Allowed, directory.GetListMembership("sender_a@xn--bcher-kva.test"));
+    }
+
+    // Case 28 (T2): an unusual label does not hide a blocked parent
+    [Theory]
+    [InlineData("sender_a@sub.xn--mller-kva.example")]
+    [InlineData("sender_a@ab--cd.xn--mller-kva.example")]
+    [InlineData("sender_a@xn--mller-kva.example")]
+    public void Unusual_label_below_a_blocked_domain_is_still_blocked(string sender)
+    {
+        ContactSenderDirectory directory = Create(Domain("müller.example", ListMembership.Blocked));
+
+        Assert.Equal(ListMembership.Blocked, directory.GetListMembership(sender));
+        Assert.Equal(ListMembership.None, directory.GetListMembership("sender_a@other.example"));
+    }
+
     // Case 24: Punycode entry, U-form sender, and the other way round
     [Fact]
     public void Punycode_entry_matches_the_u_form_sender()
