@@ -35,3 +35,15 @@ Reviewed `feat/ap-04d-reading-theme` at 72c7421, diff `main...HEAD -- src`. `tes
 - **Ran:** a throwaway console probe on artificial strings on a 256 MB stack thread: the allowed CSS list (240 properties), about 100 evasion cases, the fuzz comparison, timings.
 - **Not run:** no browser, so every rendering statement in L1 is reasoning; no GUI, no tests, no live theme change. The baseline DLL was not proven to be built from 690c062.
 - **After the merge with AP-04b:** check the image approval paths again, both change `ReadingPaneViewModel.cs` and `MainWindow.xaml.cs`.
+
+# secure.2 (2026-11-01; written down by the planner, the role has no write access)
+
+Narrow recheck at 1350317, with `main` and AP-04b merged in. `tests\` not read. **Result: 0 Critical, 0 High, 0 Medium, 0 Low, 3 Notes.** The merge did not weaken the image approval paths.
+
+- **N1:** With "Design System", Windows can switch the theme while an approved mail with own colours is open. The page is navigated anew without a click, and the sender's server may see a second hit, with any cookie from the first (`ReadingPaneViewModel.cs:369-372`, `MailWebViewHost.cs:53,63`, `ReadingDocumentBuilder.cs:74`). Only URLs already approved, only the mail on screen. Accepted (G3).
+- **N2:** `cursor`, `mask` and `mask-image` with a URL count as no image (`OwnColorDetector.cs:34-37`). Without approval they are removed. Accepted.
+- **N3:** The veil comment describes a case that could not be constructed (`ReadingDocumentBuilder.cs:44-45`). No security effect.
+
+Checked: no carry-over of an approval to another mail; Junk and Quarantine give `img-src 'none'` in both themes (ran); seven hostile dark mails gave one head text with the constant veil rule (ran); 60,000 fuzzed `content` and `list-style*` declarations gave no image function outside a CSS string and no throw (ran); the verdict only picks the page style, images are gated independently; `title` is stripped before the detector runs.
+
+Ran on artificial strings in memory, on .NET 10 from pwsh, not on the app's .NET 9. Not run: no tests, GUI or browser; rendering statements on the veil are reasoning, case 21 covers the practical part. Open: whether `HoverLinkText` stays visible for a moment after a re-navigation during an automatic theme switch.

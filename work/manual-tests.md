@@ -251,3 +251,11 @@ Start wie in Teil 8. Nur Testmails anfassen (Betreff beginnt mit `MailWarden tes
 - [ ] **Rechtsklick im Ordnerbaum:** Auf Junk von Konto 3 und auf den Papierkorb eines Kontos erscheint „Ordner leeren“, auf dem Posteingang und dem Kontoknoten nichts. Ebenso mit der Kontexttaste. Die Auswahl im Baum bleibt.
 - [ ] **Leeren über den Baum:** Eine Testmail nach Junk von Konto 3 verschieben, im Baum einen anderen Ordner auswählen, Rechtsklick auf Junk von Konto 3, „Ordner leeren“. **Die Rückfrage muss genau die Zahl der Testmails nennen, sonst „Nein“ wählen und melden.** Die aktuelle Liste bleibt unverändert, im Webmail ist der Spam leer.
 - [ ] **Ungelesen-Zahl:** Eine ungelesene Testmail mit Entf löschen: Die Zahl im Baum fällt im selben Moment wie die Zeile. Bei einer gelesenen Testmail bleibt sie gleich.
+
+## 9 – Lesebereich und Thema (AP-04d Fälle 13, 21)
+Nur Ansehen, keine Aktionen auf dem Server.
+- [ ] Dunkel, Newsletter: Das Blatt ist abgedunkelt und gut lesbar, seine Farben bleiben erkennbar.
+- [ ] Dunkel, Newsletter: Ein Link lässt sich anklicken, der Tooltip zeigt das echte Ziel, Text lässt sich markieren und kopieren.
+- [ ] Hell, gleicher Newsletter: kein Schleier, sieht aus wie bisher.
+- [ ] Design System: Windows bei laufender App zwischen Hell und Dunkel umstellen. Die App und der Lesebereich gehen mit.
+- [ ] Dunkel, vom Newsletter auf eine reine Textmail wechseln: Kein störendes Aufblitzen.
