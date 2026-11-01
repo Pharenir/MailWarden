@@ -540,7 +540,7 @@ public sealed class SyncEngine
         try
         {
             using MimeMessage message = await MimeMessage
-                .LoadAsync(storedContent, persistent: true, ct)
+                .LoadAsync(MimeParserDefaults.Create(), storedContent, persistent: true, ct)
                 .ConfigureAwait(false);
             MailboxAddress? sender = message.From.Mailboxes.FirstOrDefault();
 

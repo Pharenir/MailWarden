@@ -35,7 +35,9 @@ public static class MailContentReader
         try
         {
             // persistent: false copies the parts into memory instead of referring to the stream.
-            using MimeMessage message = await MimeMessage.LoadAsync(eml, persistent: false, ct).ConfigureAwait(false);
+            using MimeMessage message = await MimeMessage
+                .LoadAsync(MimeParserDefaults.Create(), eml, persistent: false, ct)
+                .ConfigureAwait(false);
             return ToContent(message, ct);
         }
         catch (FormatException)
