@@ -29,7 +29,7 @@ internal sealed class ShellBanner
         /// <summary>The message list could not be loaded.</summary>
         MessageList,
 
-        /// <summary>The last classification passes have mail that could not be evaluated or that the brake held.</summary>
+        /// <summary>Since the app started, classification passes had mail that could not be evaluated or that the brake held.</summary>
         Classification,
 
         /// <summary>The filter waits for the address book.</summary>

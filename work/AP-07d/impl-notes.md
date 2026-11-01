@@ -1,4 +1,4 @@
-STEP-RESULT: done (implement.1)
+STEP-RESULT: done (fix.2: Q1-Q3 done, see section "fix.2")
 
 # AP-07d – Implementation notes (Builder, implement.1)
 
@@ -71,13 +71,8 @@ passed to the runtime gets the count line.
 - A mail without a usable sender can be held as well; it has no tier and so counts only in `BrakeHeld`.
 
 ## Worth a look by the reviewer
-- `ClassifyingSyncCycle.cs:76`: every `OperationCanceledException` counts as cancellation, without checking `ct`, as in
-  `ClassificationPass`. An OCE from a timeout inside the pass therefore writes no log line. `MailboxService` still shows
-  `WaitingAfterError` for it.
-- The banner follows the last pass (case 14): a held mass move leaves the banner at the next clean pass of that account, at
-  the latest after the poll interval, while the mail stays. The count line in the log and the `BrakeHeld` entries stay.
-- `ShellViewModel.cs:385`: a summary of an account that left the navigation stops counting at the next summary of any
-  account, not at the moment of removal. The app has no way to remove an account yet (AP-04b).
+- `ShellViewModel.cs:386`: an account that left the navigation stops counting at the next summary of any account, not
+  at the moment of removal. The app has no way to remove an account yet (AP-04b).
 - While the pass runs the account stays `Running` with the last sync progress: no status of its own. Cosmetic.
 
 ## Tested / untested
@@ -97,3 +92,22 @@ Untested:
 
 ## Questions
 None open.
+
+## fix.2 (decisions Q1-Q3 in `requirement.md`)
+| File | Change |
+|---|---|
+| `src\MailWarden.Infrastructure\Composition\ClassifyingSyncCycle.cs` | Q1: only a cancellation of its own `ct` passes without a log line; any other `OperationCanceledException` writes the line and propagates |
+| `src\MailWarden.Presentation\ShellViewModel.cs` | Q2: `EvaluationFailed` and `BrakeHeld` are added per known account since the app started, a clean pass clears nothing; the waiting flag follows the last summary of each account |
+| `src\MailWarden.Presentation\UiText.cs`, `ShellBanner.cs` | Q2: text and comments say "since the start" |
+| `src\MailWarden.Infrastructure\Background\MailboxService.cs` | Q3: doc comments only, `syncAccount` is the whole cycle of sync and classification pass |
+
+Addition not in the decision: the banner text now starts with "Spamfilter seit dem Start:", because the sums no longer describe
+the last pass. It stays digits for the counts. A test that compares the old wording literally would fail.
+
+Tested by me (no proof):
+- `dotnet build MailWarden.sln -warnaserror`: 0 errors, 0 warnings.
+- Test classes matching `ClassifyingSyncCycle` (21) and `ShellViewModel` (30) through the watchdog: all passed. None of the
+  new cases 19-21 exists yet, as far as these counts can tell; the old "cleared" part of case 14 is not in these classes or
+  is not affected, I did not read them.
+
+Untested: cases 19-21; S1-S3 after this change.

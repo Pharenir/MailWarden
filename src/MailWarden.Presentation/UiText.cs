@@ -90,15 +90,15 @@ public static class UiText
     public static string BannerClassificationWaiting =>
         "Der Spamfilter verschiebt noch nichts: Er wartet auf das Adressbuch.";
 
-    /// <summary>Banner: the last classification passes have mail that stays where it is because of a problem.</summary>
-    /// <param name="evaluationFailed">Mails that could not be evaluated, added over the accounts.</param>
-    /// <param name="brakeHeld">Mails the brake held, added over the accounts.</param>
+    /// <summary>Banner: since the app started, classification passes had mail that stays where it is because of a problem.</summary>
+    /// <param name="evaluationFailed">Mails that could not be evaluated since the start, added over the accounts.</param>
+    /// <param name="brakeHeld">Mails the brake held since the start, added over the accounts.</param>
     /// <returns>The banner text.</returns>
     public static string BannerClassificationProblems(int evaluationFailed, int brakeHeld)
     {
         return string.Create(
             CultureInfo.InvariantCulture,
-            $"Spamfilter: nicht bewertet {evaluationFailed}, von der Bremse zurückgehalten {brakeHeld}. Diese Mails bleiben in ihrem Ordner.");
+            $"Spamfilter seit dem Start: nicht bewertet {evaluationFailed}, von der Bremse zurückgehalten {brakeHeld}. Diese Mails bleiben in ihrem Ordner.");
     }
 
     /// <summary>Error window: title.</summary>

@@ -38,8 +38,8 @@ public sealed class ShellViewModel : ObservableObject, IDisposable
     // Last known state per account; a failed cycle reloads only when the state changes.
     private readonly Dictionary<Guid, AccountSyncState> lastStates = [];
 
-    // Last classification summary per known account; touched on the UI thread only.
-    private readonly Dictionary<Guid, ClassificationPassSummary> lastSummaries = [];
+    // Classification results per known account since the app started; touched on the UI thread only.
+    private readonly Dictionary<Guid, ClassificationTally> classificationTallies = [];
 
     /// <summary>Creates the shell and loads the settings. Nothing else runs before <see cref="InitializeAsync"/>.</summary>
     /// <param name="readModel">Read access to the stored mail.</param>
@@ -368,7 +368,11 @@ public sealed class ShellViewModel : ObservableObject, IDisposable
                 return;
             }
 
-            lastSummaries[summary.AccountId] = summary;
+            ClassificationTally tally = classificationTallies.GetValueOrDefault(summary.AccountId);
+            classificationTallies[summary.AccountId] = new ClassificationTally(
+                tally.EvaluationFailed + summary.EvaluationFailed,
+                tally.BrakeHeld + summary.BrakeHeld,
+                summary.ActSuspendedNoContacts);
             UpdateClassificationBanner();
         }
         catch (Exception exception) when (exception is not OutOfMemoryException)
@@ -377,14 +381,18 @@ public sealed class ShellViewModel : ObservableObject, IDisposable
         }
     }
 
-    // Each account counts with its last pass only, so that a clean pass takes its own problems back. A summary of an
-    // account that has left the navigation no longer counts.
+    // A clean pass clears nothing: these mails stay unsorted, so the sums must not disappear unseen. They end with the app;
+    // acknowledging them comes with AP-08. An account that has left the navigation no longer counts.
     private void UpdateClassificationBanner()
     {
-        List<ClassificationPassSummary> summaries =
-            [.. lastSummaries.Values.Where(summary => Navigation.AccountIds.Contains(summary.AccountId))];
-        int evaluationFailed = summaries.Sum(summary => summary.EvaluationFailed);
-        int brakeHeld = summaries.Sum(summary => summary.BrakeHeld);
+        List<ClassificationTally> tallies =
+        [
+            .. classificationTallies
+                .Where(accountTally => Navigation.AccountIds.Contains(accountTally.Key))
+                .Select(accountTally => accountTally.Value),
+        ];
+        int evaluationFailed = tallies.Sum(tally => tally.EvaluationFailed);
+        int brakeHeld = tallies.Sum(tally => tally.BrakeHeld);
 
         if (evaluationFailed > 0 || brakeHeld > 0)
         {
@@ -396,7 +404,7 @@ public sealed class ShellViewModel : ObservableObject, IDisposable
         }
 
         // Only true in Act: while the mode is RecordOnly this never shows.
-        if (summaries.Any(summary => summary.ActSuspendedNoContacts))
+        if (tallies.Any(tally => tally.IsWaitingForContacts))
         {
             banner.Set(ShellBanner.BannerSource.ClassificationWaiting, UiText.BannerClassificationWaiting);
         }
@@ -477,4 +485,7 @@ public sealed class ShellViewModel : ObservableObject, IDisposable
             log.Write(CriticalLogLevel.Critical, source, $"Background work of the shell failed: {exception.GetType().Name}");
         }
     }
+
+    // Counts added since the app started; the waiting flag follows the account's last summary.
+    private readonly record struct ClassificationTally(int EvaluationFailed, int BrakeHeld, bool IsWaitingForContacts);
 }

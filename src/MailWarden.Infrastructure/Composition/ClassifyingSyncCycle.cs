@@ -47,7 +47,8 @@ public sealed class ClassifyingSyncCycle
     /// <param name="progress">Receives the progress of the sync pass.</param>
     /// <param name="ct">Cancellation token.</param>
     /// <returns>The report of the sync pass.</returns>
-    /// <exception cref="OperationCanceledException">The cycle was cancelled.</exception>
+    /// <exception cref="OperationCanceledException">The cycle was cancelled; without a cancelled <paramref name="ct"/> this
+    /// counts as a failure of the step that threw it.</exception>
     /// <exception cref="Exception">Whatever the sync or the classification pass throws; a failed classification pass is
     /// logged first.</exception>
     public async Task<SyncReport> RunAsync(Guid accountId, IProgress<SyncProgress>? progress, CancellationToken ct)
@@ -66,14 +67,20 @@ public sealed class ClassifyingSyncCycle
         return syncReport;
     }
 
-    // Fulfils "error in the log" of the classifier: the service only shows the type name in the account's status.
+    // Fulfils "error in the log" of the classifier: the service only shows the type name in the account's status. Only a
+    // cancellation of this cycle's token is a stop, like in the service; any other one is a failure, e.g. a timeout while
+    // getting a token.
     private async Task<ClassificationPassReport> ClassifyAsync(Guid accountId, CancellationToken ct)
     {
         try
         {
             return await classify(accountId, ct).ConfigureAwait(false);
         }
-        catch (Exception exception) when (exception is not (OperationCanceledException or OutOfMemoryException))
+        catch (OperationCanceledException) when (ct.IsCancellationRequested)
+        {
+            throw;
+        }
+        catch (Exception exception) when (exception is not OutOfMemoryException)
         {
             log.Write(CriticalLogLevel.Critical, RunSource, $"Classification pass failed: {exception.GetType().Name}");
             throw;
