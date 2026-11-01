@@ -206,7 +206,7 @@ public sealed class ClassificationPassDecisionTests
 
         ClassificationPassReport report = await harness.CreatePass(ClassificationHarness.Act, eml: throwing).RunAsync(harness.Account.Id);
 
-        foreach (MailMessage failed in new[] { missingFile, noPath, garbage, noFrom, unreadable, denied, noDomain })
+        foreach (MailMessage failed in new[] { missingFile, noPath, garbage, unreadable, denied })
         {
             ClassificationLogEntry entry = await harness.RequireEntryAsync(failed);
             Assert.Equal(ClassificationOutcome.ReadFailed, entry.Outcome);
@@ -222,9 +222,18 @@ public sealed class ClassificationPassDecisionTests
         Assert.Equal(ClassificationOutcome.Enqueued, (await harness.RequireEntryAsync(certain)).Outcome);
         IReadOnlyList<MailCommand> commands = await harness.CommandsAsync();
         Assert.Equal(2, commands.Count);
-        Assert.Equal(new uint[] { 18 }, CommandAssert.SingleMoveTo(commands, harness.Screener!).Uids);
+        // G7: readable mails without one usable sender (14, 17) are not read failures; from the Inbox they go to the Screener.
+        Assert.Equal(new uint[] { 14, 17, 18 }, CommandAssert.SingleMoveTo(commands, harness.Screener!).Uids);
+        foreach (MailMessage senderless in new[] { noFrom, noDomain })
+        {
+            ClassificationLogEntry entry = await harness.RequireEntryAsync(senderless);
+            Assert.Equal(ClassificationOutcome.Enqueued, entry.Outcome);
+            Assert.Equal(ClassificationAction.MoveToScreener, entry.PlannedAction);
+            Assert.Null(entry.Tier);
+        }
+
         Assert.Equal(new uint[] { 19 }, CommandAssert.SingleMoveTo(commands, harness.Quarantine!).Uids);
-        Assert.Equal(7, report.ReadFailed);
+        Assert.Equal(5, report.ReadFailed);
         Assert.Equal(2, report.Classified);
         Assert.Equal(19u, (await harness.MarkerAsync(harness.Inbox))!.ClassifiedUpToUid);
         string stored = await harness.DumpClassificationTablesAsync();

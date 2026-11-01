@@ -86,3 +86,36 @@ nötig, keine Kopierregeln). Erwartete Stufen über echte Signale: Trusted (Kont
     `ClassificationPolicy.Validate` für undefinierte `Mode`-Werte (nicht im Vertrag).
 11. **Build nicht geprüft:** In diesem Schritt kein Build. Mögliche Reibungspunkte in verify.1: Namespace von `ClassificationPass*`/`ClassificationInputReader`
     (angenommen `MailWarden.Infrastructure.Classification`), Collection-Expression-Inferenz in `Assert.Equal([..], array)`.
+
+## author.1 (Decisions fix.2, G1-G14) - ungelaufen
+
+| Fall | Test |
+|---|---|
+| 34 | `ClassificationPassFix2Tests.Folder_without_sync_state_is_skipped_then_baselined_then_classified`, `Only_the_folder_without_sync_state_is_skipped` |
+| 35 | `Uid_validity_reset_with_partial_reload_classifies_nothing` |
+| 36 | Core `MessageKeyTests` (m:/h: mit Received, gleiche/andere Received, null = leer); Whitespace im Pass: `Received_with_different_whitespace_gives_the_same_key` |
+| 37 | `Campaign_with_a_reused_message_id_and_different_received...` |
+| 38 | `Mail_moved_back_by_hand_with_the_same_received_is_skipped`, `Mails_without_received_are_still_recognised_by_message_id` |
+| 39 | `Quarantine_mail_with_a_reused_message_id_but_another_received_is_never_deleted` (Positivkontrolle: Kopie mit der entschiedenen Received wird geloescht) |
+| 40 | `ClassificationMessageReaderTests` (roher Header mit Encoded Word, Kontakt nicht Trusted, Positivkontrolle echtes `dmarc=pass` = Trusted, Received roh), Pass: `Forged_dmarc_pass_in_an_encoded_word_does_not_rescue_a_junk_mail` (mit echter Trusted-Mail daneben) |
+| 41 | `ClassificationMessageReaderTests` (normal mit Normalisierung, Garbage, kein From, kein Received, `IOException` propagiert, `ReadAsync`-Wrapper) |
+| 42 | `Senderless_*` (zwei From / leere Gruppe; Inbox Act = Enqueued/Screener, RecordOnly = Recorded, Junk = NoAction, TargetMissing, Garbage bleibt ReadFailed) |
+| 43 | `Due_mail_with_a_pending_delete...`, `Only_the_newly_due_mail...`, `Due_mail_with_a_failed_delete...` (Fake `FailedStatusQueue`) |
+| 44 | `Rejected_delete_is_counted_as_rejected...` (+ Positivkontrolle) |
+| 45 | Core `ClassificationRoutingTests.Route_with_an_undefined_tier_throws` |
+| 46 | `More_than_10000_links_are_capped...` (+ Kontrolle unter der Grenze) |
+
+Angepasst: `ClassificationHarness` (Sync-State fuer Inbox/Junk standardmaessig, `KeyAsync` liest Received aus der EML, `MarkSyncedAsync`,
+`withSyncState`), `ClassificationTestEml` (`received`-Parameter), `MessageKeyTests` (Signatur `For(message, topReceived)`),
+Fall 22 (Test `Unreadable_mails_...`: Mails ohne brauchbares From sind nach G7 nicht mehr `ReadFailed`, sondern Screener; `ReadFailed` = 5).
+`Garbage_bytes_give_null` unveraendert.
+
+Fragen an den Planer:
+1. **Whitespace-Normalisierung (Fall 36):** nicht auf `MessageKey.For` getestet (es bekommt den schon normalisierten Wert), nur ueber die Pass.
+   Falls `For` selbst normalisieren soll, bitte sagen.
+2. Hash-Eingabe ohne Received: getestet als `Message-ID + "\n" + ""` bzw. `from\ndate\nsubject\n` (null = leer, gleicher Schluessel).
+3. `ReadMessageAsync` bei Garbage: `TopReceived` null oder leer akzeptiert, `Input` null.
+4. Fall 42 "leere Gruppe" als `From: undisclosed-recipients:;`; Erwartung `Override` exakt "Message has no single usable sender", Score 0.
+5. Fall 43 "Befehl fehlgeschlagen": mit einem Dekorator getestet, der alle Befehle als `Failed` listet (kein echter Executor).
+6. G12/G13 (Subscribe, Provisioner-Verhalten) und G14 (Probe) sind ohne Fake-IMAP nicht unit-testbar; `TierCounts` mit allen vier Stufen
+   und `ContactCount` ohne eigene Adresse in der Tabelle sind nicht zusaetzlich getestet (Fall 30 prueft `TryGetValue` je Stufe).

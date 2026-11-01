@@ -442,7 +442,7 @@ public sealed class ClassificationPassRoutingTests
         {
             MailMessage message = await harness.AddRawAsync(harness.Quarantine!, uid, null, $"<old_{uid}@example.test>");
             entries.Add(new ClassificationLogEntry(
-                harness.Account.Id, MessageKey.For(message), harness.Inbox.Id, uid,
+                harness.Account.Id, MessageKey.For(message, null), harness.Inbox.Id, uid,
                 harness.Clock.GetUtcNow() - TimeSpan.FromDays(100), ClassificationMode.Act, ClassificationOutcome.Enqueued,
                 ClassificationAction.MoveToQuarantine, SpamTier.CertainSpam, 110, AuthStatus.Failed, null,
                 [new SignalResult("authentication", 50, "Seeded reason.")]));

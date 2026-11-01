@@ -35,6 +35,7 @@ internal sealed class ClassificationHarness : IAsyncDisposable
         Queue = new SqliteMailCommandQueue(storage.Database, Clock);
         Contacts = new SqliteContactStore(storage.Database);
         Log = new SqliteClassificationLog(storage.Database);
+        SyncStates = new SqliteFolderSyncStateStore(storage.Database);
         Provisioner = new FakeFolderProvisioner(storage.Folders);
     }
 
@@ -52,6 +53,8 @@ internal sealed class ClassificationHarness : IAsyncDisposable
 
     public SqliteClassificationLog Log { get; }
 
+    public SqliteFolderSyncStateStore SyncStates { get; }
+
     public FakeFolderProvisioner Provisioner { get; }
 
     public MailFolder Inbox { get; private set; } = null!;
@@ -67,7 +70,8 @@ internal sealed class ClassificationHarness : IAsyncDisposable
         bool withJunk = true,
         bool withScreener = true,
         bool withQuarantine = true,
-        bool withContact = true)
+        bool withContact = true,
+        bool withSyncState = true)
     {
         StorageFixture storage = await StorageFixture.CreateAsync();
         var temp = new TempDirectory();
@@ -97,7 +101,33 @@ internal sealed class ClassificationHarness : IAsyncDisposable
             await harness.AddContactAsync(ClassificationTestEml.ContactAddress);
         }
 
+        if (withSyncState)
+        {
+            await harness.MarkSyncedAsync(harness.Inbox);
+            if (harness.Junk is not null)
+            {
+                await harness.MarkSyncedAsync(harness.Junk);
+            }
+        }
+
         return harness;
+    }
+
+    /// <summary>Stores a completed sync state for the folder (the pass classifies only such folders).</summary>
+    public Task MarkSyncedAsync(MailFolder folder) =>
+        SyncStates.SaveAsync(new FolderSyncState(folder.Id, 0, 0, Clock.GetUtcNow()));
+
+    /// <summary>Message key as the pass builds it: the top-most Received of the stored EML (none when unreadable).</summary>
+    public async Task<string> KeyAsync(MailMessage message)
+    {
+        string? received = null;
+        if (message.EmlPath is not null && Eml.Exists(message.EmlPath))
+        {
+            await using Stream stream = await Eml.OpenReadAsync(message.EmlPath);
+            received = (await ClassificationInputReader.ReadMessageAsync(stream)).TopReceived;
+        }
+
+        return MessageKey.For(message, received);
     }
 
     public Task<Contact> AddContactAsync(string address) =>
@@ -114,6 +144,7 @@ internal sealed class ClassificationHarness : IAsyncDisposable
         new(
             Storage.Accounts,
             Storage.Folders,
+            SyncStates,
             Storage.Messages,
             eml ?? Eml,
             Contacts,
@@ -133,8 +164,9 @@ internal sealed class ClassificationHarness : IAsyncDisposable
         uint uid,
         MailKind kind,
         string? messageId = null,
-        DateTimeOffset? date = null) =>
-        AddRawAsync(folder, uid, ClassificationTestEml.For(kind), messageId ?? $"<{kind}_{folder.Id}_{uid}@example.test>", date);
+        DateTimeOffset? date = null,
+        string? received = null) =>
+        AddRawAsync(folder, uid, ClassificationTestEml.For(kind, received), messageId ?? $"<{kind}_{folder.Id}_{uid}@example.test>", date);
 
     /// <summary>
     /// Stores a message row. With <paramref name="eml"/> the file is written to the standard path (or to
@@ -189,8 +221,8 @@ internal sealed class ClassificationHarness : IAsyncDisposable
 
     public Task<IReadOnlyList<MailCommand>> CommandsAsync() => Queue.ListAsync(Account.Id);
 
-    public Task<ClassificationLogEntry?> EntryAsync(MailMessage message) =>
-        Log.GetAsync(Account.Id, MessageKey.For(message));
+    public async Task<ClassificationLogEntry?> EntryAsync(MailMessage message) =>
+        await Log.GetAsync(Account.Id, await KeyAsync(message));
 
     public async Task<ClassificationLogEntry> RequireEntryAsync(MailMessage message) =>
         await EntryAsync(message) ?? throw new Xunit.Sdk.XunitException($"No log entry for uid {message.Uid}.");
@@ -206,7 +238,7 @@ internal sealed class ClassificationHarness : IAsyncDisposable
     {
         var entry = new ClassificationLogEntry(
             Account.Id,
-            MessageKey.For(message),
+            await KeyAsync(message),
             Inbox.Id,
             message.Uid,
             classifiedAt,

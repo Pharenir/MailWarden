@@ -43,12 +43,12 @@ internal static class ClassificationTestEml
         "dkim=fail header.d=qzxkvb73.top";
 
     /// <summary>Raw message for a fixture kind.</summary>
-    public static byte[] For(MailKind kind) => kind switch
+    public static byte[] For(MailKind kind, string? received = null) => kind switch
     {
-        MailKind.Trusted => Build("Sender A <" + ContactAddress + ">", [PassHeader], PlausibleBody),
-        MailKind.Legit => Build("Sender A <stranger_a@" + PlausibleDomain + ">", [PassHeader], PlausibleBody),
-        MailKind.LikelySpam => Build("Sender A <stranger_b@" + PlausibleDomain + ">", [PartialFailHeader], PlausibleBody),
-        MailKind.CertainSpam => Build("Offer <offer@qzxkvb73.top>", [AllFailHeader], "Claim your prize now."),
+        MailKind.Trusted => Build("Sender A <" + ContactAddress + ">", [PassHeader], PlausibleBody, received: received),
+        MailKind.Legit => Build("Sender A <stranger_a@" + PlausibleDomain + ">", [PassHeader], PlausibleBody, received: received),
+        MailKind.LikelySpam => Build("Sender A <stranger_b@" + PlausibleDomain + ">", [PartialFailHeader], PlausibleBody, received: received),
+        MailKind.CertainSpam => Build("Offer <offer@qzxkvb73.top>", [AllFailHeader], "Claim your prize now.", received: received),
         _ => throw new ArgumentOutOfRangeException(nameof(kind), kind, "Unknown mail kind."),
     };
 
@@ -63,9 +63,15 @@ internal static class ClassificationTestEml
         string? replyTo = null,
         string subject = "sample_subject",
         string? date = DateHeader,
-        string? messageId = "<msg_default@example.test>")
+        string? messageId = "<msg_default@example.test>",
+        string? received = null)
     {
         var builder = new StringBuilder();
+        if (received is not null)
+        {
+            builder.Append("Received: ").Append(received).Append("\r\n");
+        }
+
         builder.Append("MIME-Version: 1.0\r\n");
         foreach (string header in authenticationResults)
         {
