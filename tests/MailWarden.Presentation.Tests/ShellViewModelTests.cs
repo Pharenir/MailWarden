@@ -220,14 +220,15 @@ public sealed class ShellViewModelTests
     [Fact(Timeout = TestTimeouts.PerTestMilliseconds)]
     public async Task Stored_settings_are_applied_after_initialisation()
     {
-        var harness = new ShellHarness(new UiSettings(ReadingPaneLayout.ListAbove, AppTheme.Dark, 300, 500));
+        var harness = new ShellHarness(new UiSettings(ReadingPaneLayout.ListAbove, AppTheme.Dark, 300, 500, 350));
 
         await harness.Shell.InitializeAsync();
 
         Assert.Equal(ReadingPaneLayout.ListAbove, harness.Shell.Layout);
         Assert.Equal(AppTheme.Dark, harness.Shell.Theme);
         Assert.Equal(300d, harness.Shell.NavigationWidth);
-        Assert.Equal(500d, harness.Shell.ListSize);
+        Assert.Equal(500d, harness.Shell.ListWidth);
+        Assert.Equal(350d, harness.Shell.ListHeight);
     }
 
     // Case 40
@@ -248,7 +249,7 @@ public sealed class ShellViewModelTests
         Assert.Equal(ReadingPaneLayout.ListAbove, harness.Shell.Layout);
         Assert.Equal(AppTheme.Dark, harness.Shell.Theme);
         UiSettings saved = harness.Settings.Saved.Last();
-        Assert.Equal(new UiSettings(ReadingPaneLayout.ListAbove, AppTheme.Dark, UiSettings.Default.NavigationWidth, UiSettings.Default.ListSize), saved);
+        Assert.Equal(new UiSettings(ReadingPaneLayout.ListAbove, AppTheme.Dark, UiSettings.Default.NavigationWidth, UiSettings.Default.ListWidth, UiSettings.Default.ListHeight), saved);
         Assert.Null(harness.Shell.Banner);
     }
 
@@ -260,16 +261,39 @@ public sealed class ShellViewModelTests
         await harness.Shell.InitializeAsync();
 
         harness.Shell.NavigationWidth = 321;
-        harness.Shell.ListSize = 654;
+        harness.Shell.ListWidth = 654;
+        harness.Shell.ListHeight = 222;
 
         Assert.Equal(321d, harness.Shell.NavigationWidth);
-        Assert.Equal(654d, harness.Shell.ListSize);
-        Assert.Equal(321d, harness.Settings.Saved.First(settings => settings.NavigationWidth == 321).NavigationWidth);
+        Assert.Equal(654d, harness.Shell.ListWidth);
+        Assert.Equal(222d, harness.Shell.ListHeight);
         UiSettings last = harness.Settings.Saved.Last();
         Assert.Equal(321d, last.NavigationWidth);
-        Assert.Equal(654d, last.ListSize);
+        Assert.Equal(654d, last.ListWidth);
+        Assert.Equal(222d, last.ListHeight);
     }
 
+    // Case 55 (K9): each layout keeps its own list size; changing one does not touch the other.
+    [Fact(Timeout = TestTimeouts.PerTestMilliseconds)]
+    public async Task List_width_and_list_height_are_saved_independently_and_raise_property_changed()
+    {
+        var harness = new ShellHarness();
+        await harness.Shell.InitializeAsync();
+        List<string?> changed = [];
+        ((INotifyPropertyChanged)harness.Shell).PropertyChanged += (_, args) => changed.Add(args.PropertyName);
+
+        harness.Shell.ListWidth = 600;
+        UiSettings afterWidth = harness.Settings.Saved.Last();
+        harness.Shell.ListHeight = 250;
+        UiSettings afterHeight = harness.Settings.Saved.Last();
+
+        Assert.Equal(600d, afterWidth.ListWidth);
+        Assert.Equal(UiSettings.Default.ListHeight, afterWidth.ListHeight);
+        Assert.Equal(600d, afterHeight.ListWidth);
+        Assert.Equal(250d, afterHeight.ListHeight);
+        Assert.Contains(nameof(ShellViewModel.ListWidth), changed);
+        Assert.Contains(nameof(ShellViewModel.ListHeight), changed);
+    }
     // Case 40
     [Fact(Timeout = TestTimeouts.PerTestMilliseconds)]
     public async Task Toggle_layout_command_switches_between_the_two_layouts_and_saves_each_time()
@@ -330,7 +354,8 @@ public sealed class ShellViewModelTests
         Assert.Equal(UiSettings.Default.Layout, shell.Layout);
         Assert.Equal(UiSettings.Default.Theme, shell.Theme);
         Assert.Equal(UiSettings.Default.NavigationWidth, shell.NavigationWidth);
-        Assert.Equal(UiSettings.Default.ListSize, shell.ListSize);
+        Assert.Equal(UiSettings.Default.ListWidth, shell.ListWidth);
+        Assert.Equal(UiSettings.Default.ListHeight, shell.ListHeight);
         Assert.False(string.IsNullOrWhiteSpace(shell.Banner));
         Assert.Equal(7, shell.Navigation.Items.Count);
     }
@@ -432,4 +457,161 @@ public sealed class ShellViewModelTests
         (string Kind, Guid AccountId) call = Assert.Single(harness.Controller.Calls);
         Assert.Equal(("Trigger", account.Id), call);
     }
-}
+
+    // ---- Case 62 (K15) -------------------------------------------------------------------------------------
+
+    // Case 62
+    [Theory(Timeout = TestTimeouts.PerTestMilliseconds)]
+    [InlineData(AccountSyncState.WaitingAfterError)]
+    [InlineData(AccountSyncState.NeedsSignIn)]
+    public async Task Transition_to_an_error_or_sign_in_state_reloads_once(AccountSyncState target)
+    {
+        (ShellHarness harness, Account account, MailFolder inbox) = await InitializedAsync();
+        await harness.Controller.RaiseOnPoolAsync(FakeMailboxController.Status(account.Id, AccountSyncState.Running));
+        await Wait.NegativeWindowAsync();
+        int listCalls = harness.ReadModel.ListMessagesCalls;
+        int countCalls = harness.ReadModel.CountUnreadCalls;
+        harness.ReadModel.AddMessage(inbox, "stored_by_the_interrupted_pass");
+
+        await harness.Controller.RaiseOnPoolAsync(FakeMailboxController.Status(account.Id, target, lastErrorType: "MailTransportException(Network)"));
+
+        await Wait.UntilAsync(() => harness.Shell.Messages.Items.Count == 4, "list reloaded");
+        await Wait.UntilAsync(() => harness.Shell.Navigation.Items[0].UnreadCount == 4, "navigation reloaded");
+        await Wait.NegativeWindowAsync();
+        Assert.Equal(listCalls + 1, harness.ReadModel.ListMessagesCalls);
+        Assert.True(harness.ReadModel.CountUnreadCalls > countCalls);
+        Assert.Empty(harness.Log.Entries);
+    }
+
+    // Case 62: a burst of such transitions during a running reload coalesces into one more reload.
+    [Fact(Timeout = TestTimeouts.PerTestMilliseconds)]
+    public async Task Burst_of_error_and_sign_in_transitions_coalesces_into_one_more_reload()
+    {
+        (ShellHarness harness, Account account, _) = await InitializedAsync();
+        int baseline = harness.ReadModel.ListMessagesCalls;
+        var releaseFirst = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        harness.ReadModel.ListGate = (_, callNumber) => callNumber == baseline + 1 ? releaseFirst.Task : Task.CompletedTask;
+
+        await harness.Controller.RaiseOnPoolAsync(FakeMailboxController.Status(account.Id, AccountSyncState.Running));
+        await harness.Controller.RaiseOnPoolAsync(FakeMailboxController.Status(account.Id, AccountSyncState.WaitingAfterError));
+        await Wait.UntilAsync(() => harness.ReadModel.ListMessagesCalls == baseline + 1, "first reload started and is blocked");
+        for (int round = 0; round < 3; round++)
+        {
+            await harness.Controller.RaiseOnPoolAsync(FakeMailboxController.Status(account.Id, AccountSyncState.Running));
+            await harness.Controller.RaiseOnPoolAsync(FakeMailboxController.Status(account.Id, AccountSyncState.NeedsSignIn));
+            await harness.Controller.RaiseOnPoolAsync(FakeMailboxController.Status(account.Id, AccountSyncState.Running));
+            await harness.Controller.RaiseOnPoolAsync(FakeMailboxController.Status(account.Id, AccountSyncState.WaitingAfterError));
+        }
+
+        await Wait.NegativeWindowAsync();
+        Assert.Equal(baseline + 1, harness.ReadModel.ListMessagesCalls);
+
+        releaseFirst.SetResult();
+        await Wait.UntilAsync(() => harness.ReadModel.ListMessagesCalls >= baseline + 2, "one more reload ran");
+        await Wait.NegativeWindowAsync();
+        await Wait.NegativeWindowAsync();
+
+        Assert.Equal(baseline + 2, harness.ReadModel.ListMessagesCalls);
+        Assert.Empty(harness.Log.Entries);
+    }
+
+    // Case 62 positive control: a progress-only update in Running still does not reload.
+    [Fact(Timeout = TestTimeouts.PerTestMilliseconds)]
+    public async Task Staying_in_the_error_state_does_not_reload_again_without_a_transition_back()
+    {
+        (ShellHarness harness, Account account, _) = await InitializedAsync();
+        await harness.Controller.RaiseOnPoolAsync(FakeMailboxController.Status(account.Id, AccountSyncState.Running));
+        await harness.Controller.RaiseOnPoolAsync(FakeMailboxController.Status(account.Id, AccountSyncState.WaitingAfterError));
+        await Wait.NegativeWindowAsync();
+        int listCalls = harness.ReadModel.ListMessagesCalls;
+
+        await harness.Controller.RaiseOnPoolAsync(FakeMailboxController.Status(account.Id, AccountSyncState.WaitingAfterError, lastErrorType: "MailTransportException(Network)"));
+        await Wait.NegativeWindowAsync();
+
+        Assert.Equal(listCalls, harness.ReadModel.ListMessagesCalls);
+    }
+
+    // ---- Case 63 (K4) --------------------------------------------------------------------------------------
+
+    // Case 63
+    [Fact(Timeout = TestTimeouts.PerTestMilliseconds)]
+    public async Task Dispose_during_a_slow_reload_makes_no_further_read_model_call_and_logs_nothing()
+    {
+        (ShellHarness harness, Account account, _) = await InitializedAsync();
+        int baseline = harness.ReadModel.ListMessagesCalls;
+        var releaseFirst = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        harness.ReadModel.ListGate = (_, callNumber) => callNumber == baseline + 1 ? releaseFirst.Task : Task.CompletedTask;
+        await harness.Controller.RaiseOnPoolAsync(FakeMailboxController.Status(account.Id, AccountSyncState.Running));
+        await harness.Controller.RaiseOnPoolAsync(FakeMailboxController.Status(account.Id, AccountSyncState.Idle));
+        await Wait.UntilAsync(() => harness.ReadModel.ListMessagesCalls == baseline + 1, "reload started and is blocked");
+        await harness.Controller.RaiseOnPoolAsync(FakeMailboxController.Status(account.Id, AccountSyncState.Running));
+        await harness.Controller.RaiseOnPoolAsync(FakeMailboxController.Status(account.Id, AccountSyncState.Idle));
+
+        harness.Shell.Dispose();
+        releaseFirst.SetResult();
+        await Wait.NegativeWindowAsync();
+        await Wait.NegativeWindowAsync();
+        int accountCalls = harness.ReadModel.ListAccountsCalls;
+        int countCalls = harness.ReadModel.CountUnreadCalls;
+        int readCalls = harness.ReadModel.ReadCalls;
+        await Wait.NegativeWindowAsync();
+
+        Assert.Equal(baseline + 1, harness.ReadModel.ListMessagesCalls);
+        Assert.Equal(accountCalls, harness.ReadModel.ListAccountsCalls);
+        Assert.Equal(countCalls, harness.ReadModel.CountUnreadCalls);
+        Assert.Equal(readCalls, harness.ReadModel.ReadCalls);
+        Assert.Empty(harness.Log.Entries);
+    }
+
+    // Case 63: after Dispose, status events and settings changes are ignored without an exception or a log line.
+    [Fact(Timeout = TestTimeouts.PerTestMilliseconds)]
+    public async Task Events_after_dispose_are_ignored()
+    {
+        (ShellHarness harness, Account account, _) = await InitializedAsync();
+        harness.Shell.Dispose();
+        int listCalls = harness.ReadModel.ListMessagesCalls;
+        int countCalls = harness.ReadModel.CountUnreadCalls;
+
+        Exception? failure = await Record.ExceptionAsync(async () =>
+        {
+            await harness.Controller.RaiseOnPoolAsync(FakeMailboxController.Status(account.Id, AccountSyncState.Running));
+            await harness.Controller.RaiseOnPoolAsync(FakeMailboxController.Status(account.Id, AccountSyncState.Idle));
+        });
+        await Wait.NegativeWindowAsync();
+
+        Assert.Null(failure);
+        Assert.Equal(listCalls, harness.ReadModel.ListMessagesCalls);
+        Assert.Equal(countCalls, harness.ReadModel.CountUnreadCalls);
+        Assert.Empty(harness.Log.Entries);
+    }
+
+    // Case 63: Dispose is idempotent.
+    [Fact(Timeout = TestTimeouts.PerTestMilliseconds)]
+    public async Task Dispose_twice_is_fine()
+    {
+        (ShellHarness harness, _, _) = await InitializedAsync();
+
+        harness.Shell.Dispose();
+        Exception? failure = Record.Exception(harness.Shell.Dispose);
+
+        Assert.Null(failure);
+    }
+
+    // Case 63 positive control: a shell that is not disposed keeps reloading (the guard above is not vacuous).
+    [Fact(Timeout = TestTimeouts.PerTestMilliseconds)]
+    public async Task Without_dispose_the_pending_second_reload_does_run()
+    {
+        (ShellHarness harness, Account account, _) = await InitializedAsync();
+        int baseline = harness.ReadModel.ListMessagesCalls;
+        var releaseFirst = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        harness.ReadModel.ListGate = (_, callNumber) => callNumber == baseline + 1 ? releaseFirst.Task : Task.CompletedTask;
+        await harness.Controller.RaiseOnPoolAsync(FakeMailboxController.Status(account.Id, AccountSyncState.Running));
+        await harness.Controller.RaiseOnPoolAsync(FakeMailboxController.Status(account.Id, AccountSyncState.Idle));
+        await Wait.UntilAsync(() => harness.ReadModel.ListMessagesCalls == baseline + 1, "reload started and is blocked");
+        await harness.Controller.RaiseOnPoolAsync(FakeMailboxController.Status(account.Id, AccountSyncState.Running));
+        await harness.Controller.RaiseOnPoolAsync(FakeMailboxController.Status(account.Id, AccountSyncState.Idle));
+
+        releaseFirst.SetResult();
+
+        await Wait.UntilAsync(() => harness.ReadModel.ListMessagesCalls >= baseline + 2, "second reload ran");
+    }}
