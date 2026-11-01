@@ -38,6 +38,9 @@ public sealed class ShellViewModel : ObservableObject, IDisposable
     // Last known state per account; a failed cycle reloads only when the state changes.
     private readonly Dictionary<Guid, AccountSyncState> lastStates = [];
 
+    // Last classification summary per known account; touched on the UI thread only.
+    private readonly Dictionary<Guid, ClassificationPassSummary> lastSummaries = [];
+
     /// <summary>Creates the shell and loads the settings. Nothing else runs before <see cref="InitializeAsync"/>.</summary>
     /// <param name="readModel">Read access to the stored mail.</param>
     /// <param name="controller">The background service.</param>
@@ -177,6 +180,7 @@ public sealed class ShellViewModel : ObservableObject, IDisposable
         if (!isSubscribed)
         {
             controller.StatusChanged += OnStatusChanged;
+            controller.ClassificationPassCompleted += OnClassificationPassCompleted;
             isSubscribed = true;
         }
 
@@ -194,6 +198,7 @@ public sealed class ShellViewModel : ObservableObject, IDisposable
         if (isSubscribed)
         {
             controller.StatusChanged -= OnStatusChanged;
+            controller.ClassificationPassCompleted -= OnClassificationPassCompleted;
             isSubscribed = false;
         }
 
@@ -338,6 +343,72 @@ public sealed class ShellViewModel : ObservableObject, IDisposable
     private void WriteHandlerFailure(Exception exception)
     {
         log.Write(CriticalLogLevel.Critical, "ShellViewModel.OnStatusChanged", $"Handling a status change failed: {exception.GetType().Name}");
+    }
+
+    // Raised on the thread of the account's cycle; same rules as OnStatusChanged.
+    private void OnClassificationPassCompleted(object? sender, ClassificationPassSummary summary)
+    {
+        try
+        {
+            dispatcher.Post(() => ApplyClassificationSummary(summary));
+        }
+        catch (Exception exception) when (exception is not OutOfMemoryException)
+        {
+            WriteSummaryHandlerFailure(exception);
+        }
+    }
+
+    // On the UI thread. An account the navigation does not show is ignored, like its status.
+    private void ApplyClassificationSummary(ClassificationPassSummary summary)
+    {
+        try
+        {
+            if (!isSubscribed || !Navigation.AccountIds.Contains(summary.AccountId))
+            {
+                return;
+            }
+
+            lastSummaries[summary.AccountId] = summary;
+            UpdateClassificationBanner();
+        }
+        catch (Exception exception) when (exception is not OutOfMemoryException)
+        {
+            WriteSummaryHandlerFailure(exception);
+        }
+    }
+
+    // Each account counts with its last pass only, so that a clean pass takes its own problems back. A summary of an
+    // account that has left the navigation no longer counts.
+    private void UpdateClassificationBanner()
+    {
+        List<ClassificationPassSummary> summaries =
+            [.. lastSummaries.Values.Where(summary => Navigation.AccountIds.Contains(summary.AccountId))];
+        int evaluationFailed = summaries.Sum(summary => summary.EvaluationFailed);
+        int brakeHeld = summaries.Sum(summary => summary.BrakeHeld);
+
+        if (evaluationFailed > 0 || brakeHeld > 0)
+        {
+            banner.Set(ShellBanner.BannerSource.Classification, UiText.BannerClassificationProblems(evaluationFailed, brakeHeld));
+        }
+        else
+        {
+            banner.Clear(ShellBanner.BannerSource.Classification);
+        }
+
+        // Only true in Act: while the mode is RecordOnly this never shows.
+        if (summaries.Any(summary => summary.ActSuspendedNoContacts))
+        {
+            banner.Set(ShellBanner.BannerSource.ClassificationWaiting, UiText.BannerClassificationWaiting);
+        }
+        else
+        {
+            banner.Clear(ShellBanner.BannerSource.ClassificationWaiting);
+        }
+    }
+
+    private void WriteSummaryHandlerFailure(Exception exception)
+    {
+        log.Write(CriticalLogLevel.Critical, "ShellViewModel.OnClassificationPassCompleted", $"Handling a classification summary failed: {exception.GetType().Name}");
     }
 
     private void RequestReload()

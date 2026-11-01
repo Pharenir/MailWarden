@@ -28,6 +28,12 @@ internal sealed class ShellBanner
 
         /// <summary>The message list could not be loaded.</summary>
         MessageList,
+
+        /// <summary>The last classification passes have mail that could not be evaluated or that the brake held.</summary>
+        Classification,
+
+        /// <summary>The filter waits for the address book.</summary>
+        ClassificationWaiting,
     }
 
     /// <summary>All current texts joined, or null when nothing is to report.</summary>

@@ -1,4 +1,5 @@
 using MailWarden.Infrastructure.Background;
+using MailWarden.Infrastructure.Composition;
 
 namespace MailWarden.Presentation;
 
@@ -10,6 +11,9 @@ public interface IMailboxController
 {
     /// <summary>Raised on a thread-pool thread whenever the status of an account changes.</summary>
     event EventHandler<AccountSyncStatus>? StatusChanged;
+
+    /// <summary>Raised on a thread-pool thread after every successful classification pass; counts only.</summary>
+    event EventHandler<ClassificationPassSummary>? ClassificationPassCompleted;
 
     /// <summary>Snapshot of the status of every account the service has run.</summary>
     IReadOnlyList<AccountSyncStatus> CurrentStatus { get; }
@@ -24,26 +28,34 @@ public interface IMailboxController
 }
 
 /// <summary>
-/// <see cref="IMailboxController"/> as a thin adapter over the <see cref="MailboxService"/>.
+/// <see cref="IMailboxController"/> as a thin adapter over the <see cref="MailboxService"/> and the classification events of
+/// the <see cref="MailWardenRuntime"/>.
 /// </summary>
-/// <param name="service">The background service.</param>
-public sealed class MailboxServiceController(MailboxService service) : IMailboxController
+/// <param name="runtime">The opened runtime with the background service.</param>
+public sealed class MailboxServiceController(MailWardenRuntime runtime) : IMailboxController
 {
-    private readonly MailboxService service = service ?? throw new ArgumentNullException(nameof(service));
+    private readonly MailWardenRuntime runtime = runtime ?? throw new ArgumentNullException(nameof(runtime));
 
     /// <inheritdoc />
     public event EventHandler<AccountSyncStatus>? StatusChanged
     {
-        add => service.StatusChanged += value;
-        remove => service.StatusChanged -= value;
+        add => runtime.Service.StatusChanged += value;
+        remove => runtime.Service.StatusChanged -= value;
     }
 
     /// <inheritdoc />
-    public IReadOnlyList<AccountSyncStatus> CurrentStatus => service.CurrentStatus;
+    public event EventHandler<ClassificationPassSummary>? ClassificationPassCompleted
+    {
+        add => runtime.ClassificationPassCompleted += value;
+        remove => runtime.ClassificationPassCompleted -= value;
+    }
 
     /// <inheritdoc />
-    public void TriggerAccount(Guid accountId) => service.TriggerAccount(accountId);
+    public IReadOnlyList<AccountSyncStatus> CurrentStatus => runtime.Service.CurrentStatus;
 
     /// <inheritdoc />
-    public void RetryAccount(Guid accountId) => service.RetryAccount(accountId);
+    public void TriggerAccount(Guid accountId) => runtime.Service.TriggerAccount(accountId);
+
+    /// <inheritdoc />
+    public void RetryAccount(Guid accountId) => runtime.Service.RetryAccount(accountId);
 }
