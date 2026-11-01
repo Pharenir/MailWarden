@@ -35,7 +35,7 @@ Nothing of the contract was left out or changed in signature. Additions and inte
 | `Presentation\UiSettingsFile.cs` `Save` | throws `UiSettingsException` for a size out of range | such a file would not load again |
 | `Presentation\ShellViewModel.cs:285` | every `Idle` status without progress reloads, also Idle after Idle | the service raises Idle only at the end of a successful cycle, so this equals "transition to Idle" in production; a burst still coalesces to one more reload |
 | `Presentation\ShellViewModel.cs:217` | Refresh iterates the accounts of the navigation, not `CurrentStatus` | TODO "status filter against the account list"; needs `InitializeAsync` first; an account without status gets a trigger |
-| `Presentation\ReadingPaneViewModel.cs:345` | `LoadRemoteImagesCommand` builds synchronously on the UI thread | `ICommand.Execute` cannot report completion; worst case see the limits below |
+| `Presentation\ReadingPaneViewModel.cs` | superseded by K6: `LoadRemoteImagesCommand` builds off the UI thread | see section fix.2 |
 | `Presentation\FolderTree.cs:21` | at most 32 levels; the rest stays in the last name | names come from the server, later walks are recursive |
 | `Infrastructure\Mime\MailContentReader.cs:15` | "5 MB" and "25 MB" are binary (5 × 1024 × 1024) | contract does not say; exactly at the limit is allowed |
 | `Infrastructure\Mime\MailContentReader.cs:116` | "inline" means not `Content-Disposition: attachment`; an attachment part with a Content-ID is listed and its `cid:` image is removed | literal reading of D2 |
@@ -73,9 +73,10 @@ The estimate ignores void and self-closing elements and respects scope boundarie
 hide depth. Legitimate mail with more than 20,000 tags loses the markup of the rest, not its text.
 
 Measured with limits on a 1 MB stack: 5,000 / 100,000 / 1,000,000 levels of `div`, `b`, `table`: 4–135 ms, no
-overflow, text kept. Worst cases within the limits: 20,000 unknown siblings 5.3 s, 20,000 styled siblings 4.8 s,
-20,000 `span` 2.4 s. These are the only remaining long runs; `ShowAsync` runs them on the thread pool, "Bilder laden"
-on the UI thread (it then freezes that long, only for such a crafted mail).
+overflow, text kept.
+
+**Correction:** implement.1 stated "worst cases 5 s" here. secure.1 disproved that: 100,000 attributes took over 40 s,
+because these limits did not look at attributes or style declarations. Current limits and times: section fix.2.
 
 ## D4: WebView2 questions, checked against the real runtime
 Probe `_scratch\webview2-probe` (hidden window, runtime 138.0.3351.83, only `.invalid` addresses, report in
@@ -122,6 +123,101 @@ and fixed texts only. `SanitizedHtml` is produced from one DOM, not re-parsed; a
 meet CSP and filter with scripts off.
 
 ## Questions to the planner
-1. `MailHtmlSanitizer.cs:43`: `form` is "removed entirely" by D3, with its content. Some mailers wrap the whole mail body in a `form`, which would then show an empty mail. Built as the contract says. Keep it, or unwrap `form` (drop the tag, keep the text)?
-2. `MailWebViewHost.cs` `OnNavigationStarting`: D4 opens every allowed target externally. `IsUserInitiated` is available and was false for a meta refresh in the probe. Should a navigation without user gesture only be blocked? No change made, because D4 does not ask for it and I could not verify a real click in the WinUI control (a click by script also reported true).
-3. `MailContentReader.cs:116`: Should an image part with `Content-Disposition: attachment` and a Content-ID that the HTML refers to be embedded? Some mailers send it that way; now it is listed as an attachment and the image is removed.
+1. Answered by K10: `form` loses only the tag.
+2. Answered by K11: without a user gesture `OpenExternally` becomes `Block`.
+3. Answered: stays as it is.
+
+## fix.2 (K1–K16)
+All implemented on `feat/ap-04a-ui-read`, base `c7c86e2`. `Infrastructure\Mime\MimeParserDefaults.cs` is unchanged.
+Builds of `MailWarden.App` and `MailWarden.Presentation` with `-warnaserror`: 0 errors, 0 warnings. The test projects do not
+compile for now (`UiSettings`, `ListWidth`/`ListHeight`), as announced; **no test was run**.
+
+"Probe" below means a self-check under `_scratch\`, no proof. "Only built" means compiled and read, never executed: the GUI
+was not started.
+
+| K | State | Checked by probe | Only built or read |
+|---|---|---|---|
+| K1 | done: `IsOpen` and `Message` set in code-behind, also once in the constructor | the view model's `Banner` returns to null | info bar in the window |
+| K2 | done: `MimeParserDefaults.Create()` in `SyncEngine.ParseAsync` and `MailContentReader`; a search of `src` found no other `MimeMessage.Load` or `MimeParser` | reader: 1,023 nested `multipart` and `rfc822`, 5,000 and 20,000 `multipart`: no process end (`secprobe`, `secprobe2`). A body below depth 32 stays opaque: `Html` null, the message opens without its text | `SyncEngine` (case 49 of the tester); `secprobe2 sync` uses its own load call and does not cover it |
+| K3 | done: compared by message id; the control gets its selection back after the collection change | shell: reload keeps the selection | the control's behaviour |
+| K4 | done, details below | shell: `Dispose` during a slow reload: 0 further reads, 0 log lines, also when the running read then fails | `App` paths, `isClosed` of the host |
+| K5 | done: strict budget of 34,000,000, each image checked once; `OutOfMemoryException` ends in `Error` | see measurements; exactly 34,000,000 kept, 34,000,001 removed | |
+| K6 | done, see measurements and "beyond K6"; `LoadRemoteImagesCommand` off the UI thread with the generation guard | shell: a late rebuild does not overwrite the next message | |
+| K7 | done, details below | `Shorten`; 365 KB subject → 501, long name → 101 with the address kept, To → 2,001, 100,000 attachments → 51 entries, last "und 99950 weitere" | `MaxLines`, `MaxHeight`, `ScrollViewer` |
+| K8 | done with a deviation, see below | | theme choice |
+| K9 | done | settings file round trip, `ShellViewModel` saves each size | limit of 200 px for the reading pane |
+| K10 | done | form with text and input: tag and input gone, text stays | |
+| K11 | done | table for document, http, mailto, javascript | a real click must report `true` (case 45) |
+| K12 | done | `attach`, `ATTACH`, `%61ttach`, `;attach`, fragment dropped; `to`, `subject` with encoding unchanged; no parameters left → no `?`; not a mailto → unchanged | `Launcher` |
+| K13 | done | `AllowRequest`: `localhost`, `x.localhost`, `localhost.`, `127.0.0.1`, `127.1`, `2130706433`, `0x7f.0.0.1`, 10/8, 172.16/12, 192.168/16, 169.254/16, `0.0.0.0`, `[::1]`, `[::]`, `[fe80::1]`, `[fd00::1]`, `[::ffff:192.168.1.1]` false; public hosts true. Document head with referrer meta, CSP text unchanged | `DeleteAllCookies` |
+| K14 | done, `\u` escapes in the source | code points of a mixed text; U+200C and U+200D stay | |
+| K15 | done: only a change into `WaitingAfterError` or `NeedsSignIn` reloads | shell: same state again no reload, then `NeedsSignIn` one | |
+| K16 | done: `AtomicFile`, `MailDisplayText.Subject`, `NavigationViewModel.ReadStatusByAccount`, `CriticalLogLevel.Critical` (replaces `Presentation\LogLevels.cs`, deleted) | settings round trip | |
+| NITs | `HorizontalContentAlignment=Stretch` for list items, `heldLock` in the summary of `StartAsync` | | list items |
+
+Precisions of the coordinator are met: `Shorten` keeps up to `maxCharacters`, then "…" (at most `maxCharacters + 1`), exactly
+`maxCharacters` stays unchanged. `From` in the reading pane uses the limit 100. A start tag over 256 attributes is dropped
+completely, its `title` does not survive. Same K15 message again: no reload.
+
+### K4 in detail
+- `ShellViewModel.Dispose` closes navigation, list and reading pane. A running load gets cancelled and made stale, so a later result or failure changes nothing and logs nothing. Between reads the token is checked, so a fake or a query that ignores the token still causes no further read. Later calls return without a read.
+- `MailboxReadModel.CloseAsync` passes through the gate; the runtime calls it after stopping the service and before closing the connections. Later reads get `ObjectDisposedException`.
+- `App`: `isShuttingDown` is checked before `Service.StartAsync` and in the `catch` of `OnLaunched`; `ReleaseAfterFailedStartAsync` closes the window inside its `try`, also when disposing the runtime fails.
+- `MailWebViewHost`: `isClosed`; a late `Show` does nothing, a start ended by closing writes no log line.
+
+### K6: measurements
+Debug build of the Infrastructure DLL, 1 MB stack, one machine; `secprobe` of the security review (copied to `_scratch\secprobe`).
+
+| Input | secure.1 | Now |
+|---|---|---|
+| `attrs` 100,000 (one tag) | over 40 s | 181 ms; dropped, text stays |
+| `attrsAllowed` 100,000 | | 184 ms; dropped |
+| `styleUnknown` 100,000 | | 172 ms; tag stays without `style` |
+| `styleKnown` 100,000 | | 169 ms |
+| `styleLong` 100,000 | | 168 ms |
+| `styleLongUrls` 100,000 | | 178 ms |
+| `unclosedUrl` 100,000 | | 170 ms |
+| `spanDiv` 100,000 | | 1,664 ms |
+| `bDiv` 100,000 | | 1,273 ms |
+| `aDiv` 100,000 | | 1,301 ms |
+| `plainDiv` 1,000,000 | | 368 ms |
+| `tableEsc` 100,000 | | 452 ms |
+| `fontB` 100,000 | | 231 ms |
+| `pB` 100,000 | | 550 ms |
+| `bigText` 1,000,000 | | 363 ms |
+| `bigAttr` 1,000,000 | | 170 ms |
+| `ampText` 1,000,000 | | 453 ms |
+
+**Target met:** all inputs of the security probes under 2 s, slowest 1.7 s.
+
+My own attempts to stay just inside the limits (`_scratch\fix2-probe`): 20,000 unknown sibling elements **2.1 s (slowest, slightly
+over the target)**, the package replaces each of them in the sibling list; tags with 256 attributes up to the text budget 1.5 s; styles
+just under 64 KB up to the budget 1.5 s; 20,000 styled siblings 1.2 s; 255 declarations 0.5 s; 20,000 comments 59 ms; quote tricks in `script`,
+`--!>` and `svg` `style` with 1,000,000 `div` at most 158 ms. Fuzz with 920,000 inputs: no exception, nothing suspicious. 40,000 parallel
+runs: identical.
+
+K5, `secprobe3`: `cid 1 300`: 423 ms, 24 images kept, document 33,555,780 characters, peak 426 MB (secure.1: 419 million
+characters, 3.8 GB). `cid 25 1000`: 192 ms, 215 MB.
+
+MIME and headers: `parts 100000` 1,574 ms, `subject 5000` 111 ms; headers `comment`, `group`, `route`, `many` at 100,000 at most 361 ms.
+
+### Beyond K6 (limits I added, the same goal)
+| Where | What | Why |
+|---|---|---|
+| `HtmlNestingLimiter.MaxTagTextChars` | budget of 2,000,000 characters of kept tag text, without `data:` of `src` | K6 leaves the value open; tags with 256 attributes up to the budget were 2.9 s at 4,000,000 |
+| `HtmlNestingLimiter.MaxStyleDeclarations` | a `style` with more than 256 `;` is dropped, the tag stays | the parser is quadratic in declarations, 64 KB alone would allow about 6,500 |
+| `HtmlNestingLimiter.MaxEndTags` | at most 20,000 end tags; end tags lose their attributes | each end tag splits the text, and the parser appends text quadratically: the dropped start tags left 180,000 `</span>` and took 4.9 s instead of 0.6 s |
+| `HtmlNestingLimiter.MaxTagsInAttributeValues` | at most 1,024 `<x` in kept quoted values of the whole document, the tag beyond is dropped | a quote inside `script` could otherwise hide real tags from the scan as an attribute value |
+
+Consequence: a mail with an unbalanced quote in a `<x …` inside a `script`, more than 1,024 of them, or over the budget loses the affected
+tag with what the scan read as its attributes. Comments are skipped correctly, so quotes in them do not count.
+
+### Deviations and open points
+- **K8:** no `Tag`: the entries are `ComboBoxItem` with `Content`, and `SelectedIndex` maps to a private array. A boxed enum of the Presentation assembly in `Tag` would have to cross the WinRT boundary; I could not test that without a GUI start.
+- **K7, sender:** the cut keeps the address and shortens the name, so the total stays at 101 at most, unless the address has more than 90 characters. Attachment names are additionally shortened to 260 characters each (not asked for).
+- **K5:** `MailContentReader` counts 25 **binary** MB, which are 34,952,558 characters; the budget of 34,000,000 is strict. A single embedded image can only reach 5 MB, but a set of inline images between about 24.3 and 25 MB loses its last image in the document (`<img>` removed, the part is not listed as an attachment). Question to the planner: reader limit to 24 MB, or accept? Not changed.
+- **K13:** IP literals only. A public name that resolves to a local address (DNS rebinding) is not covered.
+- **K15:** the first status of an account counts as a change. A status that is already in `CurrentStatus` at the start and comes again reloads once.
+- **K6:** the rebuild no longer runs on the UI thread, so `DocumentHtml` changes later than `Execute`: tests must wait for it. `CanLoadRemoteImages` is false at once.
+
+**Hints for the tester:** `listSize` is now an unknown key. `form` keeps its text. `DecideNavigation(string)` stays. Case 64 can observe the result only by waiting, there is no awaitable member.
