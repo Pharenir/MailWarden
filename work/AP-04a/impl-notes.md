@@ -433,3 +433,42 @@ Regression: `formatBomb` 1000 18000 1,456 ms, 194 MB; `fmtObject` 1,180 ms, 315 
 - **N2, for the tester:** read `IsBackground` inside the fake builder. After the thread ended, reading it throws `ThreadStateException` (happened in my probe).
 - **N3:** the limit counts values and text only, as decided; markup and encoding come on top.
 - **N1:** `&amp;` counts as well, so a style with more than 256 `&` of any kind is dropped; not seen in practice.
+
+## fix.6 (P1–P3, findings of Dennis's first manual test)
+All implemented, base `415033d`. **No test was run**, and the GUI was not started. "Probe" means a self-check under `_scratch\`, no proof. The test projects do not compile for now (`IMailboxReadModel`, seam), as announced.
+
+| P | State | Checked without a start | Only Dennis can see |
+|---|---|---|---|
+| P1 | done: the row grid in the tree has a right margin of 20 px | WinUI `generic.xaml`: `ScrollBarSize` 16, `TreeViewItemPresenterMargin` 4,2; the margin is independent of the theme | whether the number really stays clear of the scrollbar, also while the scrollbar is expanded and with deep rows |
+| P2 | done: `NavigationItem.IsAccountNode`; label text bold and 16 instead of 14 through `XamlFormat.TreeLabelWeight` and `TreeLabelSize` on the `TextBlock` only, so container, selection and `ItemInvoked` are untouched | probe: true only for the account node, false for group item, role view, tree parent and folder. Generated `MainWindow.g.cs`: both function bindings read `IsAccountNode`, which is a `bool` and so never skipped as null (as `Banner` was); `ControlContentThemeFontSize` 14 | look of the rows; whether 16 clips in the row height (`TreeViewItemMinHeight` 28, should grow) |
+| P3 | done | see below | that a Junk mail looks as expected, and "Bilder laden" |
+
+### P3
+Self-check in `_scratch\l3-probe`, a document with `cid:` known and unknown, `data:` png, CSS `url(data:)`, https:
+
+| Sanitize remote / embedded | Count | Result |
+|---|---|---|
+| false / false | 4 | no `data:` left; all `img` stay without `src`, with `alt` |
+| true / true | 0 | `cid:`, `data:` and https shown |
+| false / true (default) | 1 | as in D3 |
+| true / false | 3 | only https shown |
+
+CSP: false / false `img-src 'none'`; true / true `img-src data: http: https:`; default `img-src data:`; true / false `img-src http: https:` (not used by the app). Rest of the text unchanged. Plain text with embedded false keeps `img-src data:`.
+
+| Folder of the mail | Count | Can load | Embedded shown |
+|---|---|---|---|
+| Inbox | 1 | yes | yes |
+| Screener | 1 | yes | yes |
+| Junk | 4 | yes | no |
+| Quarantine | 4 | yes | no |
+| unknown (null) | 4 | yes | no |
+
+Approval on a Junk mail: both kinds shown, CSP `data: http: https:`, count 0, button gone. Next mail and the same mail again: blocked again. `GetFolderRoleAsync` throws (marker text): state `Error`, marker in no log. Real read model: role for a known folder, null for an unknown one. `l3-probe` flows of L3, M3 and N2 unchanged.
+
+### Interpretations and open points
+- **Blocked embedded image:** the `img` element stays without `src`, with its `alt`, like a blocked remote image, so `alt` stays readable.
+- **`cid:` with no matching part** stays removed without counting, as in D3: nothing would appear after the approval.
+- **CSS `url(data:)`, `url(cid:)`:** counted while blocked, but D3 removes them also after the approval. The button can therefore promise a little more than the approval shows.
+- **Role is read after the content** and only when the content exists, so `NotDownloaded` needs no extra read.
+- **`limiter-probe`:** builds with defaults for the new parameter; it did not need a change and was not copied again. It measures with embedded images allowed, like the Inbox.
+- **For the tester:** the seam is now `Func<MailContent, bool, bool, ReadingDocument>?` (content, allowRemoteImages, allowEmbeddedImages). `ReadingDocumentBuilder.Build` has a third optional parameter, so it no longer converts to a two-argument delegate.
