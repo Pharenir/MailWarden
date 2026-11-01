@@ -324,16 +324,16 @@ public sealed class SpamClassifierTests
         Assert.Equal(new[] { "stub-a", "stub-b" }, result.Signals.Select(signal => signal.SignalId).ToArray());
     }
 
-    // Case 20
+    // Case 20 (AP-06 fix.2 R1): an allowed sender is trusted only when authenticated; unknown gives at most LikelyLegit
     [Fact]
-    public void Allow_list_with_unknown_authentication_is_trusted_contact()
+    public void Allow_list_with_unknown_authentication_is_at_most_likely_legit()
     {
         var directory = new FakeSenderDirectory().AddAllowed(Sender);
 
         ClassificationResult result = Classify(TestInputs.Create(), directory);
 
         Assert.Equal(AuthStatus.Unknown, result.AuthStatus);
-        Assert.Equal(SpamTier.TrustedContact, result.Tier);
+        Assert.Equal(SpamTier.LikelyLegit, result.Tier);
         Assert.NotNull(result.Override);
         Assert.Contains("allow list", result.Override, StringComparison.OrdinalIgnoreCase);
     }

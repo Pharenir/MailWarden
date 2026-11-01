@@ -60,6 +60,33 @@ public sealed class ContactBookTests
         Assert.Empty(await lists.ListAsync());
     }
 
+    // Case 26 (R7): the address is trimmed
+    [Fact(Timeout = TestTimeouts.PerTestMilliseconds)]
+    public async Task Address_with_surrounding_spaces_is_trimmed()
+    {
+        await using StorageFixture storage = await StorageFixture.CreateAsync();
+
+        await Create(storage).AddContactAsync("  contact_a@example.test \t", "Contact A");
+
+        Assert.Equal("contact_a@example.test", Assert.Single(await new SqliteContactStore(storage.Database).ListAsync()).EmailAddress);
+    }
+
+    // Case 26 (R7): malformed addresses are refused and nothing is stored
+    [Theory(Timeout = TestTimeouts.PerTestMilliseconds)]
+    [InlineData("Hans <a@x.test>")]
+    [InlineData("user_a@")]
+    [InlineData("no_at_sign")]
+    [InlineData("")]
+    [InlineData("   ")]
+    public async Task Malformed_address_is_refused_with_argument_exception(string address)
+    {
+        await using StorageFixture storage = await StorageFixture.CreateAsync();
+
+        await Assert.ThrowsAnyAsync<ArgumentException>(() => Create(storage).AddContactAsync(address, "Contact A"));
+
+        Assert.Empty(await new SqliteContactStore(storage.Database).ListAsync());
+    }
+
     [Fact(Timeout = TestTimeouts.PerTestMilliseconds)]
     public async Task Invalid_list_entry_is_rejected_with_argument_exception()
     {
