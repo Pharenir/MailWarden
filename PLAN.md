@@ -342,7 +342,10 @@ Vollständiger Schnittstellenvertrag: `work\AP-07b\requirement.md`.
 - **IDLE/Verbindungsabbrüche:** Wiederverbindung mit Backoff; Sync bleibt ohne App nicht aktuell (Filter läuft nur
   bei laufender App).
 - **HTML-Mails im Dark Mode** sehen teils schlecht aus, ihre Farben werden nie umgeschrieben: eine Mail mit eigenen Farben
-  bleibt als helles Blatt im dunklen Fenster, nur eine Mail ohne eigene Farben wird dunkel (AP-04d).
+  bleibt als helles Blatt im dunklen Fenster, nur eine Mail ohne eigene Farben wird dunkel (AP-04d). Bekannte Grenze: entfernt
+  die Bereinigung den dunklen Hintergrund einer Mail und bleibt ihre helle Schrift, steht heller Text auf dem hellen Blatt
+  (`<body style="background:#111">` mit `<td style="color:#eee">`). `main` verhält sich genauso; die Helligkeit zu erraten
+  gehört nicht zum Umfang (AP-04d, F2).
 - **Öffentliches Repo:** Secrets/Tokens/Maildaten nur über `.gitignore` geschützt; vor jedem Commit `git status`
   gegen die Liste in `CLAUDE.md` prüfen. Test-Fixtures ausschließlich künstlich.
 

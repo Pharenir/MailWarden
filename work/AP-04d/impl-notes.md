@@ -93,3 +93,68 @@ AP-04d in `PLAN.md`, its Sollverhalten lives in `work\AP-04d\requirement.md`, th
 - `README.md` line 41 still says mail content is always on a light background; documenter.
 - Merge with AP-04b: the edits in `MailWebViewHost.cs`, `MainWindow.xaml.cs` and `ReadingPaneViewModel.cs` avoid the lines
   it touches; the merge itself was not tried.
+
+# fix.1
+
+Decisions F1-F6 in `requirement.md`. Merged `test/ap-04d-reading-theme` first, without conflict; test files not read.
+`dotnet build MailWarden.sln -warnaserror`: 0 errors, 0 warnings. No test run, no GUI.
+
+## F1: declarations that repaint text
+`OwnColorDetector.TextRepaintingProperties` holds `all`, `filter`, `backdrop-filter`, `mix-blend-mode`, `box-shadow`; a prefix
+covers `border-image*`.
+
+Checked against the real allow-list (`HtmlSanitizerDefaults.AllowedCssProperties`, 240 names, used unchanged by the sanitizer)
+and by running each through `Sanitize`:
+
+| Name | On the list | In the output |
+|---|---|---|
+| `all`, `filter`, `mix-blend-mode`, `box-shadow`, `border-image`, its 5 longhands | yes | yes, seen by the check |
+| `backdrop-filter` | **no** | **no**: `<p style="backdrop-filter:blur(1px)">x</p>` becomes `<p>x</p>` |
+
+**Open, case 14:** the check runs after the allow-list, so `backdrop-filter:blur(1px)` alone gives the **dark** style, against
+the expected light sheet. It is readable: the declaration never reaches the browser. The name stays in the set as F1 lists it,
+as a safeguard should the allow-list change; it cannot trigger today. Same situation as case 5a.
+
+Allowed, not added, for a decision (statements about the screen are from the CSS rules, nothing rendered):
+- `content` and `list-style-image`: with an approved remote URL they show an image without an `<img>`, so a logo with a
+  transparent background can land on the dark page, which is the reason of D3. `url()` is removed until the approval.
+- `opacity`, `mask`, `mask-*`, `visibility`, `clip`: hide or fade content, about equally in both themes.
+- `column-rule`, `column-rule-color`, `text-decoration-color`: paint, like `border` and `outline`; no effect on the text
+  unless crafted into an overlay, which F1 accepts.
+
+## F3: the background setter
+- `InitializeAsync` sets `DefaultBackgroundColor` again as the first line of its `try`, with the stored color.
+- Throw path there, read: the first synchronous part of the async method is inside the `try`; the filter takes everything but
+  `OutOfMemoryException`; while not closed: a critical log line with the type name and `InitializationFailed`, which leads
+  `MainWindow` to `isBrowserUnavailable` and the fixed text. Closed: silent. An `OutOfMemoryException` stays in the discarded
+  task, which ends nothing. Same as before AP-04d.
+- `SetDefaultBackground` before the start only stores the color, so the window constructor no longer touches the control.
+- After the start (a theme change) it needs a guard of its own, because that call is not inside the `try`: same form as
+  `DeleteCookies`, a log line with the type name, no `InitializationFailed`; a wrong background does not make the browser
+  unavailable.
+
+## F4: failed theme rebuild
+- `RebuildAsync(..., bool isThemeChange)` replaces `keepPlainText` and the log source. On failure with `isThemeChange`: the
+  document, `State` (`Ready`), notice and blocked count stay; critical log line, source `ReadingPaneViewModel.ApplyThemeAsync`,
+  type name only. The image load still goes to `ShowFailure`, source and state as before.
+- **The stored theme stays the reported one**, it is what the window shows. Only the document on screen is out of date. So the next
+  build of any kind uses it: the next message, "Bilder laden", and the next real change.
+- `ApplyThemeAsync` with the same theme again starts no build, so `Loaded` and `ActualThemeChanged` do not retry a failure: the
+  document stays in the old theme until one of the above happens. Back to the shown theme gives the same HTML, no navigation.
+- A rebuild over the time limit is no failure: plain text with a notice in the new theme, as before (N4, second half).
+
+## F5
+- Dark style only: `mark a:link,mark a:visited{color:#0b57d0;}`, about 6:1 on yellow (computed). Light is byte-identical: the dump
+  of 34 mails in 4 approvals still equals the one from before AP-04d.
+- Comments: both fail-safe branches in `OwnColorDetector` say they do not occur today; `ShowAsync` and `BuildTimeLimit` say the
+  limit starts again with a theme change.
+
+## F2, F6
+F2: known limit in the risk of `PLAN.md`. `TODO.md` not changed, not in this assignment. F6: nothing, case 13.
+
+Correction to the first section, secure.1 N2: the check runs after `ParseDocument` returned, so outside the allocation and time
+budget of the parser, like `SanitizeDom` and `ApplyUrlRules`. It is bounded by the limiter, `PruneElements` and the 5 s limit.
+
+## For the tester
+Not run, and the tests were not read: tests from before fix.1 could expect the error state after a failed theme rebuild, or the
+dark style for one of the F1 declarations. Case 14 for `backdrop-filter` gives dark, see above.
