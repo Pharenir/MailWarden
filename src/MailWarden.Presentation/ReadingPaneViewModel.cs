@@ -182,14 +182,15 @@ public sealed class ReadingPaneViewModel : ObservableObject
 
     /// <summary>
     /// Target of the link under the mouse, as the browser reports it. The text comes from the mail, so the setter cleans and
-    /// shortens it; empty or nothing left means no link. The next message clears it.
+    /// shortens it, at most 501 characters; empty or nothing left means no link. An absolute http or https target beyond the limit
+    /// starts with its real host, because the cut could hide it. The next message clears it.
     /// </summary>
     public string? HoverLinkText
     {
         get => hoverLinkText;
         set
         {
-            string shortened = SafeDisplayText.Shorten(value ?? string.Empty, MailDisplayText.MaxLinkCharacters);
+            string shortened = MailDisplayText.LinkTarget(value ?? string.Empty);
             if (SetProperty(ref hoverLinkText, shortened.Length == 0 ? null : shortened))
             {
                 OnPropertyChanged(nameof(HasHoverLink));

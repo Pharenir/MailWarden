@@ -21,13 +21,21 @@ public sealed record PendingAction(
     string? LastError);
 
 /// <summary>
+/// What "Ordner leeren" would delete right now; the confirmation of the user refers to it.
+/// </summary>
+/// <param name="Count">Number of local mails.</param>
+/// <param name="HighestUid">Highest local UID; 0 without mails. A mail that arrives later has a higher one.</param>
+public sealed record EmptyFolderPreview(int Count, uint HighestUid);
+
+/// <summary>
 /// What the user interface may change. Every member only stores commands in the queue and schedules a cycle; the executor
 /// changes server and local data later. Access to the connection behind it is serialised, and no call blocks the caller's
 /// thread for the query.
 /// </summary>
 /// <remarks>
 /// Messages are grouped per folder, at most 1,000 UIDs per command, UIDVALIDITY as stored now. A rejection stops the call
-/// with a <see cref="MailActionException"/>; commands stored before it stay and their accounts are still triggered.
+/// with a <see cref="MailActionException"/>; commands stored before it stay, their accounts are still triggered, and the text
+/// of the exception then says that the action was only partly done.
 /// </remarks>
 public interface IMailboxActions
 {
@@ -72,19 +80,26 @@ public interface IMailboxActions
     /// <exception cref="MailActionException">The queue rejected a group, for instance a target of another account.</exception>
     Task MoveAsync(IReadOnlyCollection<MailMessage> messages, long targetFolderId, CancellationToken ct = default);
 
-    /// <summary>Number of local mails right now; the user interface shows it in the confirmation.</summary>
+    /// <summary>What "Ordner leeren" would delete right now; the user interface shows the count in the confirmation.</summary>
     /// <param name="folderId">Folder with role Trash or Junk.</param>
     /// <param name="ct">Cancellation token.</param>
-    /// <returns>The number of local mails of the folder.</returns>
-    /// <exception cref="MailActionException">The folder is unknown or cannot be emptied.</exception>
-    Task<int> CountForEmptyAsync(long folderId, CancellationToken ct = default);
+    /// <returns>The preview to confirm.</returns>
+    /// <exception cref="MailActionException">
+    /// The folder is unknown or cannot be emptied, or a pending move takes mail out of it: a mail on its way out must not be deleted.
+    /// </exception>
+    Task<EmptyFolderPreview> PreviewEmptyAsync(long folderId, CancellationToken ct = default);
 
     /// <summary>"Ordner leeren": one command with the UIDs stored now. A folder without local mails stores nothing.</summary>
     /// <param name="folderId">Folder with role Trash or Junk.</param>
+    /// <param name="confirmed">The preview the user has confirmed. Fewer mails now are fine.</param>
     /// <param name="ct">Cancellation token.</param>
     /// <returns>A task that completes when the command is stored.</returns>
-    /// <exception cref="MailActionException">The folder is unknown or cannot be emptied.</exception>
-    Task EmptyFolderAsync(long folderId, CancellationToken ct = default);
+    /// <exception cref="ArgumentNullException"><paramref name="confirmed"/> is null.</exception>
+    /// <exception cref="MailActionException">
+    /// As for <see cref="PreviewEmptyAsync"/>, or a mail has arrived that the user has not seen: the local highest UID is above the
+    /// confirmed one.
+    /// </exception>
+    Task EmptyFolderAsync(long folderId, EmptyFolderPreview confirmed, CancellationToken ct = default);
 
     /// <summary>Lists the pending and failed commands of all accounts, per account oldest first.</summary>
     /// <param name="ct">Cancellation token.</param>

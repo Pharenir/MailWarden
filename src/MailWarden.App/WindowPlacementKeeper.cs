@@ -109,7 +109,10 @@ internal sealed class WindowPlacementKeeper
             ReadMonitorAreas());
         if (isTitleBarReachable)
         {
-            appWindow.MoveAndResize(new RectInt32(x, y, pixelWidth, pixelHeight));
+            // Two steps: arriving on a monitor with another scale can resize the window, and the size must be set after that, or the
+            // window would grow on each start.
+            appWindow.Move(new PointInt32(x, y));
+            appWindow.Resize(new SizeInt32(pixelWidth, pixelHeight));
         }
 
         return isTitleBarReachable;

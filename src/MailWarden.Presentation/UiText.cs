@@ -184,30 +184,44 @@ public static class UiText
 
     /// <summary>Confirmation of a permanent delete; only a count, never sender or subject.</summary>
     /// <param name="count">Number of mails.</param>
+    /// <param name="accountCount">Number of accounts of these mails; named when more than one.</param>
     /// <returns>The text.</returns>
-    internal static string ConfirmDeletePermanently(int count)
+    internal static string ConfirmDeletePermanently(int count, int accountCount)
     {
-        return $"{CountOfMails(count)} endgültig löschen? Das kann nicht rückgängig gemacht werden.";
+        string accounts = accountCount > 1
+            ? string.Create(CultureInfo.InvariantCulture, $" aus {accountCount} Konten")
+            : string.Empty;
+        return $"{CountOfMails(count)}{accounts} endgültig löschen? Das kann nicht rückgängig gemacht werden.";
     }
 
     /// <summary>Confirmation of Del on mails in the Trash; only counts, never sender or subject.</summary>
     /// <param name="trashCount">Mails in the Trash, deleted permanently.</param>
     /// <param name="otherCount">Other selected mails, moved to the Trash.</param>
+    /// <param name="accountCount">Number of accounts of all these mails; named when more than one.</param>
     /// <returns>The text.</returns>
-    internal static string ConfirmDeleteFromTrash(int trashCount, int otherCount)
+    internal static string ConfirmDeleteFromTrash(int trashCount, int otherCount, int accountCount)
     {
         string text = $"{CountOfMails(trashCount)} im Papierkorb endgültig löschen? Das kann nicht rückgängig gemacht werden.";
-        return otherCount == 0 ? text : $"{text} {CountOfMails(otherCount)} außerhalb gehen in den Papierkorb.";
+        string others = otherCount == 0 ? string.Empty : $" {CountOfMails(otherCount)} außerhalb gehen in den Papierkorb.";
+        string accounts = accountCount > 1
+            ? string.Create(CultureInfo.InvariantCulture, $" Betroffen sind {accountCount} Konten.")
+            : string.Empty;
+        return $"{text}{others}{accounts}";
     }
 
-    /// <summary>Confirmation of "Ordner leeren"; the words of the folder role and the count, never a folder name from the server.</summary>
+    /// <summary>
+    /// Confirmation of "Ordner leeren": the words of the folder role, the label of the account and the count, never a folder name
+    /// from the server.
+    /// </summary>
     /// <param name="role">Role of the folder, Trash or Junk.</param>
     /// <param name="count">Number of local mails right now.</param>
+    /// <param name="accountLabel">Cleaned label of the account; his own data, not foreign text. Empty when unknown.</param>
     /// <returns>The text.</returns>
-    internal static string ConfirmEmptyFolder(FolderRole role, int count)
+    internal static string ConfirmEmptyFolder(FolderRole role, int count, string accountLabel)
     {
         string folderWords = role == FolderRole.Trash ? "Papierkorb" : "Junk-Ordner";
-        return $"{folderWords} leeren: {CountOfMails(count)} endgültig löschen? Das kann nicht rückgängig gemacht werden.";
+        string ofAccount = accountLabel.Length == 0 ? string.Empty : $" von {accountLabel}";
+        return $"{folderWords}{ofAccount} leeren: {CountOfMails(count)} endgültig löschen? Das kann nicht rückgängig gemacht werden.";
     }
 
     /// <summary>Error window: title.</summary>
