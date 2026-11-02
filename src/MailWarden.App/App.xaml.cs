@@ -95,7 +95,7 @@ public partial class App : Application
 
         // After the lock of the runtime: a second instance that fails to start must not empty the folder of the first.
         attachmentFiles = new AttachmentFiles(paths.AttachmentsOpenRoot);
-        attachmentFiles.Clear();
+        ClearOpenedAttachmentsAndLog();
         var attachmentHost = new WindowAttachmentHost(criticalLog);
         var dispatcher = new DispatcherQueueUiDispatcher(Microsoft.UI.Dispatching.DispatcherQueue.GetForCurrentThread());
         shell = new ShellViewModel(

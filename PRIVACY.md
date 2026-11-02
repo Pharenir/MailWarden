@@ -1,6 +1,6 @@
 # MailWarden – Privacy Policy
 
-Last updated: 2026-11-01
+Last updated: 2026-11-02
 
 MailWarden is a desktop application that runs entirely on the user's own Windows computer. It is developed and
 operated by its author for personal use. The source code is public; the application itself is not distributed as a
@@ -14,6 +14,10 @@ accounts via IMAP and SMTP.
 ## Where data is stored
 All e-mail data, contacts and settings are stored locally on the user's computer. OAuth tokens are stored encrypted
 with Windows Data Protection (DPAPI) and never leave the device.
+
+When the user opens an attachment, a decoded copy of it is placed in the folder `attachments-open` of the local data
+folder, so that the program chosen by Windows can read it. The copy is removed at the next start of the app or when it
+closes; a file that is still in use by a program stays until the next start. It is not transmitted anywhere.
 
 Contacts are created on the computer from the recipients of mails the user sent from their own accounts. They are stored only in the local data folder and are not transmitted anywhere.
 

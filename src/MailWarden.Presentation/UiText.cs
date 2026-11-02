@@ -138,6 +138,10 @@ public static class UiText
     public static string AttachmentOpenFailed =>
         "Der Anhang konnte nicht zum Öffnen vorbereitet werden. Ist das Laufwerk voll?";
 
+    /// <summary>Attachment notice: the folder for opened attachments is a link, so the file is not opened.</summary>
+    public static string AttachmentOpenFolderIsLink =>
+        "Der Anhang wurde nicht geöffnet: Der Ordner für geöffnete Anhänge ist eine Verknüpfung. Nach einem Neustart von MailWarden sollte es wieder gehen. Speichern ist weiterhin möglich.";
+
     /// <summary>Attachment notice: the mark "from the internet" could not be set, so the file is not opened.</summary>
     public static string AttachmentMarkFailed =>
         "Der Anhang wurde nicht geöffnet: Auf diesem Laufwerk lässt sich der Vermerk „aus dem Internet“ nicht setzen. Er kann weiterhin gespeichert werden.";

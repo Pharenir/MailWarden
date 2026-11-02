@@ -192,3 +192,9 @@ S3 green on the merged branch, reviewer APPROVE, security-reviewer without Criti
 - The reading of the role uses the folder of the shown row. A mail moved to another folder while the list still shows the old row keeps its old folder until the next show. Accepted, the window is small and the list reloads: `TODO.md`.
 - The five other wide forms of reserved characters (`＊`, `＜`, `＞`, `？`, `｜`, as code points in A4) also become `_`, one rule instead of a list that a reader has to question.
 - A failed opening after a change of mail is only logged; the user is not waiting for a file then.
+
+## Decisions fix.4 (planner, 2026-11-02, after review.3 APPROVE)
+- S1: the set of visited paths could not do what its comment said: a new path is new text. Exact paths end the walk; the device form `\\.\` becomes `\\?\`; a limit of 100,000 folders per walk is the last resort.
+- S2: `Clear` at the start goes through the same guarded call as at the exit, a failure there must not stop the app.
+- S3: a link as the open folder has its own data key and text, naming the restart. `TODO.md` holds the cloud case.
+- N1: `NativeLinks.IsJunction` compares the found name with the asked one, because the call reads wildcards. N2: a start Windows refused discards the prepared file. N3: `PLAN.md` line A4.
