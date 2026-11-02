@@ -16,13 +16,13 @@
       <SolidColorBrush x:Key="TextFillColorPrimaryBrush" Color="#ECE8F7" />
       <SolidColorBrush x:Key="TextFillColorSecondaryBrush" Color="#A99FC6" />
       <SolidColorBrush x:Key="TextFillColorTertiaryBrush" Color="#A99FC6" />
-      <SolidColorBrush x:Key="TextFillColorDisabledBrush" Color="#80A99FC6" />
+      <SolidColorBrush x:Key="TextFillColorDisabledBrush" Color="#99A99FC6" />
       <SolidColorBrush x:Key="TextFillColorInverseBrush" Color="#1A1626" />
       <SolidColorBrush x:Key="TextOnAccentFillColorPrimaryBrush" Color="#1A1626" />
       <SolidColorBrush x:Key="TextOnAccentFillColorSecondaryBrush" Color="#CC1A1626" />
       <SolidColorBrush x:Key="TextOnAccentFillColorDisabledBrush" Color="#991A1626" />
       <SolidColorBrush x:Key="ControlFillColorDefaultBrush" Color="#2E2744" />
-      <SolidColorBrush x:Key="ControlFillColorSecondaryBrush" Color="#30294A" />
+      <SolidColorBrush x:Key="ControlFillColorSecondaryBrush" Color="#3E355C" />
       <SolidColorBrush x:Key="ControlFillColorTertiaryBrush" Color="#2A2340" />
       <SolidColorBrush x:Key="ControlFillColorDisabledBrush" Color="#1F1A2D" />
       <SolidColorBrush x:Key="ControlFillColorInputActiveBrush" Color="#17131F" />
