@@ -56,7 +56,8 @@ THUMB = "#5D5480"
 DISABLED_FILL = "#1F1A2D"
 ACCENT_PRESSED = "#E67A33"
 ACCENT_DISABLED = "#663E355C"
-TEXT_DISABLED = "#80A99FC6"
+TEXT_DISABLED = "#99A99FC6"
+BUTTON_HOVER = "#3E355C"
 ACCENT_TEXT_SECONDARY = "#CC1A1626"
 ACCENT_TEXT_DISABLED = "#991A1626"
 WARNING_BACKGROUND = "#3A2F2A"
@@ -88,7 +89,7 @@ BASE_BRUSHES = {
     "TextOnAccentFillColorSecondaryBrush": ACCENT_TEXT_SECONDARY,
     "TextOnAccentFillColorDisabledBrush": ACCENT_TEXT_DISABLED,
     "ControlFillColorDefaultBrush": BUTTON,
-    "ControlFillColorSecondaryBrush": SURFACE_HOVER,
+    "ControlFillColorSecondaryBrush": BUTTON_HOVER,
     "ControlFillColorTertiaryBrush": BUTTON_PRESSED,
     "ControlFillColorDisabledBrush": DISABLED_FILL,
     "ControlFillColorInputActiveBrush": INPUT,

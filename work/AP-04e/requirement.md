@@ -157,3 +157,17 @@ S3 green on the merged branch, reviewer APPROVE, security-reviewer without Criti
 
 ## Decisions fix.1 (planner, 2026-11-02, before verify.1)
 The planner ran the real `WindowThemeChrome` and the real `NightshadeTheme.xaml` in the spike (mode `THEME_SPIKE_REAL`). Subscribing to `AccessibilitySettings.HighContrastChanged` throws `COMException 0x80070490` in the unpackaged app, in the constructor, so every start would have failed. The live reaction went beyond E15 and is removed: `HighContrast` is read on each `Apply`, a change of the Windows setting counts from the next theme change or start. `new AccessibilitySettings()` and reading `HighContrast` work.
+
+## Decisions fix.2 (planner, 2026-11-02, after verify.1 PASS, review.1 CHANGES, secure.1)
+- S1 (button hover 1.03:1 against the button): fixed, `ControlFillColorSecondaryBrush` = `#3E355C`, 1.25:1. The hover of rows in list and tree stays `#30294A`.
+- N1 (disabled text 2.71:1): fixed, `#99A99FC6`, 3.32:1. The actions are disabled whenever nothing is selected, so this text is seen often.
+- S2 (free text white at the start): measured in the spike with elements created after the merge. It is real: `TextBlock` outside a control is `#FFFFFF` until the first change of the theme. Fixed: the first `Apply` with the palette bounces too. Measured after the fix: `#ECE8F7`, buttons right, no frame in between.
+- S3: `PLAN.md` and `impl-notes.md` brought in line with fix.1.
+- S4 (a failure while switching ended the app): `ApplyThemeWhileRunning` catches and writes a critical line with the type name. At the start the error window stays.
+- N2, N3 (pressed in flyouts, disabled accent): no change. The roles are given, and no accent control is disabled in the app today.
+- N4 (start failure text for a missing resource): old pattern, not of this AP, goes to `TODO.md`.
+- Review question: selecting text in the mail header lines. Measured: a `TextBlock` selects in `#0078D4` in every theme, it reads no key of the palette. Readable, and it is the look on `main`. No change now; Dennis sees it in case 26 and decides. Setting `SelectionHighlightColor` on these lines would also change Light and Dark.
+- Review question: switching through the open theme list. Measured in the spike with the selection event of a `ComboBox`: works in both directions. A click by hand stays with case 25.
+- secure.1 N1: wording. `HasOwnColors = false` means no text or background colour, not no colour at all (`border`, `text-shadow` stay). Accepted as in AP-04d, the same works in the dark style.
+- secure.1 N2: a high contrast setting changed while Nightshade runs leaves the solid background until the next theme change or start. Accepted, case 29.
+- secure.1, for AP-13: only `data\` may become writable, not `<install>`. Goes to `TODO.md`.

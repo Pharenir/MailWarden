@@ -32,6 +32,7 @@ internal sealed class WindowThemeChrome
     private readonly AccessibilitySettings accessibilitySettings = new();
 
     private ResourceDictionary? mergedPalette;
+    private bool isFirstApply = true;
 
     /// <summary>Creates the chrome; changes nothing yet.</summary>
     /// <param name="window">The window it belongs to.</param>
@@ -60,12 +61,14 @@ internal sealed class WindowThemeChrome
         bool usesPalette = UsesPalette(theme);
         bool hasPaletteChanged = SetPaletteMerged(usesPalette);
 
-        // A changed dictionary alone resolves nothing again; it takes a change of the theme. No frame is drawn in between.
-        if (hasPaletteChanged)
+        // A changed dictionary alone resolves nothing again; it takes a change of the theme. No frame is drawn in between. The first
+        // apply needs it as well: text outside a control keeps the default of WinUI until then (measured in the spike).
+        if (hasPaletteChanged || (isFirstApply && usesPalette))
         {
             root.RequestedTheme = ElementTheme.Light;
         }
 
+        isFirstApply = false;
         root.RequestedTheme = ToElementTheme(theme);
         ApplyWindowSurface(root, usesPalette);
         ApplyTitleBar(usesPalette);

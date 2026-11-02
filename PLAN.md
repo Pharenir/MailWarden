@@ -299,10 +299,10 @@ Wunsch Dennis 2026-11-01: viertes Thema, als Standard. Spike und vollständiger 
 | E9 | Bereinigung und CSP unverändert, Stil nur aus eigenen Konstanten | ✅ `Infrastructure\Mime\ReadingDocumentBuilder.cs` (Bereinigung und CSP nicht angefasst, Auswahl nur aus Thema und Ja/Nein) |  |
 | E10 | Wechsel bei offener Mail ohne erneutes Lesen, auch Dunkel ↔ Nightshade | ✅ `App\MainWindow.xaml.cs` (`ApplyReadingTheme` über `AppThemes.ToReadingTheme`); `ReadingPaneViewModel` unverändert |  |
 | E11 | `Themes\NightshadeTheme.xaml`: nur Wörterbuch `Dark`, keine doppelten Schlüssel, jeder Alias vorher definiert | ✅ `App\Themes\NightshadeTheme.xaml`, erzeugt von `tools\make_nightshade_theme.py`; dazu der eigene Schlüssel `NightshadeWindowBackgroundBrush` |  |
-| E12 | Fenster zeigt die Palette: Steuerelemente, Flyouts, Menüs, Dialoge, Titelleiste, kein Mica | ✅ `App\Themes\NightshadeTheme.xaml`, `App\WindowThemeChrome.cs` (nicht gestartet, Handtest offen) |  |
-| E13 | Wechsel live in jede Richtung ohne sichtbares Aufblitzen; Verlassen stellt Mica und Titelleiste wieder her | ✅ `App\WindowThemeChrome.cs` (nicht gestartet, Handtest offen) |  |
-| E14 | Start mit Nightshade ohne Aufblitzen eines anderen Themas | ✅ `App\MainWindow.xaml.cs` (Palette vor `InitializeComponent`), `App\WindowThemeChrome.cs` (nicht gestartet, Handtest offen) |  |
-| E15 | Windows-Hochkontrast: Palette, Fensterfläche und Titelleiste werden nicht angewendet | ✅ `App\WindowThemeChrome.cs` (`AccessibilitySettings`, auch beim Umschalten zur Laufzeit; nicht gestartet, Handtest offen) |  |
+| E12 | Fenster zeigt die Palette: Steuerelemente, Flyouts, Menüs, Dialoge, Titelleiste, kein Mica | ✅ `App\Themes\NightshadeTheme.xaml`, `App\WindowThemeChrome.cs` (im Spike gelaufen, in der App Handtest offen) |  |
+| E13 | Wechsel live in jede Richtung ohne sichtbares Aufblitzen; Verlassen stellt Mica und Titelleiste wieder her | ✅ `App\WindowThemeChrome.cs` (im Spike gelaufen, alle Richtungen ohne gezeichnetes Bild dazwischen; in der App Handtest offen) |  |
+| E14 | Start mit Nightshade ohne Aufblitzen eines anderen Themas | ✅ `App\MainWindow.xaml.cs` (Palette vor `InitializeComponent`), `App\WindowThemeChrome.cs` (in der App Handtest offen) |  |
+| E15 | Windows-Hochkontrast: Palette, Fensterfläche und Titelleiste werden nicht angewendet | ✅ `App\WindowThemeChrome.cs` (`AccessibilitySettings`, gelesen bei jedem Anwenden; eine Änderung in Windows gilt ab dem nächsten Themenwechsel oder Start, weil das Abonnieren in der App ohne Paket wirft; im Spike gelaufen, in der App Handtest offen) |  |
 | E16 | `Core`/`Infrastructure` ohne WinUI, `AppThemes` in `Presentation`, Code-Behind verdrahtet nur | ✅ `Presentation\AppThemes.cs`, `App\WindowThemeChrome.cs`, `App\MainWindow.xaml.cs` |  |
 
 ### AP-04d Lesebereich folgt dem Thema

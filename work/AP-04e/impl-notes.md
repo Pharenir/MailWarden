@@ -47,10 +47,9 @@ then `ActualTheme` is the target and `ApplyThemeAsync` does nothing. Only reason
 not for `Default` with Windows in dark or light mode (Nightshade → System).
 
 ## High contrast
-Beyond E15 as written: `WindowThemeChrome` also listens to `AccessibilitySettings.HighContrastChanged`, because switching it on
-while the app runs would otherwise leave the solid background under system text colours. The event comes on a thread of its own, so
-it goes through the `DispatcherQueue`. Ich bin mir unsicher: whether the event fires in an unpackaged WinUI app at all. If not,
-high contrast takes effect at the next start or theme change.
+Removed in fix.1 by the planner: subscribing to `AccessibilitySettings.HighContrastChanged` throws `0x80070490` in the unpackaged
+app, so every start would have failed. `HighContrast` is read on each `Apply`; a change of the Windows setting counts from the next
+theme change or start. Until then a solid background can stay under system text colours (secure.1 N2, accepted, manual case 29).
 
 ## Verified without starting the window
 - The compiled dictionary exists: `bin\...\Themes\NightshadeTheme.xbf`, and `MailWarden.App.pri` holds
@@ -64,10 +63,9 @@ high contrast takes effect at the next start or theme change.
 
 ## Tested / untested
 - Tested: nothing by a test stage.
-- Only built: everything in `App`. The first real run is Dennis's first start.
-- Ich bin mir unsicher: reading `palette.ThemeDictionaries["Dark"]["..."]` from a dictionary loaded through `Source`
-  (`WindowThemeChrome.PaletteColor`). The spike never read it back. With Nightshade as default a failure there is a start failure
-  with the error window, so it shows at once. Fix then: a shared constant.
+- Only built here; the planner then ran the real `WindowThemeChrome` and the real dictionary in the spike (planner, fix.1): the
+  read back of `palette.ThemeDictionaries["Dark"]["..."]` works, and so does every direction including System. `MainWindow` itself
+  has never run: the first run with mails is Dennis's first start.
 - Ich bin mir unsicher: whether `TextBlock` with `IsTextSelectionEnabled` (mail header lines) selects in the Windows accent colour.
   No key found that decides it; `TextControlSelectionHighlightColor` covers the text boxes.
 
