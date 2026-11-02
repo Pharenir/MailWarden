@@ -194,8 +194,7 @@ public static class UiText
     }
 
     /// <summary>Banner: a save failed after another mail was selected.</summary>
-    public static string BannerAttachmentSaveFailed =>
-        "Ein Anhang einer zuvor angezeigten Mail konnte nicht gespeichert werden. Ist das Laufwerk voll, der Ordner schreibgeschützt oder die Datei noch geöffnet?";
+    public static string BannerAttachmentSaveFailed => "Der Anhang konnte nicht gespeichert werden.";
 
     /// <summary>Banner: the queued actions could not be read.</summary>
     public static string BannerActionsReadFailed => "Die offenen Aktionen konnten nicht gelesen werden.";

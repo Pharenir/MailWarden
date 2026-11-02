@@ -1,6 +1,6 @@
 # AP-04c - implementation notes (implement.1)
 
-STEP-RESULT: implemented in full against the contract as updated by fix.1 and fix.2 (see below). No window was started.
+STEP-RESULT: implemented in full against the contract as updated by fix.1, fix.2 and fix.3 (see below). No window was started.
 
 Build from the worktree:
 - `dotnet build src\MailWarden.App\MailWarden.App.csproj -warnaserror`: 0 warnings, 0 errors (holds App, Presentation, Infrastructure, Core).
@@ -8,6 +8,14 @@ Build from the worktree:
   `tests\MailWarden.Presentation.Tests\TestSupport\Fakes.cs(215,46)`: CS0535, `FakeMailboxReadModel` lacks `IMailboxReadModel.CopyAttachmentAsync(MailMessage, int, MailAttachmentInfo, Stream, CancellationToken)`. `tests\` was neither read nor changed.
 
 Branch `feat/ap-04c-attachments`. No new package, no csproj change.
+
+## fix.3 (decisions of the planner, recorded in `requirement.md`)
+- **S1:** `Clear` turns the open folder into a `\\?\` path (`\\?\UNC\` for a share), and `DirectoryInfo` keeps that form for every entry. Other paths only ever go deeper; `visitedFolders` is the last guard. Measured with ten names, because the seven of secure.2 are not in the repo: `. `, `.. `, `...`, `.... `, `. .`, `.. .`, `x.`, `x `, `...x `, ` . `.
+- **S2:** `IsLinkOrUnreadable` right before the listing of a folder. A folder that cannot be read is not listed.
+- **S4:** .NET does not tell a junction from a symbolic link, so `Storage\NativeLinks.cs` asks `FindFirstFileW` for the reparse tag. A plain `DllImport`, as in `NativeDisplay`; no csproj change.
+- **S6:** `AttachmentFiles.Discard` is new, it removes the file and then its folder without recursion.
+- **N4:** one helper for a read-only folder and a read-only junction.
+- **N1 of review.2:** `nrg ccd mds` are in the blocked list on purpose: they are disk images, like `iso` and `img`.
 
 ## fix.2 (decisions of Dennis and the planner, recorded in `requirement.md`)
 - **`Clear`:** own walk with a stack, one level per listing, attributes of the entry itself. Link to a folder: `Directory.Delete(recursive: false)`. Link to a file: `File.Delete`, no `SetAttributes`. The open folder itself as a link: only the link goes. A folder with a reparse tag of a cloud provider counts as a link too, so such a data folder would keep its contents: on the safe side.
@@ -17,7 +25,7 @@ Branch `feat/ap-04c-attachments`. No new package, no csproj change.
 - **Banner:** only for a failed save, as decided (`ShellBanner.BannerSource.AttachmentSave`). A failed open after a change of mail is logged only. The next attachment action clears the banner.
 - **N7, one log line:** the host writes it, because only it has the code. The view model writes none for `false`. A fake that returns `false` therefore produces no line, case 18 in the requirement says so.
 - **N11:** I read it as: the class comment said everything runs off the caller's thread, and `Clear` does not. Without the text of the review this is an assumption.
-- **N6, wide forms:** only the six characters of the decision. Other wide forms (U+FF0A, U+FF1F, U+FF1C, U+FF1E, U+FF5C) stay as they are.
+- **N6, wide forms:** the six characters of the decision. The planner added the other wide forms in `eccd16a`, fix.3 the characters of S5; the complete list stands in `requirement.md`, Decisions fix.3.
 - **Removed:** `ReadingPaneViewModel.AttachmentNames`, `MailDisplayText.AttachmentNames`, `MaxAttachmentNames`, `UiText.MoreAttachments`. New: `UiText.AttachmentsNotListed`.
 - `AtomicFile.WriteNewFileAsync` and `StreamBufferSize` (internal). `FileEmlStore` uses them inside its existing `try`, so its exceptions stay.
 
@@ -47,14 +55,14 @@ A part below the depth limit is **not listed at all** today (`ReadParts` before 
 ## The lists (A5)
 Case-insensitive, last extension of the name after A4.
 
-**SaveOnly**: `exe com scr pif cpl dll ocx sys drv msc gadget application appref-ms xbap vsto vsix app mlc msstyles webpnp ops osd osdx fxp prg plg pcd` · `bat cmd ps1 ps1xml ps2 ps2xml psc1 psc2 psd1 psm1 cdxml vb vbs vbe js jse ws wsf wsh wsc sct hta py pyc pyo pyw pyz pyzw pl jar jnlp sh ksh csh pssc msh msh1 msh2 mshxml msh1xml msh2xml bas vbp` · `msi msp mst msu appx appxbundle msix msixbundle appinstaller ms-appinstaller inf ins isp reg cab winget ppkg printerexport` · `lnk url website scf shb shs settingcontent-ms library-ms searchconnector-ms search-ms desklink mapimail xnk diagcab diagcfg diagpkg job theme themepack deskthemepack rdp wsb msrcincident pbk udl prf rat wcx appcontent-ms grp` · `iso img vhd vhdx wim nrg ccd mds` · `cer crt der p7b pfx p12 sst` · `chm hlp htc its cnt hpj` · `xll xla xlam wll ppa ppam mcf vsmacros vsw mdz ade adp mda mde mdb accda accdb accdc accde accdr accdt accdu accdw mdt mdw mad maf mag mam maq mar mas mau mav maw`
+**SaveOnly**: `exe com scr pif cpl dll ocx sys drv msc gadget application appref-ms xbap vsto vsix app mlc msstyles webpnp ops osd osdx fxp prg plg pcd` · `bat cmd ps1 ps1xml ps2 ps2xml psc1 psc2 psd1 psdm1 psm1 cdxml vb vbs vbe js jse ws wsf wsh wsc sct hta py pyc pyo pyw pyz pyzw pl jar jnlp sh ksh csh pssc msh msh1 msh2 mshxml msh1xml msh2xml bas vbp` · `msi msp mst msu appx appxbundle msix msixbundle appinstaller ms-appinstaller inf ins isp reg cab winget ppkg printerexport` · `lnk url website scf shb shs settingcontent-ms library-ms searchconnector-ms search-ms desklink mapimail xnk diagcab diagcfg diagpkg job theme themepack deskthemepack rdp wsb msrcincident pbk udl prf rat wcx appcontent-ms grp` · `iso img vhd vhdx wim nrg ccd mds` · `cer crt der p7b p7c p7r pfx p12 spc crl cat stl sst` · `chm hlp htc its cnt hpj` · `xll xla xlam wll ppa ppam mcf vsmacros vsw mdz ade adp mda mde mdb accda accdb accdc accde accdr accdt accdu accdw mdt mdw mad maf mag mam maq mar mas mat mau mav maw`
 
 **Harmless**: `pdf txt png jpg jpeg gif bmp webp tif tiff docx xlsx pptx odt ods odp`
 
 **Ask**: everything else, also no extension, `zip`, `html`, `svg`, `docm`, `xlsm`, `pptm`, `eml`.
 
 ## Rules of the safe name (A4)
-`SafeDisplayText.Clean`, then by whole code points all remaining format characters (joiners too), private use and unassigned ones, variation selectors and other default-ignorable ones, broken surrogates, every kind of space to a plain one; last part after `\` or `/`; `:`, the other characters Windows refuses and U+FF02, U+FF0F, U+FF1A, U+FF3C, U+00A5, U+20A9 become `_`; leading spaces, trailing dots and spaces go; at most 120 characters with an extension of up to 32 characters kept; a reserved name gets a leading `_` (then 121). The opened file lands in a folder of 32 characters below `attachments-open`, so 120 keeps the path short enough for programs that know only 260 characters. `PrepareForOpeningAsync` checks again and throws `ArgumentException`: not a direct child of the new folder, stream name, device name, trailing dot.
+`SafeDisplayText.Clean`, then by whole code points all remaining format characters (joiners too), private use and unassigned ones, variation selectors and other default-ignorable ones, broken surrogates, every kind of space to a plain one; last part after `\` or `/`; `:`, the other characters Windows refuses and those that common code pages turn into reserved ones (list in `requirement.md`, Decisions fix.3) become `_`; leading spaces, trailing dots and spaces go; at most 120 characters with an extension of up to 32 characters kept; a reserved name gets a leading `_` (then 121). The opened file lands in a folder of 32 characters below `attachments-open`, so 120 keeps the path short enough for programs that know only 260 characters. `PrepareForOpeningAsync` checks again and throws `ArgumentException`: not a direct child of the new folder, stream name, device name, trailing dot.
 
 ## Host in App (`src\MailWarden.App\WindowAttachmentHost.cs`)
 - `FileSavePicker` with `InitializeWithWindow`, start location Downloads, the full safe name as proposal, one file type: the extension when it is simple, otherwise `.` (`:58`). **Unmeasured.**
@@ -74,9 +82,10 @@ Case-insensitive, last extension of the name after A4.
 Only as self-control, no proof, tester stages not run. Console probe with artificial data, `_scratch\ap04c-probe` (ignored by git):
 - Ran green: `ToSafe` for all names of test case 1 and 2; `Classify` samples; base64, quoted-printable and 8bit bytes; attached message and `text/rfc822-headers` written; index outside; a difference in name, type or size refused with no bytes written; `AttachmentFiles` (zone stream reads `ZoneId=3` on `K:`, also read from the saved target after the move and after overwriting a target, writer failure, empty target removed, existing target kept, cancelled save, locked and read-only files in `Clear`); read model on a real runtime with an artificial data folder (another entry refused without a read before, changed EML after a read, missing EML, no EML); view model through its internal constructor with a fake: rows, inbox without question, `Ask` no and yes, Junk, Quarantine, Screener and unknown role, host false, cancelled dialog, copy failure with type name in the log, another mail during a save.
 - Ran green in fix.2: a junction below a guid folder, one directly in the open folder and the open folder itself as a junction: link gone, target and its read-only attribute unchanged; `.eml` names with and without a size, delivery report unchanged; `zip`, the new blocked types; the six characters, variation selectors, tag-plane and private-use characters, emoji kept; `ExtensionText`; `1048575` bytes reads `1,0 MB`; 503 attachments give 500 rows and the notice; notices of save and open; failed save after a change of mail in the banner and cleared by the next action; role changed or unreadable asks; yes after a change of mail opens nothing; `FileEmlStore` writes through the helper, overwrite with an open reader still `StorageException`.
+- Ran green in fix.3: ten names Windows would normalise as folders, alone and nested, and five of them as files: `Clear` ended every time within a fraction of a second, all gone, the neighbours of the open folder untouched; read-only junction gone with its target unchanged; read-only folder with a read-only file inside gone; hard link gone, the file outside keeps `Hidden`; `NativeLinks.IsJunction` for junction, folder, file and a missing path; a linked open folder refuses `PrepareForOpeningAsync` with nothing in the target; `Discard`; another mail during the preparation: no start, file gone, no notice; the characters of S5; the added blocked types.
 - Measured: a 148 MB EML, 108 MB decoded, 10 MB allocated during the copy.
 
-Untested: the window, XAML layout with the new column, `WindowAttachmentHost` (never run), a symbolic link to a file in `Clear` (no privilege here to make one; code path by reading only), the junction check against the code before fix.2 (not run, so the probe does not show it would have failed there), the mark on a drive without NTFS for opening and for saving (no such drive here; code paths by reading only), `ShellViewModel` wiring of the question (`ConfirmOpeningInTurnAsync`), the disk-full path.
+Untested: the window, XAML layout with the new column, `WindowAttachmentHost` (never run), a symbolic link in `Clear` other than a junction (no privilege here to make one; code path by reading only), a read-only hard link (accepted rest), the run of the ten names against the code before fix.3 (not run; the hang there was measured by secure.2), the junction check against the code before fix.2 (not run, so the probe does not show it would have failed there), the mark on a drive without NTFS for opening and for saving (no such drive here; code paths by reading only), `ShellViewModel` wiring of the question (`ConfirmOpeningInTurnAsync`), the disk-full path.
 
 ## Questions
 1. Role read again: is the limit above enough, or should a moved mail be found? That takes a new read member by message id. `src\MailWarden.Presentation\ReadingPaneViewModel.cs`, `ReadCurrentRoleAsync`.

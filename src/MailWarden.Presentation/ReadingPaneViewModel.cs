@@ -499,9 +499,10 @@ public sealed class ReadingPaneViewModel : ObservableObject
 
     /// <summary>
     /// Opens an attachment: reads the role of the folder again, asks first where <see cref="AttachmentPolicy.MustAskBeforeOpening"/>
-    /// says so for the role now or the role when the mail was shown, or when the two differ, prepares the marked file and hands it to
-    /// the program Windows assigns. A role that cannot be read counts as unknown. A row with <see cref="AttachmentRow.CanOpen"/> false,
-    /// or one that is no longer shown, also after the question, does nothing.
+    /// says so for the role now, or when it differs from the role at showing, prepares the marked file and hands it to the program
+    /// Windows assigns. A role that cannot be read counts as unknown. A row with <see cref="AttachmentRow.CanOpen"/> false does
+    /// nothing, and neither does one that is no longer shown, also after the question. Another mail selected during the preparation
+    /// opens nothing either: the file goes again, without a notice.
     /// </summary>
     /// <param name="row">A row of <see cref="Attachments"/>.</param>
     /// <returns>A task that completes when the action has ended; it never fails, a failure shows in <see cref="AttachmentNotice"/>.</returns>
@@ -518,9 +519,7 @@ public sealed class ReadingPaneViewModel : ObservableObject
         {
             FolderRole? currentRole = await ReadCurrentRoleAsync(row, ct);
             bool hasFolderChanged = currentRole != row.FolderRole;
-            bool mustAsk = hasFolderChanged
-                || AttachmentPolicy.MustAskBeforeOpening(row.Risk, currentRole)
-                || AttachmentPolicy.MustAskBeforeOpening(row.Risk, row.FolderRole);
+            bool mustAsk = hasFolderChanged || AttachmentPolicy.MustAskBeforeOpening(row.Risk, currentRole);
             if (mustAsk
                 && ReferenceEquals(rowsOfAction, attachments)
                 && !await confirmOpening(UiText.ConfirmOpenAttachment(row.Risk, currentRole, hasFolderChanged)))
@@ -536,8 +535,9 @@ public sealed class ReadingPaneViewModel : ObservableObject
 
             ShowNoticeForRows(rowsOfAction, UiText.AttachmentCopying);
             string filePath = await files.PrepareForOpeningAsync(ContentWriterOf(row), row.SafeFileName, ct);
-            if (isClosed)
+            if (isClosed || !ReferenceEquals(rowsOfAction, attachments))
             {
+                files.Discard(filePath);
                 return;
             }
 

@@ -66,7 +66,8 @@ public sealed class AttachmentFiles(string openFolder)
     /// <exception cref="ArgumentException">The name would not lead to a file directly in the new folder, or it names a device.</exception>
     /// <exception cref="ArgumentNullException"><paramref name="writeContent"/> is null.</exception>
     /// <exception cref="IOException">
-    /// Writing failed, or the mark could not be written (<see cref="MarkFailureDataKey"/>). No file stays.
+    /// Writing failed, the mark could not be written (<see cref="MarkFailureDataKey"/>), or the open folder itself is a link, so that
+    /// nothing lands in what it points to. No file stays.
     /// </exception>
     /// <exception cref="UnauthorizedAccessException">Writing is not allowed. No file stays.</exception>
     /// <exception cref="OperationCanceledException">The copy was cancelled. No file stays.</exception>
@@ -84,33 +85,53 @@ public sealed class AttachmentFiles(string openFolder)
         return Task.Run(() => PrepareCoreAsync(writeContent, fileFolder, filePath, ct), ct);
     }
 
+    /// <summary>Removes a file from <see cref="PrepareForOpeningAsync"/> that will not be opened, with its folder, as far as possible.</summary>
+    /// <param name="preparedPath">The path that call returned.</param>
+    /// <exception cref="ArgumentException">The path is not one of a prepared file.</exception>
+    public void Discard(string preparedPath)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(preparedPath);
+        string? fileFolder = Path.GetDirectoryName(preparedPath);
+        if (fileFolder is null || Path.GetDirectoryName(fileFolder) != openFolder)
+        {
+            throw new ArgumentException("The path is not the one of a prepared file.", nameof(preparedPath));
+        }
+
+        DeleteFileBestEffort(preparedPath);
+        DeleteEmptyFolderBestEffort(fileFolder);
+    }
+
     /// <summary>
     /// Empties the open folder as far as possible: what a program still holds open stays until the next call, and so does
     /// whatever else cannot be deleted. A link (junction, symbolic link) is removed as a link and never followed, so nothing outside
-    /// the folder is touched. Never throws for that.
+    /// the folder is touched. Names Windows would normalise, such as <c>x.</c> or <c>...</c>, are reached by their exact text. It
+    /// ends for any content of the folder. Never throws for that.
     /// </summary>
     public void Clear()
     {
         try
         {
-            var folder = new DirectoryInfo(openFolder);
-            if (!folder.Exists)
+            string exactOpenFolder = ToExactPath(openFolder);
+            if (Directory.Exists(exactOpenFolder))
             {
-                return;
+                EmptyFolder(exactOpenFolder);
             }
-
-            if (folder.Attributes.HasFlag(FileAttributes.ReparsePoint))
-            {
-                DeleteEmptyFolderBestEffort(openFolder);
-                return;
-            }
-
-            EmptyFolder(openFolder);
         }
         catch (Exception exception) when (exception is IOException or UnauthorizedAccessException)
         {
             // Ignored on purpose: the next start tries again.
         }
+    }
+
+    // With this prefix Windows takes the text as it is: without it, "x." means "x", and a folder named ".. " means the one above.
+    private static string ToExactPath(string path)
+    {
+        if (path.StartsWith(@"\\?\", StringComparison.Ordinal) || path.StartsWith(@"\\.\", StringComparison.Ordinal))
+        {
+            return path;
+        }
+
+        return path.StartsWith(@"\\", StringComparison.Ordinal) ? $@"\\?\UNC\{path[2..]}" : $@"\\?\{path}";
     }
 
     private static string NormaliseFolder(string folder)
@@ -139,10 +160,19 @@ public sealed class AttachmentFiles(string openFolder)
     // a call stack: the depth of the folders is not ours to limit.
     private static void EmptyFolder(string root)
     {
+        // The exact paths only ever go deeper. The set is what ends the walk if a path ever resolves to a folder already seen.
+        var visitedFolders = new HashSet<string>(StringComparer.Ordinal) { root };
         var foldersToWalk = new Stack<string>([root]);
         var foundFolders = new List<string>();
         while (foldersToWalk.TryPop(out string? folder))
         {
+            // It may have become a link since it was listed; what remains after this check is accepted.
+            if (IsLinkOrUnreadable(folder))
+            {
+                DeleteEmptyFolderBestEffort(folder);
+                continue;
+            }
+
             foreach (FileSystemInfo entry in ListEntriesBestEffort(folder))
             {
                 bool isLink = entry.Attributes.HasFlag(FileAttributes.ReparsePoint);
@@ -151,10 +181,14 @@ public sealed class AttachmentFiles(string openFolder)
                 {
                     DeleteEmptyFolderBestEffort(entry.FullName);
                 }
-                else if (isFolder)
+                else if (isFolder && visitedFolders.Add(entry.FullName))
                 {
                     foldersToWalk.Push(entry.FullName);
                     foundFolders.Add(entry.FullName);
+                }
+                else if (isFolder)
+                {
+                    continue;
                 }
                 else if (isLink)
                 {
@@ -171,6 +205,18 @@ public sealed class AttachmentFiles(string openFolder)
         for (int index = foundFolders.Count - 1; index >= 0; index--)
         {
             DeleteEmptyFolderBestEffort(foundFolders[index]);
+        }
+    }
+
+    private static bool IsLinkOrUnreadable(string folder)
+    {
+        try
+        {
+            return File.GetAttributes(folder).HasFlag(FileAttributes.ReparsePoint);
+        }
+        catch (Exception exception) when (exception is IOException or UnauthorizedAccessException)
+        {
+            return true;
         }
     }
 
@@ -211,6 +257,12 @@ public sealed class AttachmentFiles(string openFolder)
     {
         try
         {
+            string parentFolder = Path.GetDirectoryName(fileFolder) ?? throw new IOException("The open folder has no parent.");
+            if (Directory.Exists(parentFolder) && File.GetAttributes(parentFolder).HasFlag(FileAttributes.ReparsePoint))
+            {
+                throw new IOException("The open folder is a link.");
+            }
+
             Directory.CreateDirectory(fileFolder);
             await WriteFileAsync(writeContent, filePath, ct).ConfigureAwait(false);
             if (!TryWriteMark(filePath))
@@ -271,6 +323,26 @@ public sealed class AttachmentFiles(string openFolder)
         {
             Directory.Delete(folder, recursive: false);
         }
+        catch (Exception firstFailure) when (firstFailure is IOException or UnauthorizedAccessException)
+        {
+            RetryDeleteOfReadOnlyFolderBestEffort(folder);
+        }
+    }
+
+    // A read-only folder or junction refuses the delete. On these two the attribute belongs to the entry itself (measured for a
+    // junction); a symbolic link stays as it is, because that could not be measured here.
+    private static void RetryDeleteOfReadOnlyFolderBestEffort(string folder)
+    {
+        try
+        {
+            FileAttributes attributes = File.GetAttributes(folder);
+            bool isLink = attributes.HasFlag(FileAttributes.ReparsePoint);
+            if (attributes.HasFlag(FileAttributes.ReadOnly) && (!isLink || NativeLinks.IsJunction(folder)))
+            {
+                File.SetAttributes(folder, attributes & ~FileAttributes.ReadOnly);
+                Directory.Delete(folder, recursive: false);
+            }
+        }
         catch (Exception exception) when (exception is IOException or UnauthorizedAccessException)
         {
             // Ignored on purpose: it still holds a locked file.
@@ -294,13 +366,34 @@ public sealed class AttachmentFiles(string openFolder)
     {
         try
         {
-            // A viewer may have set it read-only, which alone would keep it here for good.
-            File.SetAttributes(path, FileAttributes.Normal);
             File.Delete(path);
+        }
+        catch (UnauthorizedAccessException)
+        {
+            RetryDeleteOfReadOnlyFileBestEffort(path);
+        }
+        catch (IOException)
+        {
+            // Ignored on purpose: locked, and the unique name keeps it apart from real data.
+        }
+    }
+
+    // A viewer may have set it read-only, which alone would keep it here for good. Attributes are shared by the hard links of a
+    // file, so only this one is touched, and only when it stands in the way.
+    private static void RetryDeleteOfReadOnlyFileBestEffort(string path)
+    {
+        try
+        {
+            FileAttributes attributes = File.GetAttributes(path);
+            if (attributes.HasFlag(FileAttributes.ReadOnly))
+            {
+                File.SetAttributes(path, attributes & ~FileAttributes.ReadOnly);
+                File.Delete(path);
+            }
         }
         catch (Exception exception) when (exception is IOException or UnauthorizedAccessException)
         {
-            // Ignored on purpose: locked or already gone, and the unique name keeps it apart from real data.
+            // Ignored on purpose: the next start tries again.
         }
     }
 
