@@ -84,6 +84,9 @@ public static class UiText
     /// <summary>Confirmation dialog: the button that goes on.</summary>
     public static string ConfirmationAccept => "Endgültig löschen";
 
+    /// <summary>Confirmation dialog: the button that goes on with opening an attachment.</summary>
+    public static string ConfirmationOpenAttachment => "Trotzdem öffnen";
+
     /// <summary>Confirmation dialog: the button that stops.</summary>
     public static string ConfirmationCancel => "Abbrechen";
 
@@ -101,6 +104,40 @@ public static class UiText
 
     /// <summary>Reading header: attachment label.</summary>
     public static string AttachmentsLabel => "Anhänge:";
+
+    /// <summary>Attachment row: open with the program Windows assigns.</summary>
+    public static string AttachmentOpen => "Öffnen";
+
+    /// <summary>Attachment row: save with the dialog of Windows.</summary>
+    public static string AttachmentSave => "Speichern";
+
+    /// <summary>Save dialog: name of the file type.</summary>
+    public static string AttachmentFileType => "Anhang";
+
+    /// <summary>Attachment notice: the window offers no way to save or open here.</summary>
+    public static string AttachmentActionsUnavailable => "Anhänge können hier nicht geöffnet oder gespeichert werden.";
+
+    /// <summary>Attachment notice: the local copy of the mail is gone.</summary>
+    public static string AttachmentMailGone => "Der Anhang ist nicht mehr da: Die Mail wurde inzwischen gelöscht.";
+
+    /// <summary>Attachment notice: the part is not the listed one any more, or it cannot be decoded.</summary>
+    public static string AttachmentChangedOrUnreadable =>
+        "Der Anhang passt nicht mehr zur angezeigten Mail oder lässt sich nicht lesen. Es wurde nichts übernommen.";
+
+    /// <summary>Attachment notice: saving failed for another reason.</summary>
+    public static string AttachmentSaveFailed =>
+        "Der Anhang konnte nicht gespeichert werden. Ist das Laufwerk voll oder der Ordner schreibgeschützt?";
+
+    /// <summary>Attachment notice: preparing the file for opening failed for another reason.</summary>
+    public static string AttachmentOpenFailed =>
+        "Der Anhang konnte nicht zum Öffnen vorbereitet werden. Ist das Laufwerk voll?";
+
+    /// <summary>Attachment notice: the mark "from the internet" could not be set, so the file is not opened.</summary>
+    public static string AttachmentMarkFailed =>
+        "Der Anhang wurde nicht geöffnet: Auf diesem Laufwerk lässt sich der Vermerk „aus dem Internet“ nicht setzen. Er kann weiterhin gespeichert werden.";
+
+    /// <summary>Attachment notice: Windows did not open the file.</summary>
+    public static string AttachmentOpenRefused => "Windows hat den Anhang nicht geöffnet.";
 
     /// <summary>Reading pane without a selected message.</summary>
     public static string ReadingEmpty => "Keine Nachricht ausgewählt.";
@@ -225,6 +262,28 @@ public static class UiText
         string folderWords = role == FolderRole.Trash ? "Papierkorb" : "Junk-Ordner";
         string ofAccount = accountLabel.Length == 0 ? string.Empty : $" von {accountLabel}";
         return $"{folderWords}{ofAccount} leeren: {CountOfMails(count)} endgültig löschen? Das kann nicht rückgängig gemacht werden.";
+    }
+
+    /// <summary>
+    /// Question before opening an attachment: the reasons of A5 and A6 in fixed words, never a file name, sender or subject.
+    /// </summary>
+    /// <param name="risk">Risk level of the file.</param>
+    /// <param name="folderRole">Role of the folder of the mail; null when it is unknown.</param>
+    /// <returns>The text.</returns>
+    internal static string ConfirmOpenAttachment(AttachmentRisk risk, FolderRole? folderRole)
+    {
+        string folderReason = folderRole switch
+        {
+            null => "Der Ordner dieser Mail ist unbekannt. ",
+            FolderRole.Junk => "Diese Mail liegt im Junk-Ordner. ",
+            FolderRole.Quarantine => "Diese Mail liegt in der Quarantäne. ",
+            FolderRole.Screener => "Diese Mail liegt im Screener, ihr Absender ist noch nicht bestätigt. ",
+            _ => string.Empty,
+        };
+        string typeReason = risk == AttachmentRisk.Ask
+            ? "Dieser Dateityp kann Programme oder Makros enthalten. "
+            : string.Empty;
+        return $"{folderReason}{typeReason}Den Anhang trotzdem öffnen?";
     }
 
     /// <summary>Error window: title.</summary>

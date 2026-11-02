@@ -59,4 +59,20 @@ public interface IMailboxReadModel
     /// <returns>The content; null when the message has no EML (EmlPath null or file missing).</returns>
     /// <exception cref="MailContentException">The EML cannot be parsed.</exception>
     Task<MailContent?> ReadContentAsync(MailMessage message, CancellationToken ct = default);
+
+    /// <summary>
+    /// Writes the decoded content of one attachment to the destination as a stream, off the caller's thread and without using the
+    /// database connection, so the lists are not held up. An attached message is written as that message. The EML file stays open
+    /// while this runs. When <see cref="ReadContentAsync"/> delivered a list for this file before, the part at that position must
+    /// still match it, so a changed EML cannot deliver another part than the one chosen.
+    /// </summary>
+    /// <param name="message">Message of the attachment.</param>
+    /// <param name="attachmentIndex">Position in <see cref="MailContent.Attachments"/>.</param>
+    /// <param name="destination">Receives the content; not disposed.</param>
+    /// <param name="ct">Cancellation token.</param>
+    /// <returns>A task that completes when the content is written.</returns>
+    /// <exception cref="FileNotFoundException">The message has no EML (EmlPath null or file missing).</exception>
+    /// <exception cref="MailContentException">The part does not match, has no content or the EML cannot be parsed.</exception>
+    /// <exception cref="ArgumentOutOfRangeException"><paramref name="attachmentIndex"/> lies outside the list of this message.</exception>
+    Task CopyAttachmentAsync(MailMessage message, int attachmentIndex, Stream destination, CancellationToken ct = default);
 }

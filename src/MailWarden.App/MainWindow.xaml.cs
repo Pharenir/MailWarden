@@ -213,7 +213,7 @@ public sealed partial class MainWindow : Window
                 RequestedTheme = RootGrid.ActualTheme,
                 Title = UiText.ConfirmationTitle,
                 Content = new TextBlock { Text = request.Text, TextWrapping = TextWrapping.Wrap },
-                PrimaryButtonText = UiText.ConfirmationAccept,
+                PrimaryButtonText = request.AcceptText,
                 CloseButtonText = UiText.ConfirmationCancel,
                 DefaultButton = ContentDialogButton.Close,
             };
@@ -267,6 +267,23 @@ public sealed partial class MainWindow : Window
         if ((sender as FrameworkElement)?.DataContext is PendingActionRow row)
         {
             ViewModel.DiscardFailedActionCommand.Execute(row);
+        }
+    }
+
+    // Both actions report their failures in the notice of the pane and do not throw.
+    private void OnOpenAttachmentClicked(object sender, RoutedEventArgs args)
+    {
+        if ((sender as FrameworkElement)?.DataContext is AttachmentRow row)
+        {
+            _ = ViewModel.Reading.OpenAttachmentAsync(row);
+        }
+    }
+
+    private void OnSaveAttachmentClicked(object sender, RoutedEventArgs args)
+    {
+        if ((sender as FrameworkElement)?.DataContext is AttachmentRow row)
+        {
+            _ = ViewModel.Reading.SaveAttachmentAsync(row);
         }
     }
 

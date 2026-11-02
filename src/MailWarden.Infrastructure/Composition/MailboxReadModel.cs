@@ -11,11 +11,18 @@ namespace MailWarden.Infrastructure.Composition;
 /// </summary>
 internal sealed class MailboxReadModel : IMailboxReadModel
 {
+    // The reading pane shows one mail, but an action may still run for one or two earlier ones.
+    private const int RememberedAttachmentListCount = 8;
+
     private readonly SemaphoreSlim connectionGate = new(1, 1);
     private readonly SqliteAccountStore accounts;
     private readonly SqliteFolderStore folders;
     private readonly SqliteMessageStore messages;
     private readonly IEmlStore emlStore;
+
+    // The lists last delivered per EML file, oldest first: what the user chooses an attachment from. See CopyAttachmentAsync.
+    private readonly Lock attachmentListGate = new();
+    private readonly List<KeyValuePair<string, IReadOnlyList<MailAttachmentInfo>>> attachmentLists = [];
     private bool isClosed;
 
     public MailboxReadModel(SqliteDatabase database, IEmlStore emlStore)
@@ -66,6 +73,15 @@ internal sealed class MailboxReadModel : IMailboxReadModel
         return Task.Run(() => ReadContentCoreAsync(message, ct), ct);
     }
 
+    public Task CopyAttachmentAsync(MailMessage message, int attachmentIndex, Stream destination, CancellationToken ct = default)
+    {
+        ArgumentNullException.ThrowIfNull(message);
+        ArgumentNullException.ThrowIfNull(destination);
+
+        // Files only, like ReadContentAsync: a long copy does not hold up the lists.
+        return Task.Run(() => CopyAttachmentCoreAsync(message, attachmentIndex, destination, ct), ct);
+    }
+
     /// <summary>
     /// Waits for the running query and refuses later ones, so that the connection can be closed safely afterwards.
     /// </summary>
@@ -102,7 +118,56 @@ internal sealed class MailboxReadModel : IMailboxReadModel
         }
 
         inMemoryEml.Position = 0;
-        return await MailContentReader.ReadAsync(inMemoryEml, ct).ConfigureAwait(false);
+        MailContent content = await MailContentReader.ReadAsync(inMemoryEml, ct).ConfigureAwait(false);
+        RememberAttachmentList(message.EmlPath, content.Attachments);
+        return content;
+    }
+
+    private async Task CopyAttachmentCoreAsync(MailMessage message, int attachmentIndex, Stream destination, CancellationToken ct)
+    {
+        if (message.EmlPath is null)
+        {
+            throw new FileNotFoundException("The message has no local copy.");
+        }
+
+        Stream emlFile;
+        try
+        {
+            emlFile = await emlStore.OpenReadAsync(message.EmlPath, ct).ConfigureAwait(false);
+        }
+        catch (EmlNotFoundException)
+        {
+            // Without the inner exception: it names the path of the file.
+            throw new FileNotFoundException("The message has no local copy.");
+        }
+
+        await using (emlFile.ConfigureAwait(false))
+        {
+            await MailContentReader
+                .CopyAttachmentAsync(emlFile, attachmentIndex, FindAttachmentList(message.EmlPath), destination, ct)
+                .ConfigureAwait(false);
+        }
+    }
+
+    private void RememberAttachmentList(string emlPath, IReadOnlyList<MailAttachmentInfo> attachments)
+    {
+        lock (attachmentListGate)
+        {
+            attachmentLists.RemoveAll(entry => entry.Key == emlPath);
+            attachmentLists.Add(KeyValuePair.Create(emlPath, attachments));
+            if (attachmentLists.Count > RememberedAttachmentListCount)
+            {
+                attachmentLists.RemoveAt(0);
+            }
+        }
+    }
+
+    private IReadOnlyList<MailAttachmentInfo>? FindAttachmentList(string emlPath)
+    {
+        lock (attachmentListGate)
+        {
+            return attachmentLists.FirstOrDefault(entry => entry.Key == emlPath).Value;
+        }
     }
 
     private Task<TResult> RunSerialisedAsync<TResult>(Func<CancellationToken, Task<TResult>> query, CancellationToken ct)

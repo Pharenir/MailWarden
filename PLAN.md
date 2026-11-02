@@ -212,18 +212,18 @@ Vollständiger Schnittstellenvertrag: `work\AP-04a\requirement.md`.
 Freigabe Dennis 2026-11-02. Vollständiger Vertrag: `work\AP-04c\requirement.md`. Das Fenster läuft in keinem Test; was nur der Handtest belegt, steht dann als „manuell Dennis“.
 | # | Sollverhalten | Umgesetzt | Getestet |
 |---|---|---|---|
-| A1 | Jeder Anhang der offenen Mail steht im Lesebereich mit Name, Größe, Öffnen und Speichern |  |  |
-| A2 | Speichern nur über den Dialog von Windows, Inhalt als Strom, kein Speichern ohne Dialog |  |  |
-| A3 | Öffnen aus eigenem Ordner unter den Daten, mit Vermerk „aus dem Internet“; ohne Vermerk kein Öffnen; Ordner wird beim Start und Beenden geleert |  |  |
-| A4 | Sicherer Dateiname: keine Pfade, kein `:`, keine Steuerzeichen, keine reservierten Namen, Länge begrenzt |  |  |
-| A5 | Drei Stufen nach der letzten Endung: Programme und Skripte nur speichern, harmlose sofort öffnen, alles andere nach Rückfrage |  |  |
-| A6 | Aus Junk, Quarantäne und Screener fragt jedes Öffnen nach; Gesperrtes bleibt gesperrt; es entscheidet die Rolle, nie der Ordnername |  |  |
-| A7 | Der angegebene Dateityp entscheidet nichts, nur die Endung |  |  |
-| A8 | Fehler beim Dekodieren, gelöschte Mail, volle Platte, abgebrochener Dialog: lesbare Meldung oder nichts, kein Absturz, keine halbe Datei |  |  |
-| A9 | Ein Anhang wird über seine Stelle in der Liste angesprochen und gegen Name und Größe geprüft |  |  |
-| A10 | Unbekannte Ordnerrolle zählt für A6 wie Junk |  |  |
-| A11 | `message/rfc822` wird als `.eml` gespeichert oder geöffnet; Teile unter der Tiefengrenze haben keine Aktion |  |  |
-| A12 | Öffnen und Speichern setzen kein Flag und berühren den Server nicht |  |  |
+| A1 | Jeder Anhang der offenen Mail steht im Lesebereich mit Name, Größe, Öffnen und Speichern | ✅ `Presentation\AttachmentRow.cs`, `ReadingPaneViewModel.Attachments`, `App\MainWindow.xaml` |  |
+| A2 | Speichern nur über den Dialog von Windows, Inhalt als Strom, kein Speichern ohne Dialog | ✅ `ReadingPaneViewModel.SaveAttachmentAsync`, `Infrastructure\Mime\AttachmentFiles.SaveAsync`, `MailContentReader.CopyAttachmentAsync`, `App\WindowAttachmentHost.cs` (Dialog noch nicht gemessen) |  |
+| A3 | Öffnen aus eigenem Ordner unter den Daten, mit Vermerk „aus dem Internet“; ohne Vermerk kein Öffnen; Ordner wird beim Start und Beenden geleert | ✅ `AttachmentFiles.PrepareForOpeningAsync`/`Clear`, `Storage\DataPaths.AttachmentsOpenRoot`, `App\App.xaml.cs`, `App\WindowAttachmentHost.cs` (Start noch nicht gemessen) |  |
+| A4 | Sicherer Dateiname: keine Pfade, kein `:`, keine Steuerzeichen, keine reservierten Namen, Länge begrenzt | ✅ `Presentation\AttachmentPolicy.cs` (`AttachmentFileName`), `Storage\DataPaths.IsDosDeviceName` |  |
+| A5 | Drei Stufen nach der letzten Endung: Programme und Skripte nur speichern, harmlose sofort öffnen, alles andere nach Rückfrage | ✅ `Presentation\AttachmentPolicy.cs` (`Classify`), Listen in `work\AP-04c\impl-notes.md` |  |
+| A6 | Aus Junk, Quarantäne und Screener fragt jedes Öffnen nach; Gesperrtes bleibt gesperrt; es entscheidet die Rolle, nie der Ordnername | ✅ `AttachmentPolicy.MustAskBeforeOpening`, `ReadingPaneViewModel.OpenAttachmentAsync`, `UiText.ConfirmOpenAttachment`, `ShellViewModel` (Frage reiht sich ein) |  |
+| A7 | Der angegebene Dateityp entscheidet nichts, nur die Endung | ✅ `AttachmentPolicy.Classify` kennt nur den Namen |  |
+| A8 | Fehler beim Dekodieren, gelöschte Mail, volle Platte, abgebrochener Dialog: lesbare Meldung oder nichts, kein Absturz, keine halbe Datei | ✅ `ReadingPaneViewModel` (`AttachmentNotice`, Log nur Typname), `AttachmentFiles` |  |
+| A9 | Ein Anhang wird über seine Stelle in der Liste angesprochen und gegen Name und Größe geprüft | ⚠️ `MailContentReader.CopyAttachmentAsync`, `MailboxReadModel`: Der Vertrag übergibt keine Erwartungswerte, also merkt sich das Read-Model die zuletzt gelieferten Listen je EML und vergleicht damit; Begründung in `impl-notes.md` |  |
+| A10 | Unbekannte Ordnerrolle zählt für A6 wie Junk | ✅ `AttachmentPolicy.MustAskBeforeOpening` (null), Rolle aus `ShowAsync` |  |
+| A11 | `message/rfc822` wird als `.eml` gespeichert oder geöffnet; Teile unter der Tiefengrenze haben keine Aktion | ✅ `MailContentReader.WriteContentAsync`, `AttachmentFileName.ToSafeForMessage`, `MailAttachmentInfo.IsAttachedMessage` |  |
+| A12 | Öffnen und Speichern setzen kein Flag und berühren den Server nicht | ✅ `ReadingPaneViewModel` (Zeilen nur in `ShowHeader`/`ShowContentHeader`, kein Aufruf von `IMailboxActions`) |  |
 
 ### AP-04e Nightshade-Thema
 Wunsch Dennis 2026-11-01: viertes Thema, als Standard. Spike und vollständiger Vertrag: `work\AP-04e\requirement.md`. Stand: verify.2 S3 2965/2965 (Core 536, Presentation 629, Infrastructure 1800), secure.1 ohne Kritisch/Hoch. Die Oberfläche selbst läuft in keinem Test; was nur der Handtest belegt, steht als „manuell Dennis“. Die Hover-Farben und Grenzen stehen in den Decisions der Anforderung.
