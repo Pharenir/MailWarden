@@ -288,22 +288,22 @@ Vollständiger Schnittstellenvertrag: `work\AP-04a\requirement.md`.
 Wunsch Dennis 2026-11-01: viertes Thema, als Standard. Spike und vollständiger Vertrag: `work\AP-04e\requirement.md`. Die Oberfläche selbst läuft in keinem Test; was nur der Handtest belegt, steht dann als „manuell Dennis“.
 | # | Sollverhalten | Umgesetzt | Getestet |
 |---|---|---|---|
-| E1 | `AppTheme.Nightshade`, gespeichert als `nightshade`; unbekannte Werte werden weiter abgelehnt |  |  |
-| E2 | Standard ist Nightshade; ein gespeichertes Thema bleibt |  |  |
-| E3 | Auswahl in der Reihenfolge Nightshade, System, Hell, Dunkel (`AppThemes.ChoiceOrder`) |  |  |
-| E4 | `ReadingTheme.Nightshade`; `AppThemes.ToReadingTheme` liefert es unabhängig vom Fenster |  |  |
-| E5 | Mail ohne eigene Farben und Klartext: Seite `#231E33`, Text `#ECE8F7`, Links `#FF8A3D`, Auswahl `#4A3B7A`, kein Schleier |  |  |
-| E6 | Mail mit eigenen Farben: helles Blatt unter dem Schleier, Stil wie im Dunkelmodus |  |  |
-| E7 | `PageBackground(Nightshade)` = `#231E33`, kein Aufblitzen |  |  |
-| E8 | Hell und Dunkel bleiben byte-gleich |  |  |
-| E9 | Bereinigung und CSP unverändert, Stil nur aus eigenen Konstanten |  |  |
-| E10 | Wechsel bei offener Mail ohne erneutes Lesen, auch Dunkel ↔ Nightshade |  |  |
-| E11 | `Themes\NightshadeTheme.xaml`: nur Wörterbuch `Dark`, keine doppelten Schlüssel, jeder Alias vorher definiert |  |  |
-| E12 | Fenster zeigt die Palette: Steuerelemente, Flyouts, Menüs, Dialoge, Titelleiste, kein Mica |  |  |
-| E13 | Wechsel live in jede Richtung ohne sichtbares Aufblitzen; Verlassen stellt Mica und Titelleiste wieder her |  |  |
-| E14 | Start mit Nightshade ohne Aufblitzen eines anderen Themas |  |  |
-| E15 | Windows-Hochkontrast: Palette, Fensterfläche und Titelleiste werden nicht angewendet |  |  |
-| E16 | `Core`/`Infrastructure` ohne WinUI, `AppThemes` in `Presentation`, Code-Behind verdrahtet nur |  |  |
+| E1 | `AppTheme.Nightshade`, gespeichert als `nightshade`; unbekannte Werte werden weiter abgelehnt | ✅ `Presentation\UiSettings.cs`, `Presentation\UiSettingsFile.cs` |  |
+| E2 | Standard ist Nightshade; ein gespeichertes Thema bleibt | ✅ `Presentation\UiSettings.cs` (`Default`); `UiSettingsFile` beginnt beim Laden mit `Default` |  |
+| E3 | Auswahl in der Reihenfolge Nightshade, System, Hell, Dunkel (`AppThemes.ChoiceOrder`) | ✅ `Presentation\AppThemes.cs`, `Presentation\UiText.cs`, `App\MainWindow.xaml.cs` |  |
+| E4 | `ReadingTheme.Nightshade`; `AppThemes.ToReadingTheme` liefert es unabhängig vom Fenster | ✅ `Infrastructure\Mime\ReadingTheme.cs`, `Presentation\AppThemes.cs` |  |
+| E5 | Mail ohne eigene Farben und Klartext: Seite `#231E33`, Text `#ECE8F7`, Links `#FF8A3D`, Auswahl `#4A3B7A`, kein Schleier | ✅ `Infrastructure\Mime\ReadingDocumentBuilder.cs` (`NightshadeStyle`) |  |
+| E6 | Mail mit eigenen Farben: helles Blatt unter dem Schleier, Stil wie im Dunkelmodus | ✅ `Infrastructure\Mime\ReadingDocumentBuilder.cs` (`SelectPageStyle`, dieselbe Konstante `DimmedLightStyle`) |  |
+| E7 | `PageBackground(Nightshade)` = `#231E33`, kein Aufblitzen | ✅ `Infrastructure\Mime\ReadingDocumentBuilder.cs` |  |
+| E8 | Hell und Dunkel bleiben byte-gleich | ✅ `Infrastructure\Mime\ReadingDocumentBuilder.cs` (Stile textgleich; nur die Regel für `mark` als gemeinsame Konstante) |  |
+| E9 | Bereinigung und CSP unverändert, Stil nur aus eigenen Konstanten | ✅ `Infrastructure\Mime\ReadingDocumentBuilder.cs` (Bereinigung und CSP nicht angefasst, Auswahl nur aus Thema und Ja/Nein) |  |
+| E10 | Wechsel bei offener Mail ohne erneutes Lesen, auch Dunkel ↔ Nightshade | ✅ `App\MainWindow.xaml.cs` (`ApplyReadingTheme` über `AppThemes.ToReadingTheme`); `ReadingPaneViewModel` unverändert |  |
+| E11 | `Themes\NightshadeTheme.xaml`: nur Wörterbuch `Dark`, keine doppelten Schlüssel, jeder Alias vorher definiert | ✅ `App\Themes\NightshadeTheme.xaml`, erzeugt von `tools\make_nightshade_theme.py`; dazu der eigene Schlüssel `NightshadeWindowBackgroundBrush` |  |
+| E12 | Fenster zeigt die Palette: Steuerelemente, Flyouts, Menüs, Dialoge, Titelleiste, kein Mica | ✅ `App\Themes\NightshadeTheme.xaml`, `App\WindowThemeChrome.cs` (nicht gestartet, Handtest offen) |  |
+| E13 | Wechsel live in jede Richtung ohne sichtbares Aufblitzen; Verlassen stellt Mica und Titelleiste wieder her | ✅ `App\WindowThemeChrome.cs` (nicht gestartet, Handtest offen) |  |
+| E14 | Start mit Nightshade ohne Aufblitzen eines anderen Themas | ✅ `App\MainWindow.xaml.cs` (Palette vor `InitializeComponent`), `App\WindowThemeChrome.cs` (nicht gestartet, Handtest offen) |  |
+| E15 | Windows-Hochkontrast: Palette, Fensterfläche und Titelleiste werden nicht angewendet | ✅ `App\WindowThemeChrome.cs` (`AccessibilitySettings`, auch beim Umschalten zur Laufzeit; nicht gestartet, Handtest offen) |  |
+| E16 | `Core`/`Infrastructure` ohne WinUI, `AppThemes` in `Presentation`, Code-Behind verdrahtet nur | ✅ `Presentation\AppThemes.cs`, `App\WindowThemeChrome.cs`, `App\MainWindow.xaml.cs` |  |
 
 ### AP-04d Lesebereich folgt dem Thema
 Wunsch Dennis 2026-11-01. Die Regel „Mail-Inhalt nie dunkel“ in `ReadingDocumentBuilder` entfällt; geblieben ist der Grund dahinter: eine Mail muss lesbar bleiben. Stand: verify.4 S3 2523/2523 (Core 536, Infrastructure 1604, Presentation 383) vor dem Merge mit `main`; verify.5 S3 auf dem zusammengeführten Stand 2772/2772 (Core 536, Presentation 559, Infrastructure 1677), secure.2 ohne Befund über Hinweise hinaus. review.1 CHANGES, review.2 APPROVE; secure.1 0 Kritisch / 0 Hoch / 0 Mittel / 1 Niedrig (L1, durch F1 behoben) / 2 Hinweise. Alle Fälle nur mit künstlichen Daten. **Von Dennis am 2026-11-01 bestanden: Fälle 13 und 21 (Schleier, Links und Auswahl hindurch, Hell, Design System im laufenden Betrieb, kein störendes Aufblitzen); damit sind die manuellen ⚠️ unten erledigt.** **Die Oberfläche selbst (Fenster, WebView2-Control) läuft in keinem Test**: was nur der manuelle Test belegt, steht als „manuell Dennis“. Dennis 2026-11-01: Klartext-Mails folgen dem Thema, Umschalten Hell/Dunkel funktioniert; Fall 21 (abgedunkeltes Blatt, Links und Auswahl durch den Schleier) ist offen. Vollständiger Vertrag: `work\AP-04d\requirement.md`.

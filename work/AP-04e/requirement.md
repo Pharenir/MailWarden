@@ -154,3 +154,6 @@ Manual, Dennis (`work\manual-tests.md`):
 
 ## Done when
 S3 green on the merged branch, reviewer APPROVE, security-reviewer without Critical/High, documenter done, cases 23 to 28 by Dennis, CPM by Dennis.
+
+## Decisions fix.1 (planner, 2026-11-02, before verify.1)
+The planner ran the real `WindowThemeChrome` and the real `NightshadeTheme.xaml` in the spike (mode `THEME_SPIKE_REAL`). Subscribing to `AccessibilitySettings.HighContrastChanged` throws `COMException 0x80070490` in the unpackaged app, in the constructor, so every start would have failed. The live reaction went beyond E15 and is removed: `HighContrast` is read on each `Apply`, a change of the Windows setting counts from the next theme change or start. `new AccessibilitySettings()` and reading `HighContrast` work.
