@@ -138,3 +138,10 @@ None. Own test errors in this round: one (class a): `Extended()` lost a backslas
 - Same as verify.2: non-NTFS path, file symbolic links (need elevation), `FileSavePicker` and launch (Dennis, cases 21 to 26).
 - A read-only hard link remains accepted without a test (Decisions fix.3).
 - Testzähler in TODO.md and the column *Getestet* of PLAN.md are not changed (instruction); after this green S3 the counter is to be reset to 0 by the caller.
+
+## verify.4 (2026-11-02, S3, green)
+
+- Added: `Prepare_refusal_for_a_junction_as_open_folder_carries_the_link_data_key` (Infrastructure, `OpenFolderIsLinkDataKey` = true, target stays empty); `An_open_folder_that_is_a_junction_shows_the_link_notice_and_writes_nothing` (Presentation, `AttachmentNotice` = `UiText.AttachmentOpenFolderIsLink`, no launch); `A_refused_start_discards_the_prepared_file_and_its_folder` (Presentation, `attachments-open` empty after `OpenResult` = false).
+- Discard on a missing or locked file does not throw: already covered by the verify.3 tests, assumption confirmed.
+- Result: Core.Tests 536/536, Presentation.Tests 921/921, Infrastructure.Tests 1887/1887; total 3344 of 3344 green (verify.3: 3341). Run 28 s via watchdog, no soft limit, no abort. Build with `-warnaserror`: 0 warnings.
+- Not run by me: manual cases 21 to 26 (Dennis), non-NTFS path, file symbolic links.

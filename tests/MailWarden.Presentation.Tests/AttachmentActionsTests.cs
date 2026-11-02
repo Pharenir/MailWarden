@@ -355,6 +355,76 @@ public sealed class AttachmentActionsTests : IDisposable
         Assert.True(string.IsNullOrWhiteSpace(harness.Shell.Banner));
     }
 
+    // fix.4 N2: Windows refused the start; the prepared file and its guid folder are gone, the open folder stays empty.
+    [Fact(Timeout = TestTimeouts.PerTestMilliseconds)]
+    public async Task A_refused_start_discards_the_prepared_file_and_its_folder()
+    {
+        (ShellHarness harness, _) = await ShowAsync(FolderRole.Inbox, ThreeAttachments());
+        harness.AttachmentHost.OpenResult = false;
+
+        await harness.Shell.Reading.OpenAttachmentAsync(RowNamed(harness, HarmlessName));
+
+        string prepared = Assert.Single(harness.AttachmentHost.OpenedPaths);
+        Assert.False(File.Exists(prepared), "the prepared file stays");
+        Assert.False(Directory.Exists(Path.GetDirectoryName(prepared)!), "the guid folder stays");
+        Assert.Empty(FilesInOpenFolder(harness));
+        Assert.Empty(Directory.GetFileSystemEntries(harness.AttachmentOpenFolder));
+        Assert.False(string.IsNullOrWhiteSpace(harness.Shell.Reading.AttachmentNotice));
+    }
+
+    // fix.4 S3: the open folder is a junction; own text naming the restart, nothing lands in the target.
+    [Fact(Timeout = TestTimeouts.PerTestMilliseconds)]
+    public async Task An_open_folder_that_is_a_junction_shows_the_link_notice_and_writes_nothing()
+    {
+        (ShellHarness harness, _) = await ShowAsync(FolderRole.Inbox, ThreeAttachments());
+        string linkTarget = Path.Combine(harness.WorkRoot, "outside_target");
+        Directory.CreateDirectory(linkTarget);
+        Directory.CreateDirectory(Path.GetDirectoryName(harness.AttachmentOpenFolder)!);
+        CreateJunction(harness.AttachmentOpenFolder, linkTarget, harness.WorkRoot);
+
+        try
+        {
+            Exception? failure = await Record.ExceptionAsync(() => harness.Shell.Reading.OpenAttachmentAsync(RowNamed(harness, HarmlessName)));
+
+            Assert.Null(failure);
+            Assert.Equal(UiText.AttachmentOpenFolderIsLink, harness.Shell.Reading.AttachmentNotice);
+            Assert.True(harness.Shell.Reading.HasAttachmentNotice);
+            Assert.False(string.IsNullOrWhiteSpace(UiText.AttachmentOpenFolderIsLink));
+            Assert.Empty(harness.AttachmentHost.OpenedPaths);
+            Assert.Empty(Directory.GetFileSystemEntries(linkTarget, "*", SearchOption.AllDirectories));
+        }
+        finally
+        {
+            // Remove the link itself first so that nothing walks into the target.
+            if (Directory.Exists(harness.AttachmentOpenFolder))
+            {
+                Directory.Delete(harness.AttachmentOpenFolder, recursive: false);
+            }
+        }
+    }
+
+    /// <summary>Makes a junction with <c>mklink /J</c>; fails the test when the call fails.</summary>
+    private static void CreateJunction(string link, string target, string workingDirectory)
+    {
+        var start = new System.Diagnostics.ProcessStartInfo("cmd.exe")
+        {
+            WorkingDirectory = workingDirectory,
+            RedirectStandardOutput = true,
+            RedirectStandardError = true,
+            UseShellExecute = false,
+            CreateNoWindow = true,
+        };
+        start.ArgumentList.Add("/c");
+        start.ArgumentList.Add("mklink");
+        start.ArgumentList.Add("/J");
+        start.ArgumentList.Add(link);
+        start.ArgumentList.Add(target);
+        using System.Diagnostics.Process process = System.Diagnostics.Process.Start(start)!;
+        string output = process.StandardOutput.ReadToEnd() + process.StandardError.ReadToEnd();
+        process.WaitForExit();
+        Assert.True(process.ExitCode == 0, $"mklink /J failed: {output}");
+    }
+
     // Case 18: decoding fails while opening.
     [Fact(Timeout = TestTimeouts.PerTestMilliseconds)]
     public async Task A_decoding_failure_while_opening_sets_a_notice_logs_the_type_and_leaves_no_file()

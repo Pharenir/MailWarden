@@ -777,6 +777,24 @@ public sealed class AttachmentFilesTests : IDisposable
         Assert.True(Directory.Exists(linkTarget));
     }
 
+    // fix.4 S3: the refusal for a junction as the open folder carries its own data key, so the UI can name the restart.
+    [Fact(Timeout = TestTimeouts.PerTestMilliseconds)]
+    public async Task Prepare_refusal_for_a_junction_as_open_folder_carries_the_link_data_key()
+    {
+        RequireNtfs();
+        string linkTarget = NewDirectory("outside_key_target");
+        string openFolder = Path.Combine(_root, "open_key_junction");
+        CreateJunction(openFolder, linkTarget);
+        var files = new AttachmentFiles(openFolder);
+
+        IOException failure = await Assert.ThrowsAnyAsync<IOException>(
+            () => files.PrepareForOpeningAsync(Writing([1, 2, 3]), "report_l.pdf"));
+
+        Assert.True(failure.Data.Contains(AttachmentFiles.OpenFolderIsLinkDataKey), "the data key is missing");
+        Assert.Equal(true, failure.Data[AttachmentFiles.OpenFolderIsLinkDataKey]);
+        Assert.Empty(Directory.GetFileSystemEntries(linkTarget, "*", SearchOption.AllDirectories));
+    }
+
     // ---- Discard (fix.3) -----------------------------------------------------------------------------------------
 
     // Contract: Discard removes a prepared file that will not be opened, with its guid folder.
