@@ -78,19 +78,20 @@ Original-Headern (Outlook.com); 1.870 ohne Header (vermutlich IMAP-/Gmail-Ordner
   zu secure M2 AP-03a und AP-02a-ACL-Punkt, 2026-10-31) → bewusst akzeptiert, keine Änderung
 
 ## Testzähler
-Testzähler: 0/4 seit letztem S3 (zuletzt 2026-11-02: S3 je Testprojekt auf dem Testbranch von AP-04c vor dem Merge, 3364/3364 – Core 536, Presentation 921, Infrastructure 1907)
+Testzähler: 0/4 seit letztem S3 (zuletzt 2026-11-02: S3 je Testprojekt auf dem Endstand vor dem Merge nach `main`, 3364/3364 – Core 536, Presentation 921, Infrastructure 1907)
 
-## Übergabe – so geht es weiter (Sessionende 2026-11-01)
-**Stand `main`:** AP-06, AP-04b und AP-04d gemergt und auf GitHub; von Dennis geprüft. Fall 18 (AP-07d) bestanden. `Act` ist nirgends eingeschaltet. Keine Worktrees offen.
+## Übergabe – so geht es weiter (Sessionende 2026-11-02)
+**Stand `main`:** AP-04e (Nightshade), Plan-Archiv und AP-04c (Anhänge) sind gemergt und gepusht, CPM Dennis 2026-11-02, S3 auf dem Endstand 3364/3364. `Act` ist nirgends eingeschaltet.
 
-**Wartet auf Dennis, nichts davon ist auf `main` (Stand 2026-11-02):**
-- Branches bauen aufeinander auf, Merge in dieser Reihenfolge: `feat/ap-04e-nightshade-theme` → `chore/plan-archive` → `chore/ap-04c-requirement` → `feat/ap-04c-attachments`. Das Archiv trägt danach auch AP-04e und AP-04c nach.
-- Handtest aus dem Stand `feat/ap-04c-attachments`, der AP-04e enthält, mit dem künstlichen Datenordner `_scratch\testdata-ui\data`: `work\manual-tests.md` Teile 10 und 11. Erzeugt von `_scratch\attachment-testdata`, bei Bedarf in einen leeren Ordner neu erzeugen.
-- AP-04c: `FileSavePicker` und der Start einer Datei liefen noch nie (`WindowAttachmentHost`). Das klärt Fall 21 und 22; schlägt dort etwas fehl, ändert sich nur diese Klasse. Danach README und `PRIVACY.md` gegen das Verhalten prüfen.
-- AP-04c: Eine Probe mit einem Ordner `...` in `attachments-open` beim App-Start steht aus: Die App startet, der Ordner ist weg.
-- `_private\themes.md`, Zeile MailWarden, beim Merge nachziehen.
+**Zuerst: Handtests, sie sind offen.** Die Oberfläche von AP-04e und AP-04c lief noch nie im echten Fenster, auch nicht der Speichern-Dialog und das Öffnen einer Datei (`WindowAttachmentHost`). Beide Pakete bleiben deshalb in `PLAN.md` und kommen erst nach bestandenem Handtest ins Archiv.
+- `work\manual-tests.md`, Teil 10 (AP-04e) und Teil 11 (AP-04c), mit dem künstlichen Datenordner: `dotnet build MailWarden.sln`, dann `$env:MAILWARDEN_DATA_DIR = 'K:\Projekte\Windows-Tools\MailWarden\_scratch\testdata-ui\data'` und `src\MailWarden.App\bin\x64\Debug\net9.0-windows10.0.19041.0\win-x64\MailWarden.App.exe` starten. Ordner erzeugt von `_scratch\attachment-testdata` (lokal, nur künstliche Mails, Testkonto ohne Anmeldung).
+- Schlägt in Fall 21 oder 22 etwas fehl, ändert sich nur `WindowAttachmentHost`. Danach README und `PRIVACY.md` gegen das Verhalten prüfen.
+- Dazu: App-Start mit einem Ordner `...` in `attachments-open`: Sie startet, der Ordner ist weg.
+- Dennis entscheidet dort: Reicht bei gesperrten Typen die Zeile mit nur „Speichern“? Stört die Windows-blaue Markierung in den Kopfzeilen?
 
-**Danach:** AP-04c (Anhänge, Entwurf `work\AP-04c\requirement.md` wartet auf Freigabe), AP-02b (Konten-UI, Entwurf `work\AP-02b\requirement.md`), AP-08 (Regeln, Warum-Ansicht, Oberfläche Adressbuch, Bilder bei `TrustedContact` direkt laden, zurückgehaltene Mails), AP-05 (Versand), AP-09 (Ordnergrenzen).
+**In Arbeit, nicht auf `main`: AP-02b (Einstellungsseite und Konten),** Branch `feat/ap-02b-account-ui`, nur lokal, Worktrees `feat-ap-02b` und `test-ap-02b`. Stand beim Sessionende: verify.2 S3 3735/3735, review.2 CHANGES ohne BLOCK, secure.2 ohne Kritisch/Hoch; fix.2 lag beim Builder. Es fehlen: Abschluss von fix.2 prüfen (`git log`, Abschnitt „Decisions fix.2“ in `work\AP-02b\requirement.md`), `main` hineinmergen, Test-Branch zusammenführen, verify.3, review.3, secure.3, dann Teil 12 der Handtests, dann CPM. Runde 3 von 4. Die Adresse der Microsoft-Kontoseite ist unbestätigt (Handtest, Teil 12, Fall 6).
+
+**Danach:** AP-08 (Regeln, Warum-Ansicht, Oberfläche Adressbuch, Werkzeug für ähnliche Kontakte, Bilder bei `TrustedContact` direkt laden, zurückgehaltene Mails), AP-05 (Versand), AP-09 (Ordnergrenzen).
 
 **Entscheidungen von Dennis vor `Act`** (Abschnitt „Bedingungen vor `Act`“): Ordner leeren gegen Rettung aus Junk (Empfehlung: bestätigtes Löschen hat Vorrang); Junk kürzer abfragen, denn neue Mail dort löst keinen Zyklus aus und wartet bis zu 15 Minuten.
 
@@ -102,7 +103,7 @@ Testzähler: 0/4 seit letztem S3 (zuletzt 2026-11-02: S3 je Testprojekt auf dem 
 - In Bash einem `cd` nicht trauen, wenn der Arbeitsordner wechselt: `git -C <Pfad>` und absolute Pfade (ein Commit landete so auf dem falschen Branch).
 - Doppelte Backslashes in Bash-Heredocs kommen einfach an. Patch-Skripte mit Backslashes im Text über das Write-Werkzeug anlegen, Text in einer eigenen Datei. Befehlsketten vor dem Merge mit `&&` trennen: Ein gescheitertes Skript hat den Merge sonst nicht aufgehalten.
 - Die Rolle `security-reviewer` kann nicht schreiben, ihr Bericht kommt vom Koordinator in `work\<AP>\security-review.md`.
-- Der Branch `chore/ap-06-04b-requirements` ist gemergt und noch vorhanden; Löschen nur nach Rückfrage.
+- S3 läuft je Testprojekt über den Wächter, nicht über die Solution (Projekt-`CLAUDE.md`). Regex-Ersetzungen in Patch-Skripten mit Backslashes im Text: eine Funktion als Ersetzung (ist dreimal gescheitert).
 
 ## Session 4 (2026-11-01)
 - Entscheidungen Dennis: AP-04a und AP-07c **parallel**; HTML-Bereinigung mit Paket HtmlSanitizer; Liste und Lesebereich
