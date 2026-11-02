@@ -543,6 +543,11 @@ public sealed class ReadingPaneViewModel : ObservableObject
 
             // The host has logged a refusal: only it knows the error code.
             bool isOpened = await host.OpenWithDefaultProgramAsync(filePath);
+            if (!isOpened)
+            {
+                files.Discard(filePath);
+            }
+
             if (ReferenceEquals(rowsOfAction, attachments))
             {
                 AttachmentNotice = isOpened ? null : UiText.AttachmentOpenRefused;
@@ -578,6 +583,7 @@ public sealed class ReadingPaneViewModel : ObservableObject
         FileNotFoundException => UiText.AttachmentMailGone,
         MailContentException or ArgumentOutOfRangeException => UiText.AttachmentChangedOrUnreadable,
         IOException { Data: var details } when details[AttachmentFiles.MarkFailureDataKey] is true => UiText.AttachmentMarkFailed,
+        IOException { Data: var details } when details[AttachmentFiles.OpenFolderIsLinkDataKey] is true => UiText.AttachmentOpenFolderIsLink,
         _ => otherwise,
     };
 

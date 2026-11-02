@@ -24,7 +24,11 @@ internal static class NativeLinks
         }
 
         _ = FindClose(search);
-        return (found.Attributes & ReparsePointAttribute) != 0 && found.ReparseTag == MountPointReparseTag;
+
+        // The call takes * and ? as wildcards: what it found must be the entry that was asked for.
+        return string.Equals(found.FileName, Path.GetFileName(path), StringComparison.OrdinalIgnoreCase)
+            && (found.Attributes & ReparsePointAttribute) != 0
+            && found.ReparseTag == MountPointReparseTag;
     }
 
     [DllImport("kernel32.dll", EntryPoint = "FindFirstFileW", CharSet = CharSet.Unicode)]

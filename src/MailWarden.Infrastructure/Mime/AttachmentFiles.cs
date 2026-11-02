@@ -17,9 +17,18 @@ public sealed class AttachmentFiles(string openFolder)
     /// </summary>
     public const string MarkFailureDataKey = "MailWarden.AttachmentMarkFailure";
 
+    /// <summary>
+    /// Key in <see cref="Exception.Data"/> of the <see cref="IOException"/> of <see cref="PrepareForOpeningAsync"/>, set to true
+    /// when the open folder itself is a link. <see cref="Clear"/> removes the link, so the next start usually repairs this.
+    /// </summary>
+    public const string OpenFolderIsLinkDataKey = "MailWarden.AttachmentOpenFolderIsLink";
+
     // Windows reads the zone of a file from this alternate stream; 3 is the zone of the internet.
     private const string ZoneStreamSuffix = ":Zone.Identifier";
     private const string ZoneMark = "[ZoneTransfer]\r\nZoneId=3\r\n";
+
+    // The last resort that ends a walk whatever the file system does; what lies beyond stays until the next call.
+    private const int MaximumFoldersPerWalk = 100_000;
 
     private readonly string openFolder = NormaliseFolder(openFolder);
 
@@ -66,8 +75,8 @@ public sealed class AttachmentFiles(string openFolder)
     /// <exception cref="ArgumentException">The name would not lead to a file directly in the new folder, or it names a device.</exception>
     /// <exception cref="ArgumentNullException"><paramref name="writeContent"/> is null.</exception>
     /// <exception cref="IOException">
-    /// Writing failed, the mark could not be written (<see cref="MarkFailureDataKey"/>), or the open folder itself is a link, so that
-    /// nothing lands in what it points to. No file stays.
+    /// Writing failed, the mark could not be written (<see cref="MarkFailureDataKey"/>), or the open folder itself is a link
+    /// (<see cref="OpenFolderIsLinkDataKey"/>), so that nothing lands in what it points to. No file stays.
     /// </exception>
     /// <exception cref="UnauthorizedAccessException">Writing is not allowed. No file stays.</exception>
     /// <exception cref="OperationCanceledException">The copy was cancelled. No file stays.</exception>
@@ -126,9 +135,15 @@ public sealed class AttachmentFiles(string openFolder)
     // With this prefix Windows takes the text as it is: without it, "x." means "x", and a folder named ".. " means the one above.
     private static string ToExactPath(string path)
     {
-        if (path.StartsWith(@"\\?\", StringComparison.Ordinal) || path.StartsWith(@"\\.\", StringComparison.Ordinal))
+        if (path.StartsWith(@"\\?\", StringComparison.Ordinal))
         {
             return path;
+        }
+
+        // The device form is not exact: Windows still normalises it.
+        if (path.StartsWith(@"\\.\", StringComparison.Ordinal))
+        {
+            return $@"\\?\{path[4..]}";
         }
 
         return path.StartsWith(@"\\", StringComparison.Ordinal) ? $@"\\?\UNC\{path[2..]}" : $@"\\?\{path}";
@@ -160,8 +175,7 @@ public sealed class AttachmentFiles(string openFolder)
     // a call stack: the depth of the folders is not ours to limit.
     private static void EmptyFolder(string root)
     {
-        // The exact paths only ever go deeper. The set is what ends the walk if a path ever resolves to a folder already seen.
-        var visitedFolders = new HashSet<string>(StringComparer.Ordinal) { root };
+        // The exact paths describe a finite tree, which is what ends the walk.
         var foldersToWalk = new Stack<string>([root]);
         var foundFolders = new List<string>();
         while (foldersToWalk.TryPop(out string? folder))
@@ -181,7 +195,7 @@ public sealed class AttachmentFiles(string openFolder)
                 {
                     DeleteEmptyFolderBestEffort(entry.FullName);
                 }
-                else if (isFolder && visitedFolders.Add(entry.FullName))
+                else if (isFolder && foundFolders.Count < MaximumFoldersPerWalk)
                 {
                     foldersToWalk.Push(entry.FullName);
                     foundFolders.Add(entry.FullName);
@@ -260,7 +274,9 @@ public sealed class AttachmentFiles(string openFolder)
             string parentFolder = Path.GetDirectoryName(fileFolder) ?? throw new IOException("The open folder has no parent.");
             if (Directory.Exists(parentFolder) && File.GetAttributes(parentFolder).HasFlag(FileAttributes.ReparsePoint))
             {
-                throw new IOException("The open folder is a link.");
+                var failure = new IOException("The open folder is a link.");
+                failure.Data[OpenFolderIsLinkDataKey] = true;
+                throw failure;
             }
 
             Directory.CreateDirectory(fileFolder);
