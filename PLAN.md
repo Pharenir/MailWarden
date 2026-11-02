@@ -82,7 +82,7 @@ Später: Naive Bayes aus Dennis’ Entscheidungen, Domain-Alter per RDAP.
 | AP-01 | Solution-Skelett (inkl. startfähiger WinUI-3-Leer-App als Tooling-Check), Core-Modell (Account, Folder, Message, Contact), SQLite-Schema + Migration, EML-Store, FTS5 | Build grün, Storage-Tests |
 | AP-02 | Kontenverwaltung + Zugangsdaten (DPAPI), Token-Cache, Provider-Profile. **AP-02a** ohne UI (Credential-Store, OAuth MS/Google, Provider-Profile, Ordnerrollen, Konto-Service, Verbindungstest); **AP-02b** = Konten-UI mit AP-04c | Konto anlegen/löschen/testen |
 | AP-03 | Sync-Engine: Ordnerliste, inkrementeller Sync (UIDVALIDITY, UIDNEXT, Flags), IDLE für Posteingang, Junk-Ordner immer mitsynchronisieren, Befehlswarteschlange (Move/Delete/Flag) mit Wiederholung. **AP-03a** = Transport + Abgleich Server → lokal (Ordner, Mails, Flags, Löschungen, UIDVALIDITY, Schema v2); **AP-03b** = Abgleich robust und schnell (Blöcke, Fortschritt, Wiederverbindung im Lauf, Gmail Important); **AP-03c** = Befehlswarteschlange lokal → Server; **AP-03d** = Hintergrunddienst (Zeitplan, IDLE) | Mails aller Konten lokal, Änderungen beidseitig |
-| AP-04 | WinUI-3-Oberfläche: Gruppenansichten Posteingang/Gesendet/Postausgang/Screener/Junk/Quarantäne über alle Konten, dieselben Ansichten je Konto, Ordnerbaum, Lesebereich (WebView2, bereinigt), Light/Dark/System. **AP-04a** = nur lesen (Laufzeit, Ansichten, Liste, Lesebereich, umschaltbare Aufteilung); **AP-04b** = Aktionen über die Warteschlange, Gelesen-Schalter, Suche, Fenstergröße, Link-Tooltip; **AP-04c** = Konten-UI (AP-02b), Anhänge öffnen/speichern | Lesen aller Konten in einer Ansicht |
+| AP-04 | WinUI-3-Oberfläche: Gruppenansichten Posteingang/Gesendet/Postausgang/Screener/Junk/Quarantäne über alle Konten, dieselben Ansichten je Konto, Ordnerbaum, Lesebereich (WebView2, bereinigt), Light/Dark/System. **AP-04a** = nur lesen (Laufzeit, Ansichten, Liste, Lesebereich, umschaltbare Aufteilung); **AP-04b** = Aktionen über die Warteschlange, Gelesen-Schalter, Suche, Fenstergröße, Link-Tooltip; **AP-04c** = Konten-UI (AP-02b), Anhänge öffnen/speichern; **AP-04d** = Lesebereich folgt dem Thema; **AP-04e** = Nightshade-Thema als Standard | Lesen aller Konten in einer Ansicht |
 | AP-05 | Verfassen/Antworten/Weiterleiten, SMTP-Versand je Konto, Anhänge, Signatur je Konto, Gesendet-Ordner | Senden von allen Konten |
 
 ### Phase 2 – Der eigentliche Grund
@@ -283,6 +283,27 @@ was nur der manuelle Test belegt, steht als „manuell Dennis – offen“ (Fäl
 | 8 | Hell/Dunkel/System umschaltbar; der Lesebereich folgt dem Design, das die App tatsächlich zeigt: Mail ohne eigene Farben im dunklen Design dunkel, Mail mit eigenen Farben oder Bildern bleibt helles Blatt unter einem Abdunkelungsschleier (25 % schwarz), Hell unverändert (AP-04d, Tabelle dort) | ✅ `Presentation\UiSettings.cs` (`AppTheme`), `MainWindow.xaml` (`RequestedTheme`), `MainWindow.xaml.cs` (`ActualTheme`), `ReadingPaneViewModel.ApplyThemeAsync`, `ReadingDocumentBuilder` (Seitenstil je Design), `OwnColorDetector` (eigene Farben) | ✅ Fall 40 (Wechsel, Speichern); AP-04d: siehe dessen Tabelle. Ungetestet: **Aussehen beider Designs – manuell Dennis; Wechsel Hell/Dunkel bestätigt 2026-11-01, Schleier (AP-04d Fall 21) offen** (Fall 44) |
 
 Vollständiger Schnittstellenvertrag: `work\AP-04a\requirement.md`.
+
+### AP-04e Nightshade-Thema
+Wunsch Dennis 2026-11-01: viertes Thema, als Standard. Spike und vollständiger Vertrag: `work\AP-04e\requirement.md`. Die Oberfläche selbst läuft in keinem Test; was nur der Handtest belegt, steht dann als „manuell Dennis“.
+| # | Sollverhalten | Umgesetzt | Getestet |
+|---|---|---|---|
+| E1 | `AppTheme.Nightshade`, gespeichert als `nightshade`; unbekannte Werte werden weiter abgelehnt |  |  |
+| E2 | Standard ist Nightshade; ein gespeichertes Thema bleibt |  |  |
+| E3 | Auswahl in der Reihenfolge Nightshade, System, Hell, Dunkel (`AppThemes.ChoiceOrder`) |  |  |
+| E4 | `ReadingTheme.Nightshade`; `AppThemes.ToReadingTheme` liefert es unabhängig vom Fenster |  |  |
+| E5 | Mail ohne eigene Farben und Klartext: Seite `#231E33`, Text `#ECE8F7`, Links `#FF8A3D`, Auswahl `#4A3B7A`, kein Schleier |  |  |
+| E6 | Mail mit eigenen Farben: helles Blatt unter dem Schleier, Stil wie im Dunkelmodus |  |  |
+| E7 | `PageBackground(Nightshade)` = `#231E33`, kein Aufblitzen |  |  |
+| E8 | Hell und Dunkel bleiben byte-gleich |  |  |
+| E9 | Bereinigung und CSP unverändert, Stil nur aus eigenen Konstanten |  |  |
+| E10 | Wechsel bei offener Mail ohne erneutes Lesen, auch Dunkel ↔ Nightshade |  |  |
+| E11 | `Themes\NightshadeTheme.xaml`: nur Wörterbuch `Dark`, keine doppelten Schlüssel, jeder Alias vorher definiert |  |  |
+| E12 | Fenster zeigt die Palette: Steuerelemente, Flyouts, Menüs, Dialoge, Titelleiste, kein Mica |  |  |
+| E13 | Wechsel live in jede Richtung ohne sichtbares Aufblitzen; Verlassen stellt Mica und Titelleiste wieder her |  |  |
+| E14 | Start mit Nightshade ohne Aufblitzen eines anderen Themas |  |  |
+| E15 | Windows-Hochkontrast: Palette, Fensterfläche und Titelleiste werden nicht angewendet |  |  |
+| E16 | `Core`/`Infrastructure` ohne WinUI, `AppThemes` in `Presentation`, Code-Behind verdrahtet nur |  |  |
 
 ### AP-04d Lesebereich folgt dem Thema
 Wunsch Dennis 2026-11-01. Die Regel „Mail-Inhalt nie dunkel“ in `ReadingDocumentBuilder` entfällt; geblieben ist der Grund dahinter: eine Mail muss lesbar bleiben. Stand: verify.4 S3 2523/2523 (Core 536, Infrastructure 1604, Presentation 383) vor dem Merge mit `main`; verify.5 S3 auf dem zusammengeführten Stand 2772/2772 (Core 536, Presentation 559, Infrastructure 1677), secure.2 ohne Befund über Hinweise hinaus. review.1 CHANGES, review.2 APPROVE; secure.1 0 Kritisch / 0 Hoch / 0 Mittel / 1 Niedrig (L1, durch F1 behoben) / 2 Hinweise. Alle Fälle nur mit künstlichen Daten. **Von Dennis am 2026-11-01 bestanden: Fälle 13 und 21 (Schleier, Links und Auswahl hindurch, Hell, Design System im laufenden Betrieb, kein störendes Aufblitzen); damit sind die manuellen ⚠️ unten erledigt.** **Die Oberfläche selbst (Fenster, WebView2-Control) läuft in keinem Test**: was nur der manuelle Test belegt, steht als „manuell Dennis“. Dennis 2026-11-01: Klartext-Mails folgen dem Thema, Umschalten Hell/Dunkel funktioniert; Fall 21 (abgedunkeltes Blatt, Links und Auswahl durch den Schleier) ist offen. Vollständiger Vertrag: `work\AP-04d\requirement.md`.
