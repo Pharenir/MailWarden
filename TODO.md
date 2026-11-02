@@ -342,6 +342,9 @@ Erledigt aus AP-07c: D8, J4 (Bremse) und die Sichtbarkeit von `EvaluationFailed`
 - [ ] Jedes Öffnen legt eine vollständige Kopie an, bis zum nächsten Start oder Beenden (secure.1 L8, akzeptiert); ein mehrfach geöffneter Anhang könnte dieselbe Kopie nutzen
 - [ ] „Harmlos“ hängt am zugeordneten Programm: Der Internet-Vermerk hilft nur, wo das Programm ihn auswertet (secure.1 L1, Dennis informiert)
 
+- [ ] Rest-Rennen in `Clear`: Ein Prozess desselben Benutzers kann einen Ordner in Mikrosekunden gegen einen Link tauschen; ein Durchlauf über Handles wäre ein Umbau (secure.2 S2, akzeptiert)
+- [ ] Liegt der Datenordner in einem Cloud-Ordner, gelten dessen Ordner als Links: `attachments-open` bleibt gefüllt, und Anhänge werden mit hochgeladen (review.2 N3)
+
 ### Vertagt aus AP-06
 Stand: S3 2406/2406, review.3 APPROVE, Sicherheitsprüfung ohne Kritisch/Hoch (solange `Act` aus ist). Fall 19 (echte Daten) nach T5
 nicht erneut gezählt.

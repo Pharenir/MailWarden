@@ -40,10 +40,14 @@ public static class AttachmentFileName
     private static readonly char[] PathSeparators = ['/', '\\'];
     private static readonly char[] TrimmedAtTheEnd = ['.', ' '];
 
-    // Beside what Windows refuses: wide forms of quote, slash, colon, backslash, star, question mark, angle brackets and bar, and the signs that stand for the backslash in Asian
-    // code pages. A program that converts the name to its code page would get the real character from them.
+    // Beside what Windows refuses: characters that common code pages turn into reserved ones.
     private static readonly FrozenSet<char> InvalidCharacters = Path.GetInvalidFileNameChars()
-        .Concat(['\uFF02', '\uFF0A', '\uFF0F', '\uFF1A', '\uFF1C', '\uFF1E', '\uFF1F', '\uFF3C', '\uFF5C', '\u00A5', '\u20A9'])
+        .Concat(
+        [
+            '\uFF02', '\uFF0A', '\uFF0F', '\uFF1A', '\uFF1C', '\uFF1E', '\uFF1F', '\uFF3C', '\uFF5C', '\u00A5', '\u20A9',
+            '\u00A6', '\u01C0', '\u02BA', '\u030E', '\u0589', '\u201C', '\u201D', '\u201F', '\u2033', '\u2036', '\u2044',
+            '\u2215', '\u2216', '\u2217', '\u2223', '\u2236', '\u2329', '\u232A', '\u2758', '\u3008', '\u3009',
+        ])
         .ToFrozenSet();
 
     // Default-ignorable code points outside the categories of IsInvisible: they show nothing, so they could hide a part of the name.
@@ -175,7 +179,7 @@ public static class AttachmentPolicy
         "mlc", "msstyles", "webpnp", "ops", "osd", "osdx", "fxp", "prg", "plg", "pcd",
 
         // Scripts
-        "bat", "cmd", "ps1", "ps1xml", "ps2", "ps2xml", "psc1", "psc2", "psd1", "psm1", "cdxml", "vb", "vbs", "vbe", "js", "jse",
+        "bat", "cmd", "ps1", "ps1xml", "ps2", "ps2xml", "psc1", "psc2", "psd1", "psdm1", "psm1", "cdxml", "vb", "vbs", "vbe", "js", "jse",
         "ws", "wsf", "wsh", "wsc", "sct", "hta", "py", "pyc", "pyo", "pyw", "pyz", "pyzw", "pl", "jar", "jnlp", "sh", "ksh", "csh", "pssc",
         "msh", "msh1", "msh2", "mshxml", "msh1xml", "msh2xml", "bas", "vbp",
 
@@ -192,7 +196,7 @@ public static class AttachmentPolicy
         "iso", "img", "vhd", "vhdx", "wim", "nrg", "ccd", "mds",
 
         // Certificates: opening one offers to install it
-        "cer", "crt", "der", "p7b", "pfx", "p12", "sst",
+        "cer", "crt", "der", "p7b", "p7c", "p7r", "pfx", "p12", "spc", "crl", "cat", "stl", "sst",
 
         // Help with scripts
         "chm", "hlp", "htc", "its", "cnt", "hpj",
@@ -200,7 +204,7 @@ public static class AttachmentPolicy
         // Office add-ins, macro projects and databases that run on opening
         "xll", "xla", "xlam", "wll", "ppa", "ppam", "mcf", "vsmacros", "vsw", "mdz",
         "ade", "adp", "mda", "mde", "mdb", "accda", "accdb", "accdc", "accde", "accdr", "accdt", "accdu", "accdw", "mdt", "mdw",
-        "mad", "maf", "mag", "mam", "maq", "mar", "mas", "mau", "mav", "maw",
+        "mad", "maf", "mag", "mam", "maq", "mar", "mas", "mat", "mau", "mav", "maw",
     }.ToFrozenSet(StringComparer.OrdinalIgnoreCase);
 
     // Kept short on purpose: whatever is not named here gets the question.

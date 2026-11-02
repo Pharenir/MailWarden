@@ -24,10 +24,10 @@ WinRT calls can fail in the unpackaged app although they compile (`HighContrastC
 |---|---|
 | A1 | Each attachment of the open mail is a row or chip in the reading pane with name, size, and the actions Öffnen and Speichern. Names go through `SafeDisplayText` as today. The extension of the safe name stands in a column of its own, always visible, in capitals without the dot, empty without an extension. At most 500 rows; a notice names how many have no row, those can be neither saved nor opened here |
 | A2 | Speichern: the save dialog of Windows, proposed name from A4, stream copy of the decoded part, no full copy in memory. Nothing is saved without the dialog. The saved file carries the internet mark as in A3 where the target can hold it; on a target without NTFS (a USB stick) the file is saved without the mark, this does not fail the save. `AttachmentNotice` shows "Anhang wird kopiert …" during the copy and "Anhang gespeichert." afterwards |
-| A3 | Öffnen: decoded part into `<data>\attachments-open\<guid>\<safe name>`, marked as from the internet (`Zone.Identifier`, zone 3), then opened with the program Windows assigns. If the mark cannot be written (no NTFS), it is not opened and says so. `AttachmentNotice` shows "Anhang wird kopiert …" during the copy and is null after a successful start. The folder is emptied at the next start and on exit, files still locked stay until the next start. Emptying never follows a link (junction, symbolic link): the link itself is removed, its target stays untouched |
-| A4 | Safe file name, from `MailAttachmentInfo.FileName` (cleaned, not cut): no path parts, no `:` (alternate streams), control, bidi and other invisible characters removed by whole code points, also variation selectors, U+FF02, U+FF0A, U+FF0F, U+FF1A, U+FF1C, U+FF1E, U+FF1F, U+FF3C, U+FF5C, U+00A5 and U+20A9 become `_`, trailing dots and spaces removed, reserved names (`CON`, `NUL`, `COM1` and so on) changed, length limit, a fallback name for an empty result |
+| A3 | Öffnen: decoded part into `<data>\attachments-open\<guid>\<safe name>`, marked as from the internet (`Zone.Identifier`, zone 3), then opened with the program Windows assigns. If the mark cannot be written (no NTFS), it is not opened and says so. `AttachmentNotice` shows "Anhang wird kopiert …" during the copy and is null after a successful start. The folder is emptied at the next start and on exit, files still locked stay until the next start. Emptying never follows a link (junction, symbolic link): the link itself is removed, its target stays untouched. It ends for any content of the folder and also removes names Windows would normalise (`.. `, `...`, `x.`). An open folder that is itself a link receives no file: `IOException` |
+| A4 | Safe file name, from `MailAttachmentInfo.FileName` (cleaned, not cut): no path parts, no `:` (alternate streams), control, bidi and other invisible characters removed by whole code points, also variation selectors; wide forms of reserved characters and the other characters that common code pages turn into reserved ones become `_` (list in Decisions fix.3), trailing dots and spaces removed, reserved names (`CON`, `NUL`, `COM1` and so on) changed, length limit, a fallback name for an empty result |
 | A5 | Risk levels by the last extension, after A4: **Blocked** (runs code: `exe`, `com`, `scr`, `pif`, `bat`, `cmd`, `ps1`, `vbs`, `js`, `jse`, `wsf`, `hta`, `msi`, `lnk`, `url`, `reg`, `jar`, `cpl`, `dll`, `iso`, `img`, `vhd`, `chm`, `appinstaller`, `msix` and similar, general types of Windows and Office, the final list in `impl-notes.md`; types of single programs stay out and land in Everything else) can only be saved. **Harmless** (`pdf`, `txt`, images, `docx`, `xlsx`, `pptx`, `odt` and similar) opens at once. **Everything else**, also no extension, `zip` and macro formats (`docm`, `xlsm`): a question first |
-| A6 | From Junk, Quarantine, Screener and Trash every Öffnen asks first, with the reason, also for harmless types. Blocked stays blocked. The role of the folder decides, never its name. The role is read again before opening: when it differs from the role at showing, or cannot be read, a question comes. After the question the row must still belong to the shown mail, otherwise nothing opens. The question names no file |
+| A6 | From Junk, Quarantine, Screener and Trash every Öffnen asks first, with the reason, also for harmless types. Blocked stays blocked. The role of the folder decides, never its name. The role is read again before opening: when it differs from the role at showing, or cannot be read, a question comes. After the question the row must still belong to the shown mail, otherwise nothing opens. The same holds after the preparation: another mail by then means no start, the prepared file is removed, no notice. The question names no file |
 | A7 | The claimed MIME type never decides anything: only the extension does, because that is what Windows uses to pick the program |
 | A8 | Parts that cannot be decoded, a mail deleted meanwhile, a full disk or a dialog cancelled: a readable message or nothing, no crash, no half file left under the chosen name. A save that fails after another mail was selected shows in the banner of the shell, not on the new mail |
 | A9 | The attachment is addressed by its position in `MailContent.Attachments` and checked against the entry the row was made from (`MailAttachmentInfo`: name, type and size) on every copy, also without a read before, so a changed EML cannot deliver another part: `MailContentException` then |
@@ -58,7 +58,7 @@ public sealed class AttachmentRow
     public string ExtensionText { get; }   // last extension of SafeFileName in capitals without the dot; empty without one
     public AttachmentRisk Risk { get; }
     public bool CanOpen { get; }           // false for SaveOnly
-    public bool HasContent { get; }        // false below the depth limit: no action at all
+    public bool HasContent { get; }        // false for a part without decodable content: no action at all (a part below the depth limit gets no row, A11)
     public string SafeFileName { get; }
 }
 
@@ -90,7 +90,8 @@ public sealed class AttachmentFiles(string openFolder)        // <data>\attachme
     // Writes beside the target, marks it with Zone.Identifier ZoneId=3 as far as the drive allows, then moves over it; a missing mark is no failure.
     // On failure the temporary file is gone and an empty target from the dialog is removed.
     public Task<string> PrepareForOpeningAsync(Func<Stream, CancellationToken, Task> writeContent, string safeFileName, CancellationToken ct = default);
-    // <openFolder>\<guid>\<safeFileName> with Zone.Identifier ZoneId=3; IOException when the mark cannot be written, and then no file stays.
+    // <openFolder>\<guid>\<safeFileName> with Zone.Identifier ZoneId=3; IOException when the mark cannot be written or the open folder is a link, and then no file stays.
+    public void Discard(string preparedPath);                     // removes a prepared file that will not be opened
     public void Clear();                                          // best effort: locked files stay until the next start; a link is removed, never followed
 }
 ```
@@ -105,6 +106,17 @@ The account UI (`work\AP-02b\requirement.md`); sending (AP-05); the contact UI (
 - Warning before opening: Junk, Quarantine **and Screener** (A6).
 
 - Released: the pipeline may start (2026-11-02).
+
+## Decisions fix.3 (2026-11-02, planner, after review.2 and secure.2)
+- `Clear` walks on `\\?\` paths, so it hits the exact name; a folder named `.. `, `...` or `. ` no longer resolves to the folder itself or the one above, and `x.` and `x ` go as well. A set of visited folders stays as the last guard: it must end in every case.
+- Right before listing a folder its attributes are read again for a reparse point. The rest of that race is accepted.
+- Files: `File.Delete` first, attributes only when `ReadOnly` stands in the way, and only that one, so a hard link does not take `Hidden` and the like from its target. A read-only hard link remains an accepted rest.
+- A junction with `ReadOnly`: the attribute goes from the link itself, then a second delete; checked to be a junction first. A symbolic link that cannot be deleted stays. A normal read-only folder in the open folder gets its attribute reset as well.
+- `PrepareForOpeningAsync` refuses when the open folder itself is a link.
+- `InvalidCharacters` grows by U+00A6, U+01C0, U+02BA, U+030E, U+0589, U+201C, U+201D, U+201F, U+2033, U+2036, U+2044, U+2215, U+2216, U+2217, U+2223, U+2236, U+2329, U+232A, U+2758, U+3008, U+3009, beside U+FF02, U+FF0A, U+FF0F, U+FF1A, U+FF1C, U+FF1E, U+FF1F, U+FF3C, U+FF5C, U+00A5, U+20A9.
+- After `PrepareForOpeningAsync` the file does not open when the mail has changed; it is removed, no notice.
+- Blocked list: `mat psdm1 p7r spc crl cat p7c stl` added.
+- Banner text of a failed save: only "Der Anhang konnte nicht gespeichert werden.", it also fits a mail that is gone or a part that does not match.
 
 ## Decisions fix.2 (2026-11-02)
 Of Dennis:
@@ -149,8 +161,8 @@ All with artificial data, fixtures under `tests\fixtures\`. The window runs in n
 | 8 | `CopyAttachmentAsync` for base64, quoted-printable and 8bit parts | The exact bytes |
 | 9 | Index outside; EML missing; `expected` differs in name, type or size, also without a read before | The stated exceptions, no bytes of another part |
 | 10 | `SaveAsync` succeeds; the writer throws; the disk write fails | Target complete with stream `Zone.Identifier` holding `ZoneId=3` (on NTFS); no temporary file; an empty target removed |
-| 11 | `PrepareForOpeningAsync` | File under `<openFolder>\<guid>\`, stream `Zone.Identifier` holds `ZoneId=3`, the content is right |
-| 12 | `Clear` with a locked file; with a junction to a folder outside | No exception; the rest is gone; the link is gone, its target and its attributes unchanged |
+| 11 | `PrepareForOpeningAsync`; with the open folder as a link; `Discard` | File under `<openFolder>\<guid>\`, stream `Zone.Identifier` holds `ZoneId=3`, the content is right; `IOException`, nothing in the target of the link; file and its folder gone |
+| 12 | `Clear` with a locked file; with a junction to a folder outside, also read-only; with entries named `.. `, `...`, `. `, `x.`, `x `; with a read-only folder; with a hidden file that has a hard link outside | No exception; it ends; the rest is gone; the link is gone, its target and its attributes unchanged; nothing outside is touched; `Hidden` stays on the hard link outside |
 | 13 | Save cancelled in the dialog | Nothing written, no notice |
 | 14 | Open harmless from the inbox | No question, host called with the prepared path, notice null afterwards |
 | 15 | Open `Ask` type, answer no; answer yes | No / one call of the host |
@@ -160,7 +172,7 @@ All with artificial data, fixtures under `tests\fixtures\`. The window runs in n
 | 19 | Another mail selected while saving; the save then succeeds; the save then fails | The save ends for the old mail; the rows and the notice belong to the new one; a failure shows in the banner of the shell, not as a notice; the next attachment action clears the banner |
 | 19a | Save and open running | `AttachmentNotice` is "Anhang wird kopiert …" during the copy; "Anhang gespeichert." after a save; null after an open |
 | 19b | The role read before opening differs from the role at showing, or the read fails | A question first, also for harmless types and when the new role asks for none |
-| 19c | Another mail selected during the question, then yes | Nothing opens |
+| 19c | Another mail selected during the question, then yes; another mail selected during the preparation | Nothing opens; in the second case the prepared file is gone and there is no notice |
 | 20 | Open or save | No flag changes, no command queued |
 
 Manual, Dennis (`work\manual-tests.md`), artificial test mails only:

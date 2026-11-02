@@ -272,7 +272,7 @@ Nur Ansehen, keine Aktionen auf dem Server: **Rückfragen immer mit „Abbrechen
 - [ ] Fall 29 (optional): Windows im Hellmodus mit Nightshade: Palette hält, nur ein Button mit Fokus kann kurz die alte Farbe zeigen. Hochkontrast vor dem Start eingeschaltet: Systemfarben und lesbarer Text, nur der Lesebereich bleibt violett (gewollt). Hochkontrast bei laufender App eingeschaltet: Bis zum nächsten Themenwechsel oder Start kann die dunkle Fensterfläche bleiben (bekannt).
 
 ## 11 – Anhänge (AP-04c Fälle 21–26)
-Nur künstliche Testmails zwischen Konto 2 und Konto 3 (Betreff beginnt mit `MailWarden test MWT`), auf der Datenkopie. „Beim Anzeigen als gelesen markieren“ aus. Nichts davon ändert etwas auf dem Server; die Testmails bleiben liegen.
+Künstlicher Datenordner mit Testkonto ohne Anmeldung, die App erreicht damit keinen Server: `$env:MAILWARDEN_DATA_DIR = 'K:\Projekte\Windows-Tools\MailWarden\_scratch\testdata-ui\data'`. Das Testkonto zeigt, dass eine Anmeldung fehlt; das ist gewollt. Der Ordner wird von `_scratch\attachment-testdata` erzeugt (13 künstliche Mails in Posteingang, Junk, Quarantäne, Screener und Papierkorb; `rechnung.pdf.exe` ist nur Text).
 - [ ] Fall 21: PDF, Office-Datei und Bild speichern. Der Dialog schlägt den Namen vor, ohne doppelte Endung; die Datei öffnet sich danach; in den Dateieigenschaften steht der Internet-Vermerk. Office zeigt deshalb die geschützte Ansicht (gewollt). Bei einem großen Anhang erscheint „Anhang wird kopiert …“, danach „Anhang gespeichert.“.
 - [ ] Fall 22: PDF aus dem Posteingang öffnen: sofort, die Datei trägt den Internet-Vermerk.
 - [ ] Fall 23: Aus Junk, Quarantäne, Screener und Papierkorb öffnen: erst eine Rückfrage; **Abbrechen** öffnet nichts, „Trotzdem öffnen“ öffnet einmal.
