@@ -141,7 +141,7 @@ dotnet build MailWarden.sln -warnaserror
 - [ ] Beenden, neu starten: Layout und Größen sind erhalten (`ui-settings.json` im Datenordner)
 
 **Fall 44 – Design**
-- [ ] „Design“: System, Hell, Dunkel wechseln das Fenster sofort; mit System folgt es Windows
+- [ ] „Design“: System, Hell, Dunkel wechseln das Fenster sofort; mit System folgt es Windows (Nightshade: Teil 10)
 - [ ] Mail-Inhalt bleibt in allen drei Varianten lesbar (heller Grund)
 
 **Fall 45 – Newsletter, Bilder und Links** (Mail mit Bildern aus dem Internet auswählen)
@@ -259,3 +259,14 @@ Nur Ansehen, keine Aktionen auf dem Server.
 - [ ] Hell, gleicher Newsletter: kein Schleier, sieht aus wie bisher.
 - [ ] Design System: Windows bei laufender App zwischen Hell und Dunkel umstellen. Die App und der Lesebereich gehen mit.
 - [ ] Dunkel, vom Newsletter auf eine reine Textmail wechseln: Kein störendes Aufblitzen.
+
+## 10 – Nightshade-Thema (AP-04e Fälle 23–29)
+Nur Ansehen, keine Aktionen auf dem Server. Deine bisherige Einstellung bleibt erhalten, also wählst du Nightshade einmal von Hand.
+- [ ] Fall 23: Datenordner ohne `ui-settings.json` (oder Datei ohne `theme`): Die App startet in Nightshade, ohne dass vorher ein anderes Thema aufblitzt.
+- [ ] Fall 24: Mit deiner vorhandenen Datei bleibt dein Thema. „Design“ auf Nightshade stellen, neu starten: Nightshade bleibt.
+- [ ] Fall 25: Mit offener Mail (einmal Textmail, einmal Newsletter) durch alle vier Themen schalten, über die Liste „Design“. Alles wechselt zugleich, der Lesebereich geht mit, nichts blitzt störend auf. Beim Verlassen von Nightshade kommen Mica und die normale Titelleiste zurück. Die Mail wird dabei nicht neu vom Server geholt.
+- [ ] Fall 26: In Nightshade öffnen: Verschieben-Menü, Kontextmenü der Liste, Kontextmenü im Baum, Einstellungen, Liste „Design“, Rückfrage beim Löschen, „Fehlgeschlagene Aktionen“ (falls vorhanden), Link-Tooltip. Überall die Palette und lesbarer Text, auch nachdem sie vor einem Wechsel schon einmal offen waren.
+- [ ] Fall 26b: Text in den Kopfzeilen der Mail markieren: Die Markierung ist Windows-Blau und nicht Nightshade. Gemessen und bekannt. Stört dich das?
+- [ ] Fall 27: Gut lesbar und unterscheidbar: ausgewählte Zeile in Liste und Baum, ungelesene Mails (fett), deaktivierte Buttons, Warnbanner, Hover auf Zeilen und auf Buttons, Rahmen des Suchfelds mit und ohne Fokus, Standard-Button der Rückfrage (orange).
+- [ ] Fall 28: Newsletter in Nightshade: abgedunkeltes helles Blatt, Links lassen sich klicken, der Tooltip zeigt das Ziel, Text lässt sich markieren.
+- [ ] Fall 29 (optional): Windows im Hellmodus mit Nightshade: Palette hält, nur ein Button mit Fokus kann kurz die alte Farbe zeigen. Hochkontrast vor dem Start eingeschaltet: Systemfarben und lesbarer Text. Hochkontrast bei laufender App eingeschaltet: Bis zum nächsten Themenwechsel kann die dunkle Fensterfläche bleiben (bekannt).
