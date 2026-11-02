@@ -174,7 +174,7 @@ public sealed partial class MainWindow : Window
         }
         else if (args.PropertyName == nameof(ShellViewModel.Theme))
         {
-            ApplyTheme();
+            ApplyThemeWhileRunning();
         }
         else if (args.PropertyName == nameof(ShellViewModel.Banner))
         {
@@ -390,6 +390,19 @@ public sealed partial class MainWindow : Window
     {
         themeChrome.Apply(ViewModel.Theme, RootGrid);
         ApplyReadingTheme();
+    }
+
+    // A look that cannot be applied must not end a running mail program. At the start a failure still shows the error window.
+    private void ApplyThemeWhileRunning()
+    {
+        try
+        {
+            ApplyTheme();
+        }
+        catch (Exception exception) when (exception is not OutOfMemoryException)
+        {
+            log.Write(CriticalLogLevel.Critical, "MainWindow.ApplyThemeWhileRunning", $"Applying the theme failed: {exception.GetType().Name}");
+        }
     }
 
     // What the window actually shows, also when the Windows setting decides. Background first: the new document must not load
