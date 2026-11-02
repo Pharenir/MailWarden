@@ -14,7 +14,7 @@ public sealed record ReadingDocument(string Html, int BlockedRemoteResourceCount
 /// <summary>
 /// Builds the document shown in the reading pane: a page in the style of the theme with a restrictive
 /// Content-Security-Policy around the sanitized HTML or the encoded plain text. A mail must always be readable, so only a mail
-/// without colors of its own turns dark in the dark theme; a mail with its own colors stays a dimmed light sheet in a dark
+/// without colors of its own turns dark in the dark themes; a mail with its own colors stays a dimmed light sheet in a dark
 /// window, its colors are never rewritten (PLAN, risks). The styles are fixed: of the mail, only the yes/no of
 /// <see cref="SanitizedHtml.HasOwnColors"/> reaches their selection.
 /// </summary>
@@ -23,9 +23,15 @@ public static class ReadingDocumentBuilder
     private const string LightPageBackground = "#ffffff";
     private const string DarkPageBackground = "#202020";
 
+    // Equal to the palette in NightshadeTheme.xaml, which the window uses; a test compares them.
+    private const string NightshadePageBackground = "#231E33";
+
     private const string CommonStyle =
         "body{margin:12px;font-family:'Segoe UI',sans-serif;font-size:14px;overflow-wrap:anywhere;}"
         + "img{max-width:100%;height:auto;}";
+
+    // The browser keeps the yellow background of mark in the dark scheme.
+    private const string LinkInMarkStyle = "mark a:link,mark a:visited{color:#0b57d0;}";
 
     private const string LightStyle =
         "html,body{background:" + LightPageBackground + ";color:#1a1a1a;}"
@@ -37,9 +43,15 @@ public static class ReadingDocumentBuilder
         + "html,body{background:" + DarkPageBackground + ";color:#f0f0f0;}"
         + CommonStyle
         + "a:link,a:visited{color:#8ab4f8;}"
+        + LinkInMarkStyle;
 
-        // The browser keeps the yellow background of mark in the dark scheme.
-        + "mark a:link,mark a:visited{color:#0b57d0;}";
+    private const string NightshadeStyle =
+        "html{color-scheme:dark;}"
+        + "html,body{background:" + NightshadePageBackground + ";color:#ECE8F7;}"
+        + CommonStyle
+        + "a:link,a:visited{color:#FF8A3D;}"
+        + LinkInMarkStyle
+        + "::selection{background:#4A3B7A;color:#FFFFFF;}";
 
     // A dark veil over the whole sheet lowers its brightness and keeps the contrast between the colors of the mail. It takes no
     // clicks and sits above the content of the mail; a mail that lays something above it only loses the veil there.
@@ -57,6 +69,7 @@ public static class ReadingDocumentBuilder
     /// <param name="theme">Theme the application shows; it changes nothing but the style of the page.</param>
     /// <returns>The document and the number of blocked resources.</returns>
     /// <exception cref="ArgumentNullException"><paramref name="content"/> is null.</exception>
+    /// <exception cref="ArgumentOutOfRangeException"><paramref name="theme"/> is no known value.</exception>
     public static ReadingDocument Build(
         MailContent content,
         bool allowRemoteImages,
@@ -71,7 +84,7 @@ public static class ReadingDocumentBuilder
         }
 
         SanitizedHtml sanitized = MailHtmlSanitizer.Sanitize(content.Html, content.InlineImages, allowRemoteImages, allowEmbeddedImages);
-        string pageStyle = theme == ReadingTheme.Dark ? (sanitized.HasOwnColors ? DimmedLightStyle : DarkStyle) : LightStyle;
+        string pageStyle = SelectPageStyle(theme, sanitized.HasOwnColors);
         return new ReadingDocument(
             Wrap(sanitized.Html, pageStyle, allowRemoteImages, allowEmbeddedImages),
             sanitized.BlockedRemoteResourceCount,
@@ -86,27 +99,44 @@ public static class ReadingDocumentBuilder
     /// <param name="theme">Theme the application shows; plain text has no colors of its own, so it follows the theme.</param>
     /// <returns>The document; without remote resources.</returns>
     /// <exception cref="ArgumentNullException"><paramref name="content"/> is null.</exception>
+    /// <exception cref="ArgumentOutOfRangeException"><paramref name="theme"/> is no known value.</exception>
     public static ReadingDocument BuildFromPlainText(MailContent content, ReadingTheme theme = ReadingTheme.Light)
     {
         ArgumentNullException.ThrowIfNull(content);
 
         string bodyContent = $"<div style=\"white-space: pre-wrap\">{WebUtility.HtmlEncode(content.PlainText)}</div>";
-        string pageStyle = theme == ReadingTheme.Dark ? DarkStyle : LightStyle;
+        string pageStyle = SelectPageStyle(theme, hasOwnColors: false);
         return new ReadingDocument(Wrap(bodyContent, pageStyle, allowRemoteImages: false, allowEmbeddedImages: true), 0);
     }
 
     /// <summary>
     /// The page background of a theme, for the default background of the browser: while a mail loads it must not differ from
-    /// the page. The dimmed sheet of a mail with colors of its own may still differ in the dark theme; it is the mail.
+    /// the page. The dimmed sheet of a mail with colors of its own may still differ in the dark themes; it is the mail.
     /// </summary>
     /// <param name="theme">Theme the application shows.</param>
     /// <returns>The channels of the color.</returns>
+    /// <exception cref="ArgumentOutOfRangeException"><paramref name="theme"/> is no known value.</exception>
     public static (byte Red, byte Green, byte Blue) PageBackground(ReadingTheme theme)
     {
-        string hexColor = theme == ReadingTheme.Dark ? DarkPageBackground : LightPageBackground;
+        string hexColor = theme switch
+        {
+            ReadingTheme.Light => LightPageBackground,
+            ReadingTheme.Dark => DarkPageBackground,
+            ReadingTheme.Nightshade => NightshadePageBackground,
+            _ => throw new ArgumentOutOfRangeException(nameof(theme), theme, "Unknown theme."),
+        };
         byte[] channels = Convert.FromHexString(hexColor.AsSpan(1));
         return (channels[0], channels[1], channels[2]);
     }
+
+    // Every result is a constant of this class: only the theme and a yes/no decide.
+    private static string SelectPageStyle(ReadingTheme theme, bool hasOwnColors) => theme switch
+    {
+        ReadingTheme.Light => LightStyle,
+        ReadingTheme.Dark => hasOwnColors ? DimmedLightStyle : DarkStyle,
+        ReadingTheme.Nightshade => hasOwnColors ? DimmedLightStyle : NightshadeStyle,
+        _ => throw new ArgumentOutOfRangeException(nameof(theme), theme, "Unknown theme."),
+    };
 
     private static string Wrap(string bodyContent, string pageStyle, bool allowRemoteImages, bool allowEmbeddedImages)
     {

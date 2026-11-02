@@ -11,4 +11,10 @@ public enum ReadingTheme
 
     /// <summary>Dark page with light text for a mail without colors of its own.</summary>
     Dark = 1,
+
+    /// <summary>
+    /// Page in the palette of the Nightshade theme for a mail without colors of its own; a mail with colors of its own looks as
+    /// in <see cref="Dark"/>. The window reports it as dark, so it comes from the stored choice, not from the window.
+    /// </summary>
+    Nightshade = 2,
 }

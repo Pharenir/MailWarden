@@ -7,7 +7,7 @@ namespace MailWarden.Presentation;
 
 /// <summary>
 /// <see cref="IUiSettingsStore"/> on a JSON file. Strict on purpose: a typo in a key or a wrong type is reported, never
-/// silently ignored. Keys: <c>layout</c> ("sideBySide", "listAbove"), <c>theme</c> ("system", "light", "dark"),
+/// silently ignored. Keys: <c>layout</c> ("sideBySide", "listAbove"), <c>theme</c> ("system", "light", "dark", "nightshade"),
 /// <c>navigationWidth</c>, <c>listWidth</c>, <c>listHeight</c> (numbers within the limits of <see cref="UiSettings"/>),
 /// <c>markReadOnSelect</c>, <c>windowMaximized</c> (booleans), <c>windowWidth</c>, <c>windowHeight</c> (numbers),
 /// <c>windowX</c>, <c>windowY</c> (whole numbers). A window value that is not stored is left out.
@@ -34,6 +34,7 @@ public sealed class UiSettingsFile : IUiSettingsStore
     private const string SystemValue = "system";
     private const string LightValue = "light";
     private const string DarkValue = "dark";
+    private const string NightshadeValue = "nightshade";
 
     private readonly string path;
 
@@ -138,6 +139,7 @@ public sealed class UiSettingsFile : IUiSettingsStore
         AppTheme.System => SystemValue,
         AppTheme.Light => LightValue,
         AppTheme.Dark => DarkValue,
+        AppTheme.Nightshade => NightshadeValue,
         _ => throw new ArgumentOutOfRangeException(nameof(theme), theme, "Unknown theme."),
     };
 
@@ -225,6 +227,7 @@ public sealed class UiSettingsFile : IUiSettingsStore
             SystemValue => AppTheme.System,
             LightValue => AppTheme.Light,
             DarkValue => AppTheme.Dark,
+            NightshadeValue => AppTheme.Nightshade,
             _ => throw InvalidKey(property.Name, "has an unknown value"),
         };
     }
