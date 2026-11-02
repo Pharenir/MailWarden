@@ -27,19 +27,17 @@ internal sealed class WindowThemeChrome
 
     private readonly Window window;
 
-    // Kept in a field: the event of an object nobody holds would stop firing.
+    // Read on every Apply. Its HighContrastChanged event cannot be used: subscribing throws 0x80070490 in an unpackaged app
+    // (requirement, fix.1), so a change of the Windows setting counts from the next theme change or start.
     private readonly AccessibilitySettings accessibilitySettings = new();
 
     private ResourceDictionary? mergedPalette;
-    private AppTheme appliedTheme;
-    private Panel? appliedRoot;
 
     /// <summary>Creates the chrome; changes nothing yet.</summary>
     /// <param name="window">The window it belongs to.</param>
     public WindowThemeChrome(Window window)
     {
         this.window = window;
-        accessibilitySettings.HighContrastChanged += OnHighContrastChanged;
     }
 
     /// <summary>
@@ -59,9 +57,6 @@ internal sealed class WindowThemeChrome
     /// <param name="root">The root element of the window.</param>
     public void Apply(AppTheme theme, Panel root)
     {
-        appliedTheme = theme;
-        appliedRoot = root;
-
         bool usesPalette = UsesPalette(theme);
         bool hasPaletteChanged = SetPaletteMerged(usesPalette);
 
@@ -158,19 +153,5 @@ internal sealed class WindowThemeChrome
         ResourceDictionary palette = mergedPalette ?? throw new InvalidOperationException("The palette is not merged.");
         var themeDictionary = (ResourceDictionary)palette.ThemeDictionaries[PaletteThemeKey];
         return ((SolidColorBrush)themeDictionary[key]).Color;
-    }
-
-    // Windows reports this on a thread of its own.
-    private void OnHighContrastChanged(AccessibilitySettings sender, object args)
-    {
-        window.DispatcherQueue.TryEnqueue(ApplyAgain);
-    }
-
-    private void ApplyAgain()
-    {
-        if (appliedRoot is Panel root)
-        {
-            Apply(appliedTheme, root);
-        }
     }
 }
