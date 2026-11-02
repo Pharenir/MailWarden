@@ -342,7 +342,8 @@ Erledigt aus AP-07c: D8, J4 (Bremse) und die Sichtbarkeit von `EvaluationFailed`
 - [ ] Jedes Öffnen legt eine vollständige Kopie an, bis zum nächsten Start oder Beenden (secure.1 L8, akzeptiert); ein mehrfach geöffneter Anhang könnte dieselbe Kopie nutzen
 - [ ] „Harmlos“ hängt am zugeordneten Programm: Der Internet-Vermerk hilft nur, wo das Programm ihn auswertet (secure.1 L1, Dennis informiert)
 
-- [ ] Rest-Rennen in `Clear`: Ein Prozess desselben Benutzers kann einen Ordner in Mikrosekunden gegen einen Link tauschen; ein Durchlauf über Handles wäre ein Umbau (secure.2 S2, akzeptiert)
+- [ ] Rest-Rennen in `Clear`: Ein Prozess desselben Benutzers kann einen Ordner in Mikrosekunden gegen einen Link tauschen; ein Durchlauf über Handles wäre ein Umbau (secure.2 S2, secure.3 L2 auch für `Discard`, akzeptiert)
+- [ ] `Clear` läuft auf dem UI-Thread: bei der Grenze von 100.000 Ordnern rund 30 s beim Start und Beenden; dazu braucht es einen lokalen Prozess (secure.3 L3, akzeptiert)
 - [ ] Liegt der Datenordner in einem Cloud-Ordner, gelten dessen Ordner als Links: `attachments-open` bleibt gefüllt, Anhänge werden mit hochgeladen, und falls der Ordner selbst als Link gilt, öffnet kein Anhang mehr (review.2 N3, review.3 S3)
 
 ### Vertagt aus AP-06
