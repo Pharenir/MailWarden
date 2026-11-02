@@ -40,11 +40,9 @@ public sealed partial class MainWindow : Window
     private const double LinkHintMaximumWidth = 600;
     private const double LinkHintMinimumWidth = 100;
 
-    // Order of the entries of the theme choice.
-    private static readonly AppTheme[] ThemeOrder = [AppTheme.System, AppTheme.Light, AppTheme.Dark];
-
     private readonly MailWebViewHost webViewHost;
     private readonly WindowPlacementKeeper placementKeeper;
+    private readonly WindowThemeChrome themeChrome;
     private readonly ICriticalLog log;
 
     private ScrollViewer? messageListScroller;
@@ -64,16 +62,22 @@ public sealed partial class MainWindow : Window
     {
         ViewModel = viewModel;
         this.log = log;
+
+        // Before the XAML is parsed: the first frame must already show the stored theme.
+        themeChrome = new WindowThemeChrome(this);
+        themeChrome.PrepareResources(ViewModel.Theme);
         InitializeComponent();
 
         Title = UiText.AppTitle;
         ToggleLayoutButton.Content = UiText.ToggleLayout;
         RefreshButton.Content = UiText.Refresh;
         ThemeLabel.Text = UiText.ThemeLabel;
-        ThemeChoice.Items.Add(new ComboBoxItem { Content = UiText.ThemeSystem });
-        ThemeChoice.Items.Add(new ComboBoxItem { Content = UiText.ThemeLight });
-        ThemeChoice.Items.Add(new ComboBoxItem { Content = UiText.ThemeDark });
-        ThemeChoice.SelectedIndex = Array.IndexOf(ThemeOrder, ViewModel.Theme);
+        foreach (AppTheme theme in AppThemes.ChoiceOrder)
+        {
+            ThemeChoice.Items.Add(new ComboBoxItem { Content = AppThemes.DisplayName(theme) });
+        }
+
+        ThemeChoice.SelectedIndex = AppThemes.ChoiceOrder.ToList().IndexOf(ViewModel.Theme);
         ApplyActionTexts();
 
         webViewHost = new MailWebViewHost(ReadingWebView, Path.Combine(paths.Root, BrowserDataDirectoryName), log);
@@ -170,7 +174,7 @@ public sealed partial class MainWindow : Window
         }
         else if (args.PropertyName == nameof(ShellViewModel.Theme))
         {
-            ApplyTheme();
+            ApplyThemeWhileRunning();
         }
         else if (args.PropertyName == nameof(ShellViewModel.Banner))
         {
@@ -384,20 +388,29 @@ public sealed partial class MainWindow : Window
 
     private void ApplyTheme()
     {
-        RootGrid.RequestedTheme = ViewModel.Theme switch
-        {
-            AppTheme.Light => ElementTheme.Light,
-            AppTheme.Dark => ElementTheme.Dark,
-            _ => ElementTheme.Default,
-        };
+        themeChrome.Apply(ViewModel.Theme, RootGrid);
         ApplyReadingTheme();
     }
 
+    // A look that cannot be applied must not end a running mail program. At the start a failure still shows the error window.
+    private void ApplyThemeWhileRunning()
+    {
+        try
+        {
+            ApplyTheme();
+        }
+        catch (Exception exception) when (exception is not OutOfMemoryException)
+        {
+            log.Write(CriticalLogLevel.Critical, "MainWindow.ApplyThemeWhileRunning", $"Applying the theme failed: {exception.GetType().Name}");
+        }
+    }
+
     // What the window actually shows, also when the Windows setting decides. Background first: the new document must not load
-    // on the old one. ApplyThemeAsync does not fail and does nothing when the theme stays.
+    // on the old one. ApplyThemeAsync does not fail and does nothing when the theme stays. The stored theme also goes in, and the
+    // change of the element theme inside WindowThemeChrome.Apply cannot reach this as Light: its events come after the call.
     private void ApplyReadingTheme()
     {
-        ReadingTheme actualTheme = RootGrid.ActualTheme == ElementTheme.Dark ? ReadingTheme.Dark : ReadingTheme.Light;
+        ReadingTheme actualTheme = AppThemes.ToReadingTheme(ViewModel.Theme, RootGrid.ActualTheme == ElementTheme.Dark);
         (byte red, byte green, byte blue) = ReadingDocumentBuilder.PageBackground(actualTheme);
         webViewHost.SetDefaultBackground(Windows.UI.Color.FromArgb(255, red, green, blue));
         _ = ViewModel.Reading.ApplyThemeAsync(actualTheme);
@@ -462,7 +475,7 @@ public sealed partial class MainWindow : Window
     {
         if (ThemeChoice.SelectedIndex >= 0)
         {
-            ViewModel.Theme = ThemeOrder[ThemeChoice.SelectedIndex];
+            ViewModel.Theme = AppThemes.ChoiceOrder[ThemeChoice.SelectedIndex];
         }
     }
 

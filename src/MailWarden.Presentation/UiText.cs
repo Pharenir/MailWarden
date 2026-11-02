@@ -39,6 +39,9 @@ public static class UiText
     /// <summary>Theme choice: dark.</summary>
     public static string ThemeDark => "Dunkel";
 
+    /// <summary>Theme choice: the palette of the Nightshade project; a name, so it stays untranslated.</summary>
+    public static string ThemeNightshade => "Nightshade";
+
     /// <summary>Toolbar and menu: mark as read.</summary>
     public static string MarkRead => "Gelesen";
 

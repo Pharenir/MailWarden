@@ -68,11 +68,14 @@ the command queue (see "Command queue"). Opening a message does not mark it as r
 - **Layout:** "Ansicht wechseln" puts the list and the reading pane side by side or the list above the reading
   pane. The parts can be resized with the splitters. Layout, sizes, theme, window and the switch above are kept in
   `ui-settings.json` in the data folder.
-- **Design:** System, Hell or Dunkel changes the app, and the reading pane follows while the app runs. In the dark
-  theme, plain text mails and mails without colours of their own turn dark. A mail with colours of its own or with
-  images stays a light sheet under a dimming veil (about a quarter darker); its colours are not changed. In the light
-  theme every mail looks as before. Known limit: if the filter removed the dark background of a mail but kept its
-  light text, the text can be light on the light sheet.
+- **Design:** the theme choice offers Nightshade, System, Hell and Dunkel. Nightshade is the default for a new
+  installation (violet-dark with orange accents); a theme you stored earlier stays. The choice changes the app, and the
+  reading pane follows while the app runs. In Nightshade and Dunkel, plain text mails and mails without colours of
+  their own turn dark. A mail with colours of its own or with images stays a light sheet under a dimming veil (about a
+  quarter darker); its colours are not changed. In Hell every mail looks as before. If Windows uses a high contrast
+  theme, Nightshade keeps the colours of Windows; a change of that setting counts from the next theme change or
+  start. Known limit: if the filter removed the dark background of a mail but kept its light text, the text can be
+  light on the light sheet.
 - **Info bar:** shows notices, for example when the settings file is invalid (the defaults apply), a list cannot be
   loaded, an action failed or was only partly done, or the spam filter has a problem (see "Spam filter").
 
@@ -232,7 +235,9 @@ src\MailWarden.Infrastructure  SQLite stores, EML file store, OAuth sign-in (Mic
                                (Sync), message reading and HTML cleaning (Mime), runtime that opens
                                the stores and starts the background service (Composition), critical log
 src\MailWarden.Presentation    view models, views and settings of the user interface (no WinUI reference)
-src\MailWarden.App             WinUI 3 app: main window, wiring of the view models, WebView2 for the message
+src\MailWarden.App             WinUI 3 app: main window, wiring of the view models, WebView2 for the message,
+                               colour palette of the Nightshade theme (Themes)
+tools                          make_nightshade_theme.py creates the palette file Themes\NightshadeTheme.xaml
 tests\MailWarden.Core.Tests             unit tests for the spam classifier core
 tests\MailWarden.Infrastructure.Tests   unit tests for the storage layer, the account library, the sync, message
                                         reading and HTML cleaning

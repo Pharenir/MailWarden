@@ -26,6 +26,9 @@ public enum AppTheme
 
     /// <summary>Dark.</summary>
     Dark = 2,
+
+    /// <summary>The palette of the Nightshade project: dark to the controls, with colors of its own; the default.</summary>
+    Nightshade = 3,
 }
 
 /// <summary>
@@ -70,8 +73,8 @@ public sealed record UiSettings(
     /// <summary>Largest allowed distance of the window position from 0, in both directions.</summary>
     public const int MaximumWindowPosition = 20000;
 
-    /// <summary>SideBySide, System, 280, 420, 320.</summary>
-    public static UiSettings Default { get; } = new(ReadingPaneLayout.SideBySide, AppTheme.System, 280, 420, 320);
+    /// <summary>SideBySide, Nightshade, 280, 420, 320.</summary>
+    public static UiSettings Default { get; } = new(ReadingPaneLayout.SideBySide, AppTheme.Nightshade, 280, 420, 320);
 }
 
 /// <summary>
