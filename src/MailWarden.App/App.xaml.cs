@@ -1,6 +1,7 @@
 using MailWarden.Core.Storage;
 using MailWarden.Infrastructure.Composition;
 using MailWarden.Infrastructure.Logging;
+using MailWarden.Infrastructure.Mime;
 using MailWarden.Infrastructure.Storage;
 using MailWarden.Presentation;
 using Microsoft.UI.Xaml;
@@ -30,6 +31,7 @@ public partial class App : Application
     private ICriticalLog? criticalLog;
     private MailWardenRuntime? runtime;
     private ShellViewModel? shell;
+    private AttachmentFiles? attachmentFiles;
     private bool isShuttingDown;
 
     /// <summary>Creates the application and loads App.xaml.</summary>
@@ -90,6 +92,11 @@ public partial class App : Application
         criticalLog = new CriticalFileLog(paths.LogRoot, TimeProvider.System);
 
         runtime = await MailWardenRuntime.OpenAsync(paths, log: criticalLog);
+
+        // After the lock of the runtime: a second instance that fails to start must not empty the folder of the first.
+        attachmentFiles = new AttachmentFiles(paths.AttachmentsOpenRoot);
+        attachmentFiles.Clear();
+        var attachmentHost = new WindowAttachmentHost(criticalLog);
         var dispatcher = new DispatcherQueueUiDispatcher(Microsoft.UI.Dispatching.DispatcherQueue.GetForCurrentThread());
         shell = new ShellViewModel(
             runtime.ReadModel,
@@ -98,9 +105,12 @@ public partial class App : Application
             dispatcher,
             new UiSettingsFile(Path.Combine(paths.Root, UiSettingsFile.FileName)),
             criticalLog,
-            TimeProvider.System);
+            TimeProvider.System,
+            attachmentHost: attachmentHost,
+            attachmentOpenFolder: paths.AttachmentsOpenRoot);
 
         var mainWindow = new MainWindow(shell, paths, criticalLog);
+        attachmentHost.AttachTo(mainWindow);
         mainWindow.Closed += OnMainWindowClosed;
         openWindow = mainWindow;
         mainWindow.ApplyStoredPlacement();
@@ -129,6 +139,7 @@ public partial class App : Application
             openWindow?.AppWindow.Hide();
             shell?.Dispose();
             CloseReadingViewAndLog();
+            ClearOpenedAttachmentsAndLog();
             if (runtime is not null)
             {
                 await runtime.DisposeAsync().AsTask().WaitAsync(ShutdownTimeout);
@@ -165,6 +176,19 @@ public partial class App : Application
         catch (Exception exception) when (exception is not OutOfMemoryException)
         {
             WriteLog("App.CloseReadingViewAndLog", $"Closing the reading view failed: {exception.GetType().Name}");
+        }
+    }
+
+    // A failure here must not keep the runtime from being disposed; the next start tries again.
+    private void ClearOpenedAttachmentsAndLog()
+    {
+        try
+        {
+            attachmentFiles?.Clear();
+        }
+        catch (Exception exception) when (exception is not OutOfMemoryException)
+        {
+            WriteLog("App.ClearOpenedAttachmentsAndLog", $"Clearing the opened attachments failed: {exception.GetType().Name}");
         }
     }
 

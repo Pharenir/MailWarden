@@ -1,3 +1,4 @@
+using System.Diagnostics.CodeAnalysis;
 using System.Globalization;
 using System.Windows.Input;
 using MailWarden.Core.Model;
@@ -30,9 +31,9 @@ public enum ReadingState
 }
 
 /// <summary>
-/// The reading pane of the selected message: header texts and the safe document. Opening a message changes nothing, also
-/// not its \Seen flag. Continuations of the awaits stay on the caller's context (the UI thread); of overlapping calls of
-/// <see cref="ShowAsync"/> only the newest changes the pane.
+/// The reading pane of the selected message: header texts, attachments and the safe document. Opening a message changes
+/// nothing, also not its \Seen flag, and neither does anything done with its attachments. Continuations of the awaits stay on the
+/// caller's context (the UI thread); of overlapping calls of <see cref="ShowAsync"/> only the newest changes the pane.
 /// </summary>
 public sealed class ReadingPaneViewModel : ObservableObject
 {
@@ -46,6 +47,15 @@ public sealed class ReadingPaneViewModel : ObservableObject
     private readonly TimeProvider timeProvider;
     private readonly RelayCommand loadRemoteImagesCommand;
     private readonly Func<MailContent, bool, bool, ReadingTheme, ReadingDocument> documentBuilder;
+    private readonly IAttachmentHost? attachmentHost;
+    private readonly AttachmentFiles? attachmentFiles;
+    private readonly Func<string, Task<bool>> confirmOpening;
+
+    // Ends running attachment actions when the pane closes. The next mail does not: a save goes on for the mail it was started for.
+    private readonly CancellationTokenSource attachmentCancellation = new();
+
+    // Rows with an action running; a double click must not open a file twice. Touched on the UI thread only.
+    private readonly HashSet<AttachmentRow> busyAttachmentRows = [];
     private ReadingState state = ReadingState.Empty;
     private string subject = string.Empty;
     private string from = string.Empty;
@@ -53,6 +63,8 @@ public sealed class ReadingPaneViewModel : ObservableObject
     private string cc = string.Empty;
     private string dateText = string.Empty;
     private IReadOnlyList<string> attachmentNames = [];
+    private IReadOnlyList<AttachmentRow> attachments = new List<AttachmentRow>();
+    private string? attachmentNotice;
     private string? documentHtml;
     private int blockedRemoteResourceCount;
     private bool areRemoteImagesAllowed;
@@ -78,12 +90,23 @@ public sealed class ReadingPaneViewModel : ObservableObject
         IMailboxReadModel readModel,
         ICriticalLog log,
         TimeProvider timeProvider,
-        Func<MailContent, bool, bool, ReadingTheme, ReadingDocument> documentBuilder)
+        Func<MailContent, bool, bool, ReadingTheme, ReadingDocument> documentBuilder,
+        IAttachmentHost? attachmentHost,
+        string? attachmentOpenFolder,
+        Func<string, Task<bool>> confirmOpening)
     {
+        if ((attachmentHost is null) != (attachmentOpenFolder is null))
+        {
+            throw new ArgumentException("The attachment host and the open folder only work together.", nameof(attachmentHost));
+        }
+
         this.readModel = readModel;
         this.log = log;
         this.timeProvider = timeProvider;
         this.documentBuilder = documentBuilder;
+        this.attachmentHost = attachmentHost;
+        attachmentFiles = attachmentOpenFolder is null ? null : new AttachmentFiles(attachmentOpenFolder);
+        this.confirmOpening = confirmOpening;
         loadRemoteImagesCommand = new RelayCommand(LoadRemoteImages, () => CanLoadRemoteImages);
     }
 
@@ -155,14 +178,52 @@ public sealed class ReadingPaneViewModel : ObservableObject
     }
 
     /// <summary>
-    /// Shortened names of at most 50 attachments, then one entry with the number of the others; they cannot be opened or
-    /// saved in this version.
+    /// Shortened names of at most 50 attachments, then one entry with the number of the others. The window shows
+    /// <see cref="Attachments"/>.
     /// </summary>
     public IReadOnlyList<string> AttachmentNames
     {
         get => attachmentNames;
         private set => SetProperty(ref attachmentNames, value);
     }
+
+    /// <summary>
+    /// One row per entry of <see cref="MailContent.Attachments"/> of the shown mail, in that order; empty without a mail. It only
+    /// changes with the shown mail.
+    /// </summary>
+    public IReadOnlyList<AttachmentRow> Attachments
+    {
+        get => attachments;
+        private set
+        {
+            if (SetProperty(ref attachments, value))
+            {
+                OnPropertyChanged(nameof(HasAttachments));
+            }
+        }
+    }
+
+    /// <summary>True when <see cref="Attachments"/> has rows.</summary>
+    public bool HasAttachments => attachments.Count > 0;
+
+    /// <summary>
+    /// Readable message of the last action on an attachment of the shown mail; null when there is none. A fixed text, the next
+    /// action and the next mail clear it.
+    /// </summary>
+    public string? AttachmentNotice
+    {
+        get => attachmentNotice;
+        private set
+        {
+            if (SetProperty(ref attachmentNotice, value))
+            {
+                OnPropertyChanged(nameof(HasAttachmentNotice));
+            }
+        }
+    }
+
+    /// <summary>True when <see cref="AttachmentNotice"/> has a text.</summary>
+    public bool HasAttachmentNotice => attachmentNotice is not null;
 
     /// <summary>Output of <see cref="ReadingDocumentBuilder"/>; null unless <see cref="ReadingState.Ready"/>.</summary>
     public string? DocumentHtml
@@ -314,7 +375,7 @@ public sealed class ReadingPaneViewModel : ObservableObject
             }
 
             currentContent = content;
-            ShowContentHeader(content, message);
+            ShowContentHeader(content, message, folderRole);
             ShowDocument(document, content, approval);
         }
         catch (OperationCanceledException) when (generation != showGeneration && !ct.IsCancellationRequested)
@@ -373,13 +434,107 @@ public sealed class ReadingPaneViewModel : ObservableObject
             : Task.CompletedTask;
     }
 
-    /// <summary>Ends the running load without a further read or log line; later calls do nothing.</summary>
+    /// <summary>
+    /// Saves an attachment: the save dialog of Windows, then a stream copy of the decoded part. Without a target nothing is
+    /// written. The save goes on when another mail is selected; its notice then goes with the old mail. A row that is no longer
+    /// shown, or that has no content, does nothing.
+    /// </summary>
+    /// <param name="row">A row of <see cref="Attachments"/>.</param>
+    /// <returns>A task that completes when the action has ended; it never fails, a failure shows in <see cref="AttachmentNotice"/>.</returns>
+    public async Task SaveAttachmentAsync(AttachmentRow row)
+    {
+        if (!TryBeginAttachmentAction(row, out IAttachmentHost? host, out AttachmentFiles? files))
+        {
+            return;
+        }
+
+        IReadOnlyList<AttachmentRow> rowsOfAction = attachments;
+        CancellationToken ct = attachmentCancellation.Token;
+        try
+        {
+            string? targetPath = await host.PickSaveTargetAsync(row.SafeFileName, ct);
+            if (targetPath is not null)
+            {
+                await files.SaveAsync(ContentWriterOf(row), targetPath, ct);
+            }
+        }
+        catch (OperationCanceledException)
+        {
+            // The pane has closed.
+        }
+        catch (Exception exception)
+        {
+            // Also OutOfMemoryException: what happens to one attachment must not end a running mail program.
+            ReportAttachmentFailure(rowsOfAction, "ReadingPaneViewModel.SaveAttachmentAsync", "Saving an attachment failed", exception, UiText.AttachmentSaveFailed);
+        }
+        finally
+        {
+            busyAttachmentRows.Remove(row);
+        }
+    }
+
+    /// <summary>
+    /// Opens an attachment: asks first where <see cref="AttachmentPolicy.MustAskBeforeOpening"/> says so, prepares the marked
+    /// file and hands it to the program Windows assigns. A row with <see cref="AttachmentRow.CanOpen"/> false, or one that is no
+    /// longer shown, does nothing.
+    /// </summary>
+    /// <param name="row">A row of <see cref="Attachments"/>.</param>
+    /// <returns>A task that completes when the action has ended; it never fails, a failure shows in <see cref="AttachmentNotice"/>.</returns>
+    public async Task OpenAttachmentAsync(AttachmentRow row)
+    {
+        if (row is not { CanOpen: true } || !TryBeginAttachmentAction(row, out IAttachmentHost? host, out AttachmentFiles? files))
+        {
+            return;
+        }
+
+        IReadOnlyList<AttachmentRow> rowsOfAction = attachments;
+        CancellationToken ct = attachmentCancellation.Token;
+        try
+        {
+            if (AttachmentPolicy.MustAskBeforeOpening(row.Risk, row.FolderRole)
+                && !await confirmOpening(UiText.ConfirmOpenAttachment(row.Risk, row.FolderRole)))
+            {
+                return;
+            }
+
+            string filePath = await files.PrepareForOpeningAsync(ContentWriterOf(row), row.SafeFileName, ct);
+            if (!isClosed && !await host.OpenWithDefaultProgramAsync(filePath))
+            {
+                ReportAttachmentRefusal(rowsOfAction);
+            }
+        }
+        catch (OperationCanceledException)
+        {
+            // The pane has closed.
+        }
+        catch (Exception exception)
+        {
+            // Also OutOfMemoryException: what happens to one attachment must not end a running mail program.
+            ReportAttachmentFailure(rowsOfAction, "ReadingPaneViewModel.OpenAttachmentAsync", "Opening an attachment failed", exception, UiText.AttachmentOpenFailed);
+        }
+        finally
+        {
+            busyAttachmentRows.Remove(row);
+        }
+    }
+
+    /// <summary>Ends the running load and attachment actions without a further read or log line; later calls do nothing.</summary>
     internal void Close()
     {
         isClosed = true;
         showGeneration++;
         CancelPreviousShow();
+        attachmentCancellation.Cancel();
     }
+
+    // Fixed texts only: names and paths in the exceptions stay out of the window.
+    private static string DescribeAttachmentFailure(Exception exception, string otherwise) => exception switch
+    {
+        FileNotFoundException => UiText.AttachmentMailGone,
+        MailContentException or ArgumentOutOfRangeException => UiText.AttachmentChangedOrUnreadable,
+        IOException { Data: var details } when details[AttachmentFiles.MarkFailureDataKey] is true => UiText.AttachmentMarkFailed,
+        _ => otherwise,
+    };
 
     private static string? DescribeMissingContent(BuiltDocument built, MailContent content)
     {
@@ -502,6 +657,71 @@ public sealed class ReadingPaneViewModel : ObservableObject
         return true;
     }
 
+    // True when the action may start. It is then marked as running; the caller ends that. The notice of the action before goes.
+    private bool TryBeginAttachmentAction(
+        AttachmentRow row,
+        [NotNullWhen(true)] out IAttachmentHost? host,
+        [NotNullWhen(true)] out AttachmentFiles? files)
+    {
+        host = attachmentHost;
+        files = attachmentFiles;
+        if (isClosed || row is not { HasContent: true } || !attachments.Contains(row))
+        {
+            return false;
+        }
+
+        if (host is null || files is null)
+        {
+            AttachmentNotice = UiText.AttachmentActionsUnavailable;
+            return false;
+        }
+
+        if (!busyAttachmentRows.Add(row))
+        {
+            return false;
+        }
+
+        AttachmentNotice = null;
+        return true;
+    }
+
+    private Func<Stream, CancellationToken, Task> ContentWriterOf(AttachmentRow row)
+    {
+        return (destination, ct) => readModel.CopyAttachmentAsync(row.Message, row.Index, row.Attachment, destination, ct);
+    }
+
+    // The type name only: messages of file exceptions name the path, and that names the attachment.
+    private void ReportAttachmentFailure(IReadOnlyList<AttachmentRow> rowsOfAction, string source, string description, Exception exception, string otherwise)
+    {
+        if (isClosed)
+        {
+            return;
+        }
+
+        log.Write(CriticalLogLevel.Critical, source, $"{description}: {exception.GetType().Name}");
+        ShowNoticeForRows(rowsOfAction, DescribeAttachmentFailure(exception, otherwise));
+    }
+
+    private void ReportAttachmentRefusal(IReadOnlyList<AttachmentRow> rowsOfAction)
+    {
+        if (isClosed)
+        {
+            return;
+        }
+
+        log.Write(CriticalLogLevel.Critical, "ReadingPaneViewModel.OpenAttachmentAsync", "Windows did not open an attachment");
+        ShowNoticeForRows(rowsOfAction, UiText.AttachmentOpenRefused);
+    }
+
+    // The rows and the notice belong to the mail on screen; what comes from an action on the mail before is only logged.
+    private void ShowNoticeForRows(IReadOnlyList<AttachmentRow> rowsOfAction, string notice)
+    {
+        if (ReferenceEquals(rowsOfAction, attachments))
+        {
+            AttachmentNotice = notice;
+        }
+    }
+
     private void CancelPreviousShow()
     {
         try
@@ -536,9 +756,11 @@ public sealed class ReadingPaneViewModel : ObservableObject
         Cc = string.Empty;
         DateText = message is null ? string.Empty : FormatDate(message.Date);
         AttachmentNames = [];
+        Attachments = new List<AttachmentRow>();
+        AttachmentNotice = null;
     }
 
-    private void ShowContentHeader(MailContent content, MailMessage message)
+    private void ShowContentHeader(MailContent content, MailMessage message, FolderRole? folderRole)
     {
         Subject = MailDisplayText.Subject(content.Subject);
         From = MailDisplayText.SenderLine(content.Senders ?? [new MailSender(string.Empty, content.From)]);
@@ -546,6 +768,7 @@ public sealed class ReadingPaneViewModel : ObservableObject
         Cc = MailDisplayText.Recipients(content.Cc);
         DateText = FormatDate(content.Date ?? message.Date);
         AttachmentNames = MailDisplayText.AttachmentNames(content.Attachments.Select(attachment => attachment.FileName).ToList());
+        Attachments = content.Attachments.Select((attachment, index) => new AttachmentRow(message, folderRole, attachment, index)).ToList();
     }
 
     private void ShowDocument(BuiltDocument built, MailContent content, ImageApproval approval)

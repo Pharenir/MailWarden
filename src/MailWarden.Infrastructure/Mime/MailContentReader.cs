@@ -7,7 +7,8 @@ namespace MailWarden.Infrastructure.Mime;
 
 /// <summary>
 /// Parses a raw message into <see cref="MailContent"/> for the reading pane. Nothing refers to the stream afterwards, so
-/// the sync can overwrite the EML file while the message is displayed.
+/// the sync can overwrite the EML file while the message is displayed. Only the copy of one attachment works on the stream
+/// while it runs, because its content does not go through memory as a whole.
 /// </summary>
 public static class MailContentReader
 {
@@ -44,6 +45,76 @@ public static class MailContentReader
         {
             // MimeKit reports unparsable input this way. Its message may quote parts of the mail, so it is not kept.
             throw new MailContentException();
+        }
+    }
+
+    /// <summary>
+    /// Writes the decoded content of one attachment to the destination; an attached message is written as that message. The
+    /// parts stay in the stream, only what is copied passes through memory. Position and sorting are those of
+    /// <see cref="ReadAsync"/>.
+    /// </summary>
+    /// <param name="eml">Raw message, read from its current position; seekable, so nothing is copied into memory. Not disposed.</param>
+    /// <param name="attachmentIndex">Position in <see cref="MailContent.Attachments"/>.</param>
+    /// <param name="expected">The entry the user chose from the list; the part at that position must still be this one.</param>
+    /// <param name="destination">Receives the content; not disposed.</param>
+    /// <param name="ct">Cancellation token.</param>
+    /// <returns>A task that completes when the content is written.</returns>
+    /// <exception cref="ArgumentNullException"><paramref name="eml"/>, <paramref name="expected"/> or <paramref name="destination"/> is null.</exception>
+    /// <exception cref="ArgumentOutOfRangeException"><paramref name="attachmentIndex"/> lies outside the list of this message.</exception>
+    /// <exception cref="MailContentException">
+    /// The stream cannot be parsed, the part has no content, or its name, type or size differ from <paramref name="expected"/>.
+    /// Nothing was written then.
+    /// </exception>
+    /// <exception cref="IOException">Reading or writing failed; passed on unchanged.</exception>
+    /// <exception cref="OperationCanceledException">The copy was cancelled.</exception>
+    public static async Task CopyAttachmentAsync(
+        Stream eml,
+        int attachmentIndex,
+        MailAttachmentInfo expected,
+        Stream destination,
+        CancellationToken ct = default)
+    {
+        ArgumentNullException.ThrowIfNull(eml);
+        ArgumentNullException.ThrowIfNull(expected);
+        ArgumentNullException.ThrowIfNull(destination);
+        ArgumentOutOfRangeException.ThrowIfNegative(attachmentIndex);
+
+        try
+        {
+            // persistent: true leaves the content of the parts in the stream instead of copying it into memory.
+            using MimeMessage message = await MimeMessage
+                .LoadAsync(MimeParserDefaults.Create(), eml, persistent: true, ct)
+                .ConfigureAwait(false);
+            List<ListedAttachment> attachments = SortParts(message, ct).Attachments;
+            ArgumentOutOfRangeException.ThrowIfGreaterThanOrEqual(attachmentIndex, attachments.Count);
+
+            ListedAttachment attachment = attachments[attachmentIndex];
+            if (attachment.Info != expected)
+            {
+                throw new MailContentException();
+            }
+
+            await WriteContentAsync(attachment.Entity, destination, ct).ConfigureAwait(false);
+        }
+        catch (FormatException)
+        {
+            // As in ReadAsync: the message may quote parts of the mail, so it is not kept.
+            throw new MailContentException();
+        }
+    }
+
+    private static async Task WriteContentAsync(MimeEntity entity, Stream destination, CancellationToken ct)
+    {
+        switch (entity)
+        {
+            case MimePart { Content: IMimeContent content }:
+                await content.DecodeToAsync(destination, ct).ConfigureAwait(false);
+                break;
+            case MessagePart { Message: MimeMessage attachedMessage }:
+                await attachedMessage.WriteToAsync(FormatOptions.Default, destination, ct).ConfigureAwait(false);
+                break;
+            default:
+                throw new MailContentException();
         }
     }
 
@@ -114,13 +185,27 @@ public static class MailContentReader
         return SafeDisplayText.Clean(description);
     }
 
-    // Sorts the leaf parts: body text is skipped, inline images within the limits are embedded, the rest is listed.
     private static (Dictionary<string, string> InlineImages, List<MailAttachmentInfo> Attachments) ReadParts(
         MimeMessage message,
         CancellationToken ct)
     {
+        PartSorting sorting = SortParts(message, ct);
         var inlineImages = new Dictionary<string, string>(StringComparer.Ordinal);
-        var attachments = new List<MailAttachmentInfo>();
+        foreach (MimePart image in sorting.EmbeddedImages)
+        {
+            inlineImages.Add(image.ContentId!, ToDataUri(image, ct));
+        }
+
+        return (inlineImages, sorting.Attachments.Select(attachment => attachment.Info).ToList());
+    }
+
+    // The one rule for all readers. Sorts the leaf parts: body text is skipped, inline images within the limits are embedded, the
+    // rest is listed. The position in the list is what addresses an attachment.
+    private static PartSorting SortParts(MimeMessage message, CancellationToken ct)
+    {
+        var embeddedContentIds = new HashSet<string>(StringComparer.Ordinal);
+        var embeddedImages = new List<MimePart>();
+        var attachments = new List<ListedAttachment>();
         long embeddedBytes = 0;
 
         foreach (MimeEntity entity in message.BodyParts)
@@ -132,7 +217,7 @@ public static class MailContentReader
                 // instead of an unnamed entry.
                 if (!ContainsOpaquePart(entity))
                 {
-                    attachments.Add(DescribeAttachment(entity, FileNameOf(entity), size: null));
+                    attachments.Add(new ListedAttachment(entity, DescribeAttachment(entity, FileNameOf(entity), size: null)));
                 }
 
                 continue;
@@ -148,22 +233,23 @@ public static class MailContentReader
             string? contentId = part.ContentId;
             bool isEmbeddable = !part.IsAttachment
                 && !string.IsNullOrEmpty(contentId)
-                && !inlineImages.ContainsKey(contentId)
+                && !embeddedContentIds.Contains(contentId)
                 && InlineImageTypes.Contains(part.ContentType.MimeType)
                 && size is <= MaxInlineImageBytes
                 && embeddedBytes + size <= MaxInlineImagesTotalBytes;
             if (isEmbeddable)
             {
-                inlineImages.Add(contentId!, ToDataUri(part, ct));
+                embeddedContentIds.Add(contentId!);
+                embeddedImages.Add(part);
                 embeddedBytes += size!.Value;
             }
             else
             {
-                attachments.Add(DescribeAttachment(part, part.FileName, size));
+                attachments.Add(new ListedAttachment(part, DescribeAttachment(part, part.FileName, size)));
             }
         }
 
-        return (inlineImages, attachments);
+        return new PartSorting(embeddedImages, attachments);
     }
 
     // A nameless plain or HTML part that is not marked as attachment belongs to the body.
@@ -180,7 +266,7 @@ public static class MailContentReader
         return entity.ContentDisposition?.FileName ?? entity.ContentType.Name;
     }
 
-    // The name is only ever shown; it is cleaned here and never used as a path.
+    // The name is cleaned here and never used as a path; a file on disk gets a name made by AttachmentFileName.ToSafe.
     private static MailAttachmentInfo DescribeAttachment(MimeEntity entity, string? fileName, long? size)
     {
         return new MailAttachmentInfo(
@@ -208,4 +294,14 @@ public static class MailContentReader
         string base64 = Convert.ToBase64String(decodedContent.GetBuffer(), 0, (int)decodedContent.Length);
         return $"data:{part.ContentType.MimeType.ToLowerInvariant()};base64,{base64}";
     }
+
+    /// <summary>One listed attachment.</summary>
+    /// <param name="Entity">Its part in the parsed message.</param>
+    /// <param name="Info">What the list shows of it.</param>
+    private sealed record ListedAttachment(MimeEntity Entity, MailAttachmentInfo Info);
+
+    /// <summary>The result of sorting the parts of a message.</summary>
+    /// <param name="EmbeddedImages">Inline images within the limits, each with its own Content-ID.</param>
+    /// <param name="Attachments">Everything else that is listed, in the order of the message.</param>
+    private sealed record PartSorting(List<MimePart> EmbeddedImages, List<ListedAttachment> Attachments);
 }

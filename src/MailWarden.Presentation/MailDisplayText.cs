@@ -1,3 +1,4 @@
+using System.Globalization;
 using MailWarden.Core.Text;
 using MailWarden.Infrastructure.Mime;
 
@@ -37,6 +38,8 @@ internal static class MailDisplayText
     private const int MaxAddressCharactersWithName = 60;
 
     private const string Ellipsis = "…";
+
+    private const long BytesPerUnit = 1024;
 
     /// <summary>The shortened subject; a fixed text when it is empty.</summary>
     /// <param name="subject">Raw subject.</param>
@@ -150,16 +153,50 @@ internal static class MailDisplayText
     /// <returns>The entries to show.</returns>
     public static List<string> AttachmentNames(IReadOnlyCollection<string> fileNames)
     {
-        List<string> names = fileNames
-            .Take(MaxAttachmentNames)
-            .Select(name => SafeDisplayText.Shorten(name, MaxAttachmentNameCharacters))
-            .Select(name => name.Length == 0 ? UiText.UnnamedAttachment : name)
-            .ToList();
+        List<string> names = fileNames.Take(MaxAttachmentNames).Select(AttachmentName).ToList();
         if (fileNames.Count > MaxAttachmentNames)
         {
             names.Add(UiText.MoreAttachments(fileNames.Count - MaxAttachmentNames));
         }
 
         return names;
+    }
+
+    /// <summary>The name of one attachment for display; a fixed text when it is empty.</summary>
+    /// <param name="fileName">Raw file name.</param>
+    /// <returns>The text to show.</returns>
+    public static string AttachmentName(string fileName)
+    {
+        string shortened = SafeDisplayText.Shorten(fileName, MaxAttachmentNameCharacters);
+        return shortened.Length == 0 ? UiText.UnnamedAttachment : shortened;
+    }
+
+    /// <summary>The size of one attachment in the largest fitting unit, in the German format of the other texts.</summary>
+    /// <param name="sizeInBytes">Decoded size; null when unknown.</param>
+    /// <returns>For instance <c>512 B</c> or <c>1,5 MB</c>; empty when the size is unknown.</returns>
+    public static string AttachmentSize(long? sizeInBytes)
+    {
+        if (sizeInBytes is not long bytes)
+        {
+            return string.Empty;
+        }
+
+        if (bytes < BytesPerUnit)
+        {
+            return string.Create(CultureInfo.InvariantCulture, $"{bytes} B");
+        }
+
+        string[] units = ["KB", "MB", "GB", "TB"];
+        double value = bytes;
+        int unitIndex = -1;
+        do
+        {
+            value /= BytesPerUnit;
+            unitIndex++;
+        }
+        while (value >= BytesPerUnit && unitIndex < units.Length - 1);
+
+        string number = value.ToString("0.0", CultureInfo.InvariantCulture).Replace('.', ',');
+        return $"{number} {units[unitIndex]}";
     }
 }
