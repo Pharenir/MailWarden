@@ -130,7 +130,7 @@ dotnet build MailWarden.sln -warnaserror
 - [ ] Drei Konten sichtbar; Ungelesen-Zahlen plausibel zum Webmail; Kontostatus wechselt von „Wird abgeglichen …“ zu „Aktuell“
 - [ ] Gruppen Gesendet, Junk usw. und Ordnerbaum je Konto lassen sich öffnen; Eltern-Knoten ohne Ansicht ändern die Auswahl nicht
 - [ ] Eine Mail mit dem Betreff `MailWarden test` ist im Konto 2 bzw. im Google-Konto sichtbar
-- [ ] Im Lesebereich erscheinen Kopf (Von, An, Cc, Datum, Anhangnamen) und Inhalt; Kopfbereich und Lesebereich bleiben erreichbar, auch wenn die Liste groß gezogen oder das Fenster klein gemacht wird
+- [ ] Im Lesebereich erscheinen Kopf (Von, An, Cc, Datum, Anhänge mit Name, Größe, Endung sowie Öffnen und Speichern) und Inhalt; Kopfbereich und Lesebereich bleiben erreichbar, auch wenn die Liste groß gezogen oder das Fenster klein gemacht wird
 - [ ] Liste mit sehr vielen Mails: nach unten scrollen lädt weitere nach
 - [ ] Fenster schließen beendet den Prozess: `Get-Process MailWarden.App -ErrorAction SilentlyContinue` gibt nichts aus
 - [ ] Schließen **während des Ladens** (App starten, sofort das Fenster schließen): Prozess endet ebenfalls, kein Fehlerfenster
