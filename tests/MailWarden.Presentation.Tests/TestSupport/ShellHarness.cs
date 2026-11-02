@@ -4,7 +4,7 @@ using MailWarden.Infrastructure.Mime;
 namespace MailWarden.Presentation.Tests.TestSupport;
 
 /// <summary>Wires a <see cref="ShellViewModel"/> to the fakes. Fixed clock: 2026-10-31 12:00 UTC.</summary>
-internal sealed class ShellHarness
+internal sealed class ShellHarness : IDisposable
 {
     public static readonly DateTimeOffset FixedNow = new(2026, 10, 31, 12, 0, 0, TimeSpan.Zero);
 
@@ -17,9 +17,25 @@ internal sealed class ShellHarness
         Settings = new FakeUiSettingsStore { Stored = initialSettings ?? UiSettings.Default };
         Log = new FakeCriticalLog();
         Clock = clock ?? new FixedClock(FixedNow);
-        Shell = new ShellViewModel(ReadModel, Controller, Actions, Dispatcher, Settings, Log, Clock, documentBuilder);
+        AttachmentHost = new FakeAttachmentHost();
+        WorkRoot = Path.Combine(AppContext.BaseDirectory, "ap04c-ui", Guid.NewGuid().ToString("N"));
+        AttachmentOpenFolder = Path.Combine(WorkRoot, "attachments-open");
+
+        // ASSUMPTION (test-plan Q1): the shell takes the host and the open folder as two further constructor members.
+        Shell = new ShellViewModel(
+            ReadModel, Controller, Actions, Dispatcher, Settings, Log, Clock, documentBuilder,
+            attachmentHost: AttachmentHost, attachmentOpenFolder: AttachmentOpenFolder);
         Shell.ConfirmationRequested += OnConfirmationRequested;
     }
+
+    /// <summary>AP-04c attachment host fake (assumed: passed to the shell, see test-plan question Q1).</summary>
+    public FakeAttachmentHost AttachmentHost { get; }
+
+    /// <summary>Stands for <c>&lt;data&gt;\attachments-open</c>; below <see cref="WorkRoot"/>, created by the code under test.</summary>
+    public string AttachmentOpenFolder { get; }
+
+    /// <summary>Folder below the test output for files a test writes (save targets); removed by <see cref="Dispose"/>.</summary>
+    public string WorkRoot { get; }
 
     public FakeMailboxReadModel ReadModel { get; }
 
@@ -85,6 +101,26 @@ internal sealed class ShellHarness
     /// <summary>Finds a top-level navigation node of an account.</summary>
     public NavigationItem AccountNode(Guid accountId) =>
         Shell.Navigation.Items.Single(item => item.AccountId == accountId && item.View is null);
+
+    /// <summary>Removes <see cref="WorkRoot"/> (best effort: a launched file may still be locked).</summary>
+    public void Dispose()
+    {
+        try
+        {
+            if (Directory.Exists(WorkRoot))
+            {
+                Directory.Delete(WorkRoot, recursive: true);
+            }
+        }
+        catch (IOException)
+        {
+            // Best effort inside the test output.
+        }
+        catch (UnauthorizedAccessException)
+        {
+            // Best effort inside the test output.
+        }
+    }
 
     private void OnConfirmationRequested(object? sender, ConfirmationRequest request)
     {
