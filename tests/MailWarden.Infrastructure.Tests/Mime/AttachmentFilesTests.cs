@@ -1,3 +1,4 @@
+using System.Diagnostics;
 using MailWarden.Infrastructure.Mime;
 
 namespace MailWarden.Infrastructure.Tests.Mime;
@@ -13,6 +14,9 @@ public sealed class AttachmentFilesTests : IDisposable
 {
     private readonly string _root = Path.Combine(AppContext.BaseDirectory, "ap04c-files", Guid.NewGuid().ToString("N"));
 
+    private readonly List<string> _links = [];
+    private readonly List<string> _readOnlyFiles = [];
+
     public AttachmentFilesTests()
     {
         Directory.CreateDirectory(_root);
@@ -20,6 +24,34 @@ public sealed class AttachmentFilesTests : IDisposable
 
     public void Dispose()
     {
+        // Links first and read-only marks off, so a failing test cannot leave anything that blocks the removal of the root.
+        foreach (string link in _links)
+        {
+            try
+            {
+                if (Directory.Exists(link))
+                {
+                    Directory.Delete(link, recursive: false);
+                }
+            }
+            catch (IOException)
+            {
+                // Best effort.
+            }
+            catch (UnauthorizedAccessException)
+            {
+                // Best effort.
+            }
+        }
+
+        foreach (string readOnlyFile in _readOnlyFiles)
+        {
+            if (File.Exists(readOnlyFile))
+            {
+                File.SetAttributes(readOnlyFile, FileAttributes.Normal);
+            }
+        }
+
         try
         {
             Directory.Delete(_root, recursive: true);
@@ -344,6 +376,125 @@ public sealed class AttachmentFilesTests : IDisposable
         files.Clear();
 
         Assert.Empty(AllFiles(openFolder));
+    }
+
+    // ---- Case 12: Clear never follows a link -------------------------------------------------------------------
+
+    /// <summary>Makes a junction with <c>mklink /J</c> (no elevation needed); fails the test when the call fails.</summary>
+    private void CreateJunction(string link, string target)
+    {
+        var start = new ProcessStartInfo("cmd.exe")
+        {
+            WorkingDirectory = _root,
+            RedirectStandardOutput = true,
+            RedirectStandardError = true,
+            UseShellExecute = false,
+            CreateNoWindow = true,
+        };
+        start.ArgumentList.Add("/c");
+        start.ArgumentList.Add("mklink");
+        start.ArgumentList.Add("/J");
+        start.ArgumentList.Add(link);
+        start.ArgumentList.Add(target);
+        using Process process = Process.Start(start)!;
+        string output = process.StandardOutput.ReadToEnd() + process.StandardError.ReadToEnd();
+        process.WaitForExit();
+        Assert.True(process.ExitCode == 0, $"mklink /J failed: {output}");
+        _links.Add(link);
+    }
+
+    /// <summary>A folder outside the open folder with a read-only file, a subfolder and a file in it.</summary>
+    private (string Folder, string[] Files) NewJunctionTarget(string name)
+    {
+        string folder = NewDirectory(name);
+        string sub = Path.Combine(folder, "sub_a");
+        Directory.CreateDirectory(sub);
+        string keep = Path.Combine(folder, "keep_a.txt");
+        string nested = Path.Combine(sub, "keep_b.txt");
+        File.WriteAllBytes(keep, [1, 2, 3]);
+        File.WriteAllBytes(nested, [4, 5, 6]);
+        File.SetAttributes(keep, FileAttributes.ReadOnly);
+        _readOnlyFiles.Add(keep);
+        return (folder, [keep, nested]);
+    }
+
+    private static void AssertTargetUntouched((string Folder, string[] Files) target, FileAttributes[] attributesBefore, FileAttributes folderAttributesBefore)
+    {
+        Assert.True(Directory.Exists(target.Folder), "the target folder of the link is gone");
+        Assert.Equal(folderAttributesBefore, File.GetAttributes(target.Folder));
+        Assert.Equal(new byte[] { 1, 2, 3 }, File.ReadAllBytes(target.Files[0]));
+        Assert.Equal(new byte[] { 4, 5, 6 }, File.ReadAllBytes(target.Files[1]));
+        for (int position = 0; position < target.Files.Length; position++)
+        {
+            Assert.Equal(attributesBefore[position], File.GetAttributes(target.Files[position]));
+        }
+
+        Assert.True(File.GetAttributes(target.Files[0]).HasFlag(FileAttributes.ReadOnly), "the write protection of the target is gone");
+    }
+
+    private static bool EntryExists(string path) =>
+        Directory.Exists(path) || File.Exists(path) ||
+        (Directory.Exists(Path.GetDirectoryName(path)) &&
+         Directory.GetFileSystemEntries(Path.GetDirectoryName(path)!).Any(entry => string.Equals(entry, path, StringComparison.OrdinalIgnoreCase)));
+
+    // Case 12 / A3: a junction inside the guid folder is removed as a link; its target keeps content and write protection.
+    [Fact(Timeout = TestTimeouts.PerTestMilliseconds)]
+    public async Task Clear_removes_a_junction_in_a_guid_folder_and_leaves_its_target_untouched()
+    {
+        string openFolder = NewDirectory("open_junction_in_guid");
+        var files = new AttachmentFiles(openFolder);
+        string prepared = await files.PrepareForOpeningAsync(Writing([1]), "report_a.pdf");
+        string guidFolder = Path.GetDirectoryName(prepared)!;
+        (string Folder, string[] Files) target = NewJunctionTarget("outside_in_guid");
+        FileAttributes[] before = [.. target.Files.Select(File.GetAttributes)];
+        FileAttributes folderBefore = File.GetAttributes(target.Folder);
+        string link = Path.Combine(guidFolder, "link_a");
+        CreateJunction(link, target.Folder);
+        Assert.True(File.Exists(Path.Combine(link, "keep_a.txt")), "the junction does not lead to the target");
+
+        Exception? failure = Record.Exception(files.Clear);
+
+        Assert.Null(failure);
+        Assert.False(EntryExists(link), "the link is still there");
+        Assert.False(File.Exists(prepared));
+        AssertTargetUntouched(target, before, folderBefore);
+    }
+
+    // Case 12 / A3: a junction directly in the open folder.
+    [Fact]
+    public void Clear_removes_a_junction_directly_in_the_open_folder_and_leaves_its_target_untouched()
+    {
+        string openFolder = NewDirectory("open_junction_direct");
+        (string Folder, string[] Files) target = NewJunctionTarget("outside_direct");
+        FileAttributes[] before = [.. target.Files.Select(File.GetAttributes)];
+        FileAttributes folderBefore = File.GetAttributes(target.Folder);
+        string link = Path.Combine(openFolder, "link_b");
+        CreateJunction(link, target.Folder);
+        Assert.True(File.Exists(Path.Combine(link, "keep_a.txt")), "the junction does not lead to the target");
+
+        Exception? failure = Record.Exception(new AttachmentFiles(openFolder).Clear);
+
+        Assert.Null(failure);
+        Assert.False(EntryExists(link), "the link is still there");
+        AssertTargetUntouched(target, before, folderBefore);
+    }
+
+    // Case 12 / A3: the open folder is itself a junction; the link goes, the target and its content stay.
+    [Fact]
+    public void Clear_removes_the_open_folder_when_it_is_a_junction_and_leaves_its_target_untouched()
+    {
+        (string Folder, string[] Files) target = NewJunctionTarget("outside_open_folder");
+        FileAttributes[] before = [.. target.Files.Select(File.GetAttributes)];
+        FileAttributes folderBefore = File.GetAttributes(target.Folder);
+        string openFolder = Path.Combine(_root, "open_is_junction");
+        CreateJunction(openFolder, target.Folder);
+        Assert.True(File.Exists(Path.Combine(openFolder, "keep_a.txt")), "the junction does not lead to the target");
+
+        Exception? failure = Record.Exception(new AttachmentFiles(openFolder).Clear);
+
+        Assert.Null(failure);
+        Assert.False(EntryExists(openFolder), "the link is still there");
+        AssertTargetUntouched(target, before, folderBefore);
     }
 
     // Case 12: nothing to clear (synchronous: no timeout attribute, xUnit supports it for async tests only).

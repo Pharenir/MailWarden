@@ -198,6 +198,127 @@ public sealed class AttachmentPolicyTests
         Assert.Equal(expected, AttachmentPolicy.Classify(safe));
     }
 
+    // Case 2 (fix.2): invisible characters and variation selectors are removed as whole code points, also outside the first plane.
+    [Theory]
+    [InlineData("a\u034Fb.pdf")]
+    [InlineData("a\uFE0Fb.pdf")]
+    [InlineData("a\u2800b.pdf")]
+    [InlineData("a\u3164b.pdf")]
+    [InlineData("a\U0001D173b.pdf")]
+    [InlineData("a\U000E0100b.pdf")]
+    [InlineData("a\U000E0041b.pdf")]
+    [InlineData("a\u200Bb.pdf")]
+    [InlineData("a\u2060b.pdf")]
+    [InlineData("a\uFEFFb.pdf")]
+    public void Invisible_characters_and_variation_selectors_are_removed(string raw)
+    {
+        string safe = AttachmentFileName.ToSafe(raw, 0);
+
+        Assert.Equal("ab.pdf", safe);
+        AssertSafe(safe);
+    }
+
+    // Case 2 (fix.2): wide and code-page forms of reserved characters become an underscore.
+    [Theory]
+    [InlineData("\uFF02", "double quote")]
+    [InlineData("\uFF0A", "asterisk")]
+    [InlineData("\uFF0F", "slash")]
+    [InlineData("\uFF1A", "colon")]
+    [InlineData("\uFF1C", "less than")]
+    [InlineData("\uFF1E", "greater than")]
+    [InlineData("\uFF1F", "question mark")]
+    [InlineData("\uFF3C", "backslash")]
+    [InlineData("\uFF5C", "vertical bar")]
+    [InlineData("\u00A5", "yen sign")]
+    [InlineData("\u20A9", "won sign")]
+    public void Wide_and_code_page_forms_of_reserved_characters_become_an_underscore(string character, string description)
+    {
+        string safe = AttachmentFileName.ToSafe($"a{character}b.pdf", 0);
+
+        Assert.True(safe == "a_b.pdf", $"{description}: got '{safe}'");
+        AssertSafe(safe);
+    }
+
+    // Case 2 (fix.2): a wide colon cannot start an alternate stream, a wide slash cannot make a path part, the extension stays.
+    [Fact]
+    public void Wide_separators_cannot_hide_a_path_or_an_extension()
+    {
+        string safe = AttachmentFileName.ToSafe("..\uFF3C..\uFF0Fevil\uFF1A.exe", 0);
+
+        AssertSafe(safe);
+        Assert.DoesNotContain("\uFF3C", safe, StringComparison.Ordinal);
+        Assert.DoesNotContain("\uFF0F", safe, StringComparison.Ordinal);
+        Assert.DoesNotContain("\uFF1A", safe, StringComparison.Ordinal);
+        Assert.Equal(AttachmentRisk.SaveOnly, AttachmentPolicy.Classify(safe));
+    }
+
+    // Case 2: emoji stay, also when the name is checked by whole code points (a surrogate pair is never torn apart).
+    [Theory]
+    [InlineData("foto \U0001F600 urlaub.jpg")]
+    [InlineData("\U0001F4CE anhang.pdf")]
+    [InlineData("flagge \U0001F1E9\U0001F1EA.png")]
+    [InlineData("\U00020BB7 name.txt")]
+    public void Emoji_and_other_characters_outside_the_first_plane_stay(string raw)
+    {
+        Assert.Equal(raw, AttachmentFileName.ToSafe(raw, 0));
+    }
+
+    // Case 2: a lone surrogate is not valid text; whatever happens to it, the result is valid UTF-16 and safe.
+    [Theory]
+    [InlineData("a\uD83Db.pdf")]
+    [InlineData("a\uDE00b.pdf")]
+    public void A_lone_surrogate_does_not_survive_as_invalid_text(string raw)
+    {
+        string safe = AttachmentFileName.ToSafe(raw, 0);
+
+        AssertSafe(safe);
+        AssertNoLoneSurrogate(safe);
+        Assert.EndsWith(".pdf", safe, StringComparison.Ordinal);
+    }
+
+    // Case 1/2: a very long name of emoji is cut by whole code points, no pair is torn apart, the extension stays.
+    [Fact]
+    public void A_long_name_of_emoji_is_cut_without_tearing_a_surrogate_pair()
+    {
+        string raw = string.Concat(Enumerable.Repeat("\U0001F600", 300)) + ".pdf";
+
+        string safe = AttachmentFileName.ToSafe(raw, 0);
+
+        AssertSafe(safe);
+        AssertNoLoneSurrogate(safe);
+        Assert.EndsWith(".pdf", safe, StringComparison.Ordinal);
+        Assert.True(safe.Length < raw.Length);
+    }
+
+    // Case 2: the invisible character is removed before the extension is judged: a hidden dot-part cannot fake another type.
+    [Theory]
+    [InlineData("bericht.pdf.\u2800exe", AttachmentRisk.SaveOnly)]
+    [InlineData("bericht.ex\uFE0Fe", AttachmentRisk.SaveOnly)]
+    [InlineData("bericht.p\U000E0100df", AttachmentRisk.Harmless)]
+    public void The_risk_follows_the_extension_left_after_removing_invisible_characters(string raw, AttachmentRisk expected)
+    {
+        string safe = AttachmentFileName.ToSafe(raw, 0);
+
+        AssertSafe(safe);
+        Assert.Equal(expected, AttachmentPolicy.Classify(safe));
+    }
+
+    private static void AssertNoLoneSurrogate(string text)
+    {
+        for (int position = 0; position < text.Length; position++)
+        {
+            if (char.IsHighSurrogate(text[position]))
+            {
+                Assert.True(position + 1 < text.Length && char.IsLowSurrogate(text[position + 1]), $"lone high surrogate at {position}");
+                position++;
+            }
+            else
+            {
+                Assert.False(char.IsLowSurrogate(text[position]), $"lone low surrogate at {position}");
+            }
+        }
+    }
+
     // ---- Case 3 --------------------------------------------------------------------------------------------
 
     // Case 3: every blocked type of A5.
@@ -246,6 +367,36 @@ public sealed class AttachmentPolicyTests
         Assert.Equal(AttachmentRisk.SaveOnly, AttachmentPolicy.Classify(name));
     }
 
+    // Case 3 (fix.2): a sample of the groups of the longer list (database, bytecode, package, support request, certificate, Monad, application reference, scripts) of general Windows and Office types.
+    [Theory]
+    [InlineData("mdb")]
+    [InlineData("accdb")]
+    [InlineData("pyc")]
+    [InlineData("winget")]
+    [InlineData("msrcincident")]
+    [InlineData("cer")]
+    [InlineData("msh1xml")]
+    [InlineData("appcontent-ms")]
+    [InlineData("bas")]
+    [InlineData("pl")]
+    public void The_longer_list_of_general_windows_and_office_types_is_save_only(string extension)
+    {
+        Assert.Equal(AttachmentRisk.SaveOnly, AttachmentPolicy.Classify($"file_a.{extension}"));
+        Assert.Equal(AttachmentRisk.SaveOnly, AttachmentPolicy.Classify($"FILE_A.{extension.ToUpperInvariant()}"));
+    }
+
+    // Case 3/5 (fix.2): types of single programs stay out of the blocked list and ask first.
+    [Theory]
+    [InlineData("slk")]
+    [InlineData("iqy")]
+    [InlineData("pps")]
+    [InlineData("one")]
+    public void Types_of_single_programs_stay_out_of_the_blocked_list_and_ask(string extension)
+    {
+        Assert.Equal(AttachmentRisk.Ask, AttachmentPolicy.Classify($"file_a.{extension}"));
+        Assert.Equal(AttachmentRisk.Ask, AttachmentPolicy.Classify($"FILE_A.{extension.ToUpperInvariant()}"));
+    }
+
     // ---- Case 4 --------------------------------------------------------------------------------------------
 
     // Case 4
@@ -262,7 +413,6 @@ public sealed class AttachmentPolicyTests
     [InlineData("xlsx")]
     [InlineData("pptx")]
     [InlineData("odt")]
-    [InlineData("zip")]
     public void Harmless_types_are_classified_harmless_in_any_case(string extension)
     {
         Assert.Equal(AttachmentRisk.Harmless, AttachmentPolicy.Classify($"file_a.{extension}"));
@@ -278,6 +428,8 @@ public sealed class AttachmentPolicyTests
     [InlineData("seite.html")]
     [InlineData("bild.svg")]
     [InlineData("daten.xyz")]
+    [InlineData("archiv_a.zip")]
+    [InlineData("ARCHIV_A.ZIP")]
     [InlineData("readme")]
     [InlineData("anhang-1")]
     public void Macro_formats_unknown_types_and_names_without_extension_ask_first(string name)
@@ -301,7 +453,7 @@ public sealed class AttachmentPolicyTests
 
     // ---- Case 6 --------------------------------------------------------------------------------------------
 
-    private static readonly FolderRole[] RiskyRoles = [FolderRole.Junk, FolderRole.Quarantine, FolderRole.Screener];
+    private static readonly FolderRole[] RiskyRoles = [FolderRole.Junk, FolderRole.Quarantine, FolderRole.Screener, FolderRole.Trash];
 
     // Case 6 (A5, A6, A10): the complete table for Ask and Harmless over every role and the unknown role (null).
     [Fact]
@@ -319,19 +471,19 @@ public sealed class AttachmentPolicyTests
         Assert.True(AttachmentPolicy.MustAskBeforeOpening(AttachmentRisk.Harmless, null));
     }
 
-    // Case 6: Harmless asks in exactly the three risky roles and the unknown one, nowhere else.
+    // Case 6: Harmless asks in exactly the four risky roles (Trash since fix.2) and the unknown one, nowhere else.
     [Theory]
     [InlineData(FolderRole.Inbox, false)]
     [InlineData(FolderRole.Sent, false)]
     [InlineData(FolderRole.Drafts, false)]
     [InlineData(FolderRole.Archive, false)]
-    [InlineData(FolderRole.Trash, false)]
+    [InlineData(FolderRole.Trash, true)]
     [InlineData(FolderRole.Outbox, false)]
     [InlineData(FolderRole.None, false)]
     [InlineData(FolderRole.Junk, true)]
     [InlineData(FolderRole.Quarantine, true)]
     [InlineData(FolderRole.Screener, true)]
-    public void Harmless_asks_only_in_junk_quarantine_and_screener(FolderRole role, bool expected)
+    public void Harmless_asks_only_in_junk_quarantine_screener_and_trash(FolderRole role, bool expected)
     {
         Assert.Equal(expected, AttachmentPolicy.MustAskBeforeOpening(AttachmentRisk.Harmless, role));
     }

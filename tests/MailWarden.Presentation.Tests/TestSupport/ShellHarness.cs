@@ -56,6 +56,9 @@ internal sealed class ShellHarness : IDisposable
     /// <summary>Texts of all confirmation requests, in order.</summary>
     public List<string> ConfirmationTexts { get; } = [];
 
+    /// <summary>All confirmation requests, in order; a test with <see cref="ConfirmationAnswer"/> null answers one by hand.</summary>
+    public List<ConfirmationRequest> ConfirmationRequests { get; } = [];
+
     public FakeUiDispatcher Dispatcher { get; }
 
     public FakeUiSettingsStore Settings { get; }
@@ -127,6 +130,7 @@ internal sealed class ShellHarness : IDisposable
         lock (ConfirmationTexts)
         {
             ConfirmationTexts.Add(request.Text);
+            ConfirmationRequests.Add(request);
         }
 
         int number;

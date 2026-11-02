@@ -216,20 +216,108 @@ public sealed class AttachmentRowTests : IDisposable
 
     // ---- A11 -----------------------------------------------------------------------------------------------
 
-    // A11: an attached message is level Ask and can be opened. The .eml name is checked in AttachmentActionsTests.
+    // A11 (decided after verify.1, fix.2): a part the parser made a message always gets .eml and level Ask, whatever its name claims.
     [Theory(Timeout = TestTimeouts.PerTestMilliseconds)]
-    [InlineData("forwarded_a")]
-    [InlineData("")]
-    [InlineData("forwarded_b.eml")]
-    public async Task An_attached_message_becomes_an_eml_file_that_asks_first(string name)
+    [InlineData("forwarded_a", "forwarded_a.eml")]
+    [InlineData("", "anhang-1.eml")]
+    [InlineData("forwarded_b.eml", "forwarded_b.eml")]
+    [InlineData("evil.exe", "evil.exe.eml")]
+    [InlineData("report_c.pdf", "report_c.pdf.eml")]
+    public async Task An_attached_message_always_ends_in_eml_and_asks_first(string name, string expectedSafeName)
     {
         (ShellHarness harness, _) = await ShowAsync(FolderRole.Inbox, new MailAttachmentInfo(name, "message/rfc822", 300));
 
         AttachmentRow row = Assert.Single(harness.Shell.Reading.Attachments);
 
+        Assert.Equal(expectedSafeName, row.SafeFileName);
         Assert.Equal(AttachmentRisk.Ask, row.Risk);
         Assert.True(row.CanOpen);
         Assert.True(row.HasContent);
+        Assert.Equal("EML", row.ExtensionText);
+    }
+
+    // A11: a message part that is not a message of its own (delivery status) keeps its name, with a size it has content.
+    [Fact(Timeout = TestTimeouts.PerTestMilliseconds)]
+    public async Task A_delivery_status_part_gets_no_eml_extension()
+    {
+        (ShellHarness harness, _) = await ShowAsync(FolderRole.Inbox, new MailAttachmentInfo("status_a", "message/delivery-status", 120));
+
+        AttachmentRow row = Assert.Single(harness.Shell.Reading.Attachments);
+
+        Assert.Equal("status_a", row.SafeFileName);
+        Assert.Equal(AttachmentRisk.Ask, row.Risk);
+        Assert.True(row.HasContent);
+        Assert.Equal(string.Empty, row.ExtensionText);
+    }
+
+    // ---- A1 (fix.2): the extension column ----------------------------------------------------------------------
+
+    // A1: ExtensionText is the last extension of the safe name in capitals without the dot, empty without one.
+    [Theory(Timeout = TestTimeouts.PerTestMilliseconds)]
+    [InlineData("report_a.pdf", "PDF")]
+    [InlineData("ok_c.PDF", "PDF")]
+    [InlineData("archive.tar.gz", "GZ")]
+    [InlineData("rechnung.pdf.exe", "EXE")]
+    [InlineData("makro_b.Docm", "DOCM")]
+    [InlineData("readme", "")]
+    [InlineData("..\\..\\evil_a.exe", "EXE")]
+    [InlineData("a.pdf.", "PDF")]
+    [InlineData("foto\u202Egpj.exe", "EXE")]
+    [InlineData("archiv_a.zip", "ZIP")]
+    public async Task The_extension_column_shows_the_last_extension_of_the_safe_name_in_capitals(string name, string expected)
+    {
+        (ShellHarness harness, _) = await ShowAsync(FolderRole.Inbox, new MailAttachmentInfo(name, "application/octet-stream", 10));
+
+        AttachmentRow row = Assert.Single(harness.Shell.Reading.Attachments);
+
+        Assert.Equal(expected, row.ExtensionText);
+    }
+
+    // A1: an unnamed part and a name that is only dots have the fallback name without an extension.
+    [Theory(Timeout = TestTimeouts.PerTestMilliseconds)]
+    [InlineData("")]
+    [InlineData("...")]
+    public async Task A_part_without_a_usable_name_has_an_empty_extension_column(string name)
+    {
+        (ShellHarness harness, _) = await ShowAsync(FolderRole.Inbox, new MailAttachmentInfo(name, "application/octet-stream", 10));
+
+        AttachmentRow row = Assert.Single(harness.Shell.Reading.Attachments);
+
+        Assert.Equal("anhang-1", row.SafeFileName);
+        Assert.Equal(string.Empty, row.ExtensionText);
+    }
+
+    // A1 / case 26: a very long name is cut for display, but the extension column still shows the real extension.
+    [Fact(Timeout = TestTimeouts.PerTestMilliseconds)]
+    public async Task A_very_long_name_keeps_its_extension_in_the_column_and_asks_first_for_a_zip()
+    {
+        (ShellHarness harness, _) = await ShowAsync(FolderRole.Inbox, new MailAttachmentInfo(new string('a', 400) + ".zip", "application/zip", 10));
+
+        AttachmentRow row = Assert.Single(harness.Shell.Reading.Attachments);
+
+        Assert.Equal("ZIP", row.ExtensionText);
+        Assert.Equal(AttachmentRisk.Ask, row.Risk);
+        Assert.True(row.CanOpen);
+    }
+
+    // A1: the column follows the safe name for every row, whatever the claimed type says.
+    [Fact(Timeout = TestTimeouts.PerTestMilliseconds)]
+    public async Task The_extension_column_is_the_one_of_the_safe_name_for_every_row()
+    {
+        MailAttachmentInfo[] infos =
+        [
+            new("a.pdf", "image/png", 1),
+            new("b", "application/pdf", 1),
+            new("c.x.Y", "text/plain", 1),
+            new("..\\d.exe", "application/pdf", 1),
+        ];
+        (ShellHarness harness, _) = await ShowAsync(FolderRole.Inbox, infos);
+
+        foreach (AttachmentRow row in harness.Shell.Reading.Attachments)
+        {
+            string extension = Path.GetExtension(row.SafeFileName).TrimStart('.');
+            Assert.Equal(extension.ToUpperInvariant(), row.ExtensionText);
+        }
     }
 
     // A11 / fix.1: a row without a size and without the message type has no decodable content; with the message type it counts.

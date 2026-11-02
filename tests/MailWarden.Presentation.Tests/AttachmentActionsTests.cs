@@ -102,6 +102,7 @@ public sealed class AttachmentActionsTests : IDisposable
     [InlineData(FolderRole.Junk)]
     [InlineData(FolderRole.Quarantine)]
     [InlineData(FolderRole.Screener)]
+    [InlineData(FolderRole.Trash)]
     public async Task Saving_from_a_risky_folder_asks_nothing(FolderRole role)
     {
         (ShellHarness harness, _) = await ShowAsync(role, ThreeAttachments());
@@ -168,12 +169,13 @@ public sealed class AttachmentActionsTests : IDisposable
         Assert.Null(harness.Shell.Reading.AttachmentNotice);
     }
 
-    // A11: an attached message is saved and opened as its message, so the file ends in .eml (named and unnamed).
+    // A11 (fix.2): a part the parser made a message is proposed and opened as .eml, always, and always after a question.
     [Theory(Timeout = TestTimeouts.PerTestMilliseconds)]
-    [InlineData("forwarded_a")]
-    [InlineData("")]
-    [InlineData("forwarded_b.eml")]
-    public async Task An_attached_message_is_proposed_and_opened_as_an_eml_file(string name)
+    [InlineData("forwarded_a", "forwarded_a.eml")]
+    [InlineData("", "anhang-1.eml")]
+    [InlineData("forwarded_b.eml", "forwarded_b.eml")]
+    [InlineData("evil.exe", "evil.exe.eml")]
+    public async Task An_attached_message_is_proposed_and_opened_as_an_eml_file(string name, string expectedName)
     {
         (ShellHarness harness, _) = await ShowAsync(FolderRole.Inbox, new MailAttachmentInfo(name, "message/rfc822", 300));
         AttachmentRow row = Assert.Single(harness.Shell.Reading.Attachments);
@@ -183,8 +185,8 @@ public sealed class AttachmentActionsTests : IDisposable
         await harness.Shell.Reading.SaveAttachmentAsync(row);
         await harness.Shell.Reading.OpenAttachmentAsync(row);
 
-        Assert.EndsWith(".eml", Assert.Single(harness.AttachmentHost.ProposedNames), StringComparison.OrdinalIgnoreCase);
-        Assert.EndsWith(".eml", Assert.Single(harness.AttachmentHost.OpenedPaths), StringComparison.OrdinalIgnoreCase);
+        Assert.Equal(expectedName, Assert.Single(harness.AttachmentHost.ProposedNames));
+        Assert.Equal(expectedName, Path.GetFileName(Assert.Single(harness.AttachmentHost.OpenedPaths)));
         Assert.Single(harness.ConfirmationTexts);
     }
 
@@ -199,6 +201,8 @@ public sealed class AttachmentActionsTests : IDisposable
 
         Assert.Single(harness.ConfirmationTexts);
         Assert.False(string.IsNullOrWhiteSpace(harness.ConfirmationTexts[0]));
+        Assert.DoesNotContain("makro_b", harness.ConfirmationTexts[0], StringComparison.OrdinalIgnoreCase);
+        Assert.DoesNotContain("docm", harness.ConfirmationTexts[0], StringComparison.OrdinalIgnoreCase);
         Assert.Empty(harness.AttachmentHost.OpenedPaths);
         Assert.Empty(FilesInOpenFolder(harness));
     }
@@ -239,6 +243,7 @@ public sealed class AttachmentActionsTests : IDisposable
     [InlineData(FolderRole.Junk)]
     [InlineData(FolderRole.Quarantine)]
     [InlineData(FolderRole.Screener)]
+    [InlineData(FolderRole.Trash)]
     public async Task A_harmless_type_from_a_risky_folder_asks_first(FolderRole role)
     {
         (ShellHarness harness, _) = await ShowAsync(role, ThreeAttachments());
@@ -256,6 +261,7 @@ public sealed class AttachmentActionsTests : IDisposable
     [InlineData(FolderRole.Junk)]
     [InlineData(FolderRole.Quarantine)]
     [InlineData(FolderRole.Screener)]
+    [InlineData(FolderRole.Trash)]
     public async Task A_harmless_type_from_a_risky_folder_opens_after_yes(FolderRole role)
     {
         (ShellHarness harness, _) = await ShowAsync(role, ThreeAttachments());
@@ -345,6 +351,8 @@ public sealed class AttachmentActionsTests : IDisposable
         Assert.Single(harness.AttachmentHost.OpenedPaths);
         Assert.False(string.IsNullOrWhiteSpace(harness.Shell.Reading.AttachmentNotice));
         Assert.DoesNotContain("report_a", harness.Log.AllText, StringComparison.Ordinal);
+        Assert.Empty(harness.Log.Entries);
+        Assert.True(string.IsNullOrWhiteSpace(harness.Shell.Banner));
     }
 
     // Case 18: decoding fails while opening.
@@ -366,6 +374,7 @@ public sealed class AttachmentActionsTests : IDisposable
         Assert.Contains(nameof(MailContentException), harness.Log.AllText, StringComparison.Ordinal);
         Assert.DoesNotContain("report_a", harness.Log.AllText, StringComparison.Ordinal);
         Assert.Empty(FilesInOpenFolder(harness));
+        Assert.True(string.IsNullOrWhiteSpace(harness.Shell.Banner));
     }
 
     // Case 18 (A8): decoding fails while saving; the empty file of the dialog does not stay under the chosen name.
@@ -389,6 +398,7 @@ public sealed class AttachmentActionsTests : IDisposable
         Assert.False(string.IsNullOrWhiteSpace(harness.Shell.Reading.AttachmentNotice));
         Assert.Contains(nameof(MailContentException), harness.Log.AllText, StringComparison.Ordinal);
         Assert.DoesNotContain("report_a", harness.Log.AllText, StringComparison.Ordinal);
+        Assert.True(string.IsNullOrWhiteSpace(harness.Shell.Banner), "without a change of mail the failure shows as a notice, not in the banner");
     }
 
     // Case 18 (A8): the mail is gone (no EML any more).
@@ -478,11 +488,12 @@ public sealed class AttachmentActionsTests : IDisposable
         Assert.Null(failure);
         Assert.Equal(new[] { "second_d.png" }, harness.Shell.Reading.Attachments.Select(row => row.Name).ToArray());
         Assert.Null(harness.Shell.Reading.AttachmentNotice);
+        Assert.True(string.IsNullOrWhiteSpace(harness.Shell.Banner), "a save that succeeded reports nothing");
     }
 
-    // Case 19: a failure of the old save is not shown at the new mail.
+    // Case 19 (fix.2): a failure of the old save goes to the banner of the shell, not to the new mail.
     [Fact(Timeout = TestTimeouts.PerTestMilliseconds)]
-    public async Task A_failure_of_the_old_save_shows_no_notice_at_the_new_mail()
+    public async Task A_failure_of_the_old_save_shows_in_the_banner_and_not_at_the_new_mail()
     {
         (ShellHarness harness, MailMessage second, TaskCompletionSource entered, TaskCompletionSource release) = await ArrangeSlowCopyAsync();
         harness.AttachmentHost.SaveTarget = SaveTargetIn(harness);
@@ -503,6 +514,74 @@ public sealed class AttachmentActionsTests : IDisposable
         Assert.Null(failure);
         Assert.Equal(new[] { "second_d.png" }, harness.Shell.Reading.Attachments.Select(row => row.Name).ToArray());
         Assert.Null(harness.Shell.Reading.AttachmentNotice);
+        Assert.False(harness.Shell.Reading.HasAttachmentNotice);
+        Assert.False(string.IsNullOrWhiteSpace(harness.Shell.Banner), "the failure of the save has no place but the banner");
+        Assert.Contains(UiText.BannerAttachmentSaveFailed, harness.Shell.Banner, StringComparison.Ordinal);
+        Assert.DoesNotContain("report_a", harness.Shell.Banner, StringComparison.Ordinal);
+    }
+
+    // Case 19 (fix.2): the next attachment action clears the banner of the failed save, whichever action it is.
+    [Theory(Timeout = TestTimeouts.PerTestMilliseconds)]
+    [InlineData("open")]
+    [InlineData("save")]
+    [InlineData("cancelled save")]
+    public async Task The_next_attachment_action_clears_the_banner_of_the_failed_save(string nextAction)
+    {
+        (ShellHarness harness, MailMessage second, TaskCompletionSource entered, TaskCompletionSource release) = await ArrangeSlowCopyAsync();
+        harness.AttachmentHost.SaveTarget = SaveTargetIn(harness);
+        Func<MailMessage, int, Stream, CancellationToken, Task> slow = harness.ReadModel.CopyBehavior!;
+        harness.ReadModel.CopyBehavior = async (message, index, stream, ct) =>
+        {
+            await slow(message, index, stream, ct);
+            throw new MailContentException();
+        };
+        Task saving = harness.Shell.Reading.SaveAttachmentAsync(RowNamed(harness, HarmlessName));
+        await entered.Task.WaitAsync(TimeSpan.FromSeconds(10));
+        await harness.Shell.Reading.ShowAsync(second);
+        release.SetResult();
+        await saving.WaitAsync(TimeSpan.FromSeconds(10));
+        Assert.False(string.IsNullOrWhiteSpace(harness.Shell.Banner));
+        harness.ReadModel.CopyBehavior = null;
+        AttachmentRow next = harness.Shell.Reading.Attachments.Single();
+        harness.AttachmentHost.SaveTarget = nextAction == "cancelled save" ? null : SaveTargetIn(harness, "second_d.png");
+
+        if (nextAction == "open")
+        {
+            await harness.Shell.Reading.OpenAttachmentAsync(next);
+        }
+        else
+        {
+            await harness.Shell.Reading.SaveAttachmentAsync(next);
+        }
+
+        Assert.True(string.IsNullOrWhiteSpace(harness.Shell.Banner), $"the banner stays after: {harness.Shell.Banner}");
+    }
+
+    // Case 19 (decisions after fix.2): a failed opening after a change of mail is only logged, the user is not waiting for a file.
+    [Fact(Timeout = TestTimeouts.PerTestMilliseconds)]
+    public async Task A_failed_opening_after_a_change_of_mail_is_logged_and_shows_nothing()
+    {
+        (ShellHarness harness, MailMessage second, TaskCompletionSource entered, TaskCompletionSource release) = await ArrangeSlowCopyAsync();
+        Func<MailMessage, int, Stream, CancellationToken, Task> slow = harness.ReadModel.CopyBehavior!;
+        harness.ReadModel.CopyBehavior = async (message, index, stream, ct) =>
+        {
+            await slow(message, index, stream, ct);
+            throw new MailContentException();
+        };
+        Task opening = harness.Shell.Reading.OpenAttachmentAsync(RowNamed(harness, HarmlessName));
+        await entered.Task.WaitAsync(TimeSpan.FromSeconds(10));
+        await harness.Shell.Reading.ShowAsync(second);
+        release.SetResult();
+
+        Exception? failure = await Record.ExceptionAsync(() => opening.WaitAsync(TimeSpan.FromSeconds(10)));
+        await Wait.NegativeWindowAsync();
+
+        Assert.Null(failure);
+        Assert.True(string.IsNullOrWhiteSpace(harness.Shell.Banner));
+        Assert.Null(harness.Shell.Reading.AttachmentNotice);
+        Assert.Contains(nameof(MailContentException), harness.Log.AllText, StringComparison.Ordinal);
+        Assert.DoesNotContain("report_a", harness.Log.AllText, StringComparison.Ordinal);
+        Assert.Empty(harness.AttachmentHost.OpenedPaths);
     }
 
     // Case 19: the same for opening; the old mail's file is not launched at the new mail's expense.
@@ -522,6 +601,243 @@ public sealed class AttachmentActionsTests : IDisposable
         Assert.Null(failure);
         Assert.Equal(new[] { "second_d.png" }, harness.Shell.Reading.Attachments.Select(row => row.Name).ToArray());
         Assert.Null(harness.Shell.Reading.AttachmentNotice);
+        Assert.True(string.IsNullOrWhiteSpace(harness.Shell.Banner), "a refused opening after a change of mail shows nothing");
+    }
+
+    // ---- Case 19a (fix.2): the notice while a copy runs ---------------------------------------------------------
+
+    // Case 19a / A2: "Anhang wird kopiert ..." during the copy of a save, "Anhang gespeichert." afterwards.
+    [Fact(Timeout = TestTimeouts.PerTestMilliseconds)]
+    public async Task A_save_shows_the_copy_notice_during_the_copy_and_the_saved_notice_afterwards()
+    {
+        (ShellHarness harness, _) = await ShowAsync(FolderRole.Inbox, ThreeAttachments());
+        harness.AttachmentHost.SaveTarget = SaveTargetIn(harness);
+        var entered = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var release = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        harness.ReadModel.CopyBehavior = async (_, _, stream, ct) =>
+        {
+            entered.TrySetResult();
+            await release.Task.WaitAsync(ct);
+            stream.Write([1, 2, 3]);
+        };
+        Assert.Null(harness.Shell.Reading.AttachmentNotice);
+
+        Task saving = harness.Shell.Reading.SaveAttachmentAsync(RowNamed(harness, HarmlessName));
+        await entered.Task.WaitAsync(TimeSpan.FromSeconds(10));
+
+        Assert.Equal(UiText.AttachmentCopying, harness.Shell.Reading.AttachmentNotice);
+        Assert.Contains("kopiert", harness.Shell.Reading.AttachmentNotice!, StringComparison.Ordinal);
+        Assert.True(harness.Shell.Reading.HasAttachmentNotice);
+
+        release.SetResult();
+        await saving.WaitAsync(TimeSpan.FromSeconds(10));
+
+        Assert.Equal(UiText.AttachmentSaved, harness.Shell.Reading.AttachmentNotice);
+        Assert.Contains("gespeichert", harness.Shell.Reading.AttachmentNotice!, StringComparison.Ordinal);
+    }
+
+    // Case 19a / A3: the copy notice during the copy of an opening, null after a successful start.
+    [Fact(Timeout = TestTimeouts.PerTestMilliseconds)]
+    public async Task An_opening_shows_the_copy_notice_during_the_copy_and_no_notice_after_the_start()
+    {
+        (ShellHarness harness, _) = await ShowAsync(FolderRole.Inbox, ThreeAttachments());
+        var entered = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var release = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        harness.ReadModel.CopyBehavior = async (_, _, stream, ct) =>
+        {
+            entered.TrySetResult();
+            await release.Task.WaitAsync(ct);
+            stream.Write([1, 2, 3]);
+        };
+
+        Task opening = harness.Shell.Reading.OpenAttachmentAsync(RowNamed(harness, HarmlessName));
+        await entered.Task.WaitAsync(TimeSpan.FromSeconds(10));
+
+        Assert.Equal(UiText.AttachmentCopying, harness.Shell.Reading.AttachmentNotice);
+
+        release.SetResult();
+        await opening.WaitAsync(TimeSpan.FromSeconds(10));
+
+        Assert.Single(harness.AttachmentHost.OpenedPaths);
+        Assert.Null(harness.Shell.Reading.AttachmentNotice);
+        Assert.False(harness.Shell.Reading.HasAttachmentNotice);
+    }
+
+    // Case 19a: a cancelled dialog after a saved file clears the old notice, a refusal replaces the copy notice.
+    [Fact(Timeout = TestTimeouts.PerTestMilliseconds)]
+    public async Task A_cancelled_save_after_a_saved_one_leaves_no_notice()
+    {
+        (ShellHarness harness, _) = await ShowAsync(FolderRole.Inbox, ThreeAttachments());
+        harness.AttachmentHost.SaveTarget = SaveTargetIn(harness);
+        await harness.Shell.Reading.SaveAttachmentAsync(RowNamed(harness, HarmlessName));
+        Assert.Equal(UiText.AttachmentSaved, harness.Shell.Reading.AttachmentNotice);
+        harness.AttachmentHost.SaveTarget = null;
+
+        await harness.Shell.Reading.SaveAttachmentAsync(RowNamed(harness, HarmlessName));
+
+        Assert.Null(harness.Shell.Reading.AttachmentNotice);
+    }
+
+    // Case 19a: after an answer of no there is no notice either.
+    [Fact(Timeout = TestTimeouts.PerTestMilliseconds)]
+    public async Task An_answer_of_no_leaves_no_notice()
+    {
+        (ShellHarness harness, _) = await ShowAsync(FolderRole.Inbox, ThreeAttachments());
+        harness.ConfirmationAnswer = false;
+
+        await harness.Shell.Reading.OpenAttachmentAsync(RowNamed(harness, AskName));
+
+        Assert.Null(harness.Shell.Reading.AttachmentNotice);
+    }
+
+    // ---- Case 19b (fix.2): the role is read again before opening --------------------------------------------
+
+    private static async Task<long> OnlyFolderIdAsync(ShellHarness harness)
+    {
+        Account account = (await harness.ReadModel.ListAccountsAsync()).Single();
+        return (await harness.ReadModel.ListFoldersAsync(account.Id)).Single().Id;
+    }
+
+    // Case 19b / A6: a role that differs from the one at showing asks first, also for a harmless type and also when the new
+    // role asks for none.
+    [Theory(Timeout = TestTimeouts.PerTestMilliseconds)]
+    [InlineData(FolderRole.Inbox, FolderRole.Archive)]
+    [InlineData(FolderRole.Inbox, FolderRole.Sent)]
+    [InlineData(FolderRole.Inbox, FolderRole.Junk)]
+    [InlineData(FolderRole.Inbox, FolderRole.Trash)]
+    [InlineData(FolderRole.Inbox, null)]
+    [InlineData(FolderRole.Archive, FolderRole.Inbox)]
+    [InlineData(FolderRole.Junk, FolderRole.Inbox)]
+    [InlineData(FolderRole.Junk, FolderRole.Quarantine)]
+    public async Task A_role_that_changed_before_opening_asks_first(FolderRole shownRole, FolderRole? roleNow)
+    {
+        (ShellHarness harness, _) = await ShowAsync(shownRole, ThreeAttachments());
+        harness.ReadModel.SetFolderRole(await OnlyFolderIdAsync(harness), roleNow);
+        harness.ConfirmationAnswer = false;
+
+        await harness.Shell.Reading.OpenAttachmentAsync(RowNamed(harness, HarmlessName));
+
+        Assert.Single(harness.ConfirmationTexts);
+        Assert.False(string.IsNullOrWhiteSpace(harness.ConfirmationTexts[0]));
+        Assert.Empty(harness.AttachmentHost.OpenedPaths);
+        Assert.Empty(harness.ReadModel.CopyCalls);
+    }
+
+    // Case 19b: after yes the file opens, once.
+    [Fact(Timeout = TestTimeouts.PerTestMilliseconds)]
+    public async Task A_changed_role_followed_by_yes_opens_the_file_once()
+    {
+        (ShellHarness harness, _) = await ShowAsync(FolderRole.Inbox, ThreeAttachments());
+        harness.ReadModel.SetFolderRole(await OnlyFolderIdAsync(harness), FolderRole.Archive);
+        harness.ConfirmationAnswer = true;
+
+        await harness.Shell.Reading.OpenAttachmentAsync(RowNamed(harness, HarmlessName));
+
+        Assert.Single(harness.ConfirmationTexts);
+        Assert.Single(harness.AttachmentHost.OpenedPaths);
+    }
+
+    // Case 19b: the role cannot be read -> a question, also for a harmless type from the inbox.
+    [Theory(Timeout = TestTimeouts.PerTestMilliseconds)]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task A_role_that_cannot_be_read_asks_first(bool answer)
+    {
+        (ShellHarness harness, _) = await ShowAsync(FolderRole.Inbox, ThreeAttachments());
+        harness.ReadModel.FolderRoleFailure = new IOException("role read failed");
+        harness.ConfirmationAnswer = answer;
+
+        Exception? failure = await Record.ExceptionAsync(() => harness.Shell.Reading.OpenAttachmentAsync(RowNamed(harness, HarmlessName)));
+
+        Assert.Null(failure);
+        Assert.Single(harness.ConfirmationTexts);
+        Assert.Equal(answer ? 1 : 0, harness.AttachmentHost.OpenedPaths.Count);
+    }
+
+    // Case 19b positive control: the same role, read again, asks nothing for a harmless type from the inbox.
+    [Fact(Timeout = TestTimeouts.PerTestMilliseconds)]
+    public async Task An_unchanged_readable_role_asks_nothing_for_a_harmless_type()
+    {
+        (ShellHarness harness, _) = await ShowAsync(FolderRole.Inbox, ThreeAttachments());
+        harness.ReadModel.SetFolderRole(await OnlyFolderIdAsync(harness), FolderRole.Inbox);
+
+        await harness.Shell.Reading.OpenAttachmentAsync(RowNamed(harness, HarmlessName));
+
+        Assert.Empty(harness.ConfirmationTexts);
+        Assert.Single(harness.AttachmentHost.OpenedPaths);
+    }
+
+    // Case 19b: saving does not depend on the role and does not read it as a reason to ask.
+    [Fact(Timeout = TestTimeouts.PerTestMilliseconds)]
+    public async Task Saving_asks_nothing_even_when_the_role_cannot_be_read()
+    {
+        (ShellHarness harness, _) = await ShowAsync(FolderRole.Inbox, ThreeAttachments());
+        harness.ReadModel.FolderRoleFailure = new IOException("role read failed");
+        harness.AttachmentHost.SaveTarget = SaveTargetIn(harness);
+
+        await harness.Shell.Reading.SaveAttachmentAsync(RowNamed(harness, HarmlessName));
+
+        Assert.Empty(harness.ConfirmationTexts);
+        Assert.True(File.Exists(SaveTargetIn(harness)));
+    }
+
+    // Case 19b: a blocked type stays blocked whatever the role says.
+    [Fact(Timeout = TestTimeouts.PerTestMilliseconds)]
+    public async Task A_blocked_type_stays_blocked_when_the_role_changes()
+    {
+        (ShellHarness harness, _) = await ShowAsync(FolderRole.Junk, ThreeAttachments());
+        harness.ReadModel.SetFolderRole(await OnlyFolderIdAsync(harness), FolderRole.Inbox);
+        harness.ConfirmationAnswer = true;
+
+        await harness.Shell.Reading.OpenAttachmentAsync(RowNamed(harness, BlockedName));
+
+        Assert.Empty(harness.ConfirmationTexts);
+        Assert.Empty(harness.AttachmentHost.OpenedPaths);
+    }
+
+    // ---- Case 19c (fix.2): another mail during the question ---------------------------------------------------
+
+    // Case 19c / A6: the row must still belong to the shown mail after the question; a yes after a change of mail opens nothing.
+    [Fact(Timeout = TestTimeouts.PerTestMilliseconds)]
+    public async Task A_yes_after_another_mail_was_selected_opens_nothing()
+    {
+        (ShellHarness harness, MailMessage first) = await ShowAsync(FolderRole.Inbox, ThreeAttachments());
+        Account account = (await harness.ReadModel.ListAccountsAsync()).Single();
+        MailFolder folder = (await harness.ReadModel.ListFoldersAsync(account.Id)).Single();
+        MailMessage second = harness.ReadModel.AddMessage(folder, "second_mail", hasAttachments: true);
+        harness.ReadModel.SetContent(second.Id, TestContent.Plain("second_mail", "body", [new MailAttachmentInfo("second_d.png", "image/png", 5)]));
+        harness.ConfirmationAnswer = null;
+
+        Task opening = harness.Shell.Reading.OpenAttachmentAsync(RowNamed(harness, AskName));
+        await Wait.UntilAsync(() => harness.ConfirmationRequests.Count == 1, "the question");
+        await harness.Shell.Reading.ShowAsync(second);
+        harness.ConfirmationRequests[0].Answer.TrySetResult(true);
+        Exception? failure = await Record.ExceptionAsync(() => opening.WaitAsync(TimeSpan.FromSeconds(10)));
+        await Wait.NegativeWindowAsync();
+
+        Assert.NotEqual(first.Id, second.Id);
+        Assert.Null(failure);
+        Assert.Empty(harness.AttachmentHost.OpenedPaths);
+        Assert.Empty(harness.ReadModel.CopyCalls);
+        Assert.Empty(FilesInOpenFolder(harness));
+        Assert.Equal(new[] { "second_d.png" }, harness.Shell.Reading.Attachments.Select(row => row.Name).ToArray());
+        Assert.Null(harness.Shell.Reading.AttachmentNotice);
+        Assert.True(string.IsNullOrWhiteSpace(harness.Shell.Banner));
+    }
+
+    // Case 19c positive control: the same flow without a change of mail opens the file.
+    [Fact(Timeout = TestTimeouts.PerTestMilliseconds)]
+    public async Task A_yes_for_the_still_shown_mail_opens_the_file()
+    {
+        (ShellHarness harness, _) = await ShowAsync(FolderRole.Inbox, ThreeAttachments());
+        harness.ConfirmationAnswer = null;
+
+        Task opening = harness.Shell.Reading.OpenAttachmentAsync(RowNamed(harness, AskName));
+        await Wait.UntilAsync(() => harness.ConfirmationRequests.Count == 1, "the question");
+        harness.ConfirmationRequests[0].Answer.TrySetResult(true);
+        await opening.WaitAsync(TimeSpan.FromSeconds(10));
+
+        Assert.Single(harness.AttachmentHost.OpenedPaths);
     }
 
     // ---- Case 20 -------------------------------------------------------------------------------------------
