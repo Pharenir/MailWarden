@@ -394,7 +394,7 @@ public sealed class ShellViewModelTests
         string[] methods = [.. typeof(IMailboxReadModel).GetMethods().Select(method => method.Name).OrderBy(name => name, StringComparer.Ordinal)];
 
         Assert.Equal(
-            new[] { "CountUnreadAsync", "GetFolderRoleAsync", "ListAccountsAsync", "ListFoldersAsync", "ListMessagesAsync", "ReadContentAsync", "SearchAsync" },
+            new[] { "CopyAttachmentAsync", "CountUnreadAsync", "GetFolderRoleAsync", "ListAccountsAsync", "ListFoldersAsync", "ListMessagesAsync", "ReadContentAsync", "SearchAsync" },
             methods);
         Assert.Empty(typeof(IMailboxReadModel).GetProperties());
         Assert.Empty(typeof(IMailboxReadModel).GetEvents());
@@ -422,6 +422,7 @@ public sealed class ShellViewModelTests
                 .GetMethods(BindingFlags.Public | BindingFlags.Instance | BindingFlags.DeclaredOnly)
                 .Where(method => !method.IsSpecialName)
                 .Where(method => method.Name != nameof(ShellViewModel.SaveWindowBounds)) // AP-04b D4: window settings, not mail
+                .Where(method => !(type == typeof(ReadingPaneViewModel) && method.Name == nameof(ReadingPaneViewModel.SaveAttachmentAsync))) // AP-04c: writes a local file after the dialog, never the mailbox
                 .Where(method => forbidden.Any(word => method.Name.Contains(word, StringComparison.OrdinalIgnoreCase)))
                 .Select(method => $"{type.Name}.{method.Name}")),
         ];

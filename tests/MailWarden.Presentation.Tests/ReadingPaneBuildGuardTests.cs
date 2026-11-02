@@ -676,7 +676,7 @@ public sealed class ReadingPaneBuildGuardTests
 
         Assert.Equal(ReadingState.Ready, reading.State);
         Assert.Null(reading.ContentNotice);
-        Assert.Single(reading.AttachmentNames);
+        Assert.Single(reading.Attachments);
     }
 
     // ---- Case 95 (N2) --------------------------------------------------------------------------------------
