@@ -78,7 +78,7 @@ Original-Headern (Outlook.com); 1.870 ohne Header (vermutlich IMAP-/Gmail-Ordner
   zu secure M2 AP-03a und AP-02a-ACL-Punkt, 2026-10-31) → bewusst akzeptiert, keine Änderung
 
 ## Testzähler
-Testzähler: 0/4 seit letztem S3 (zuletzt 2026-11-02: S3 auf dem Testbranch von AP-04e vor dem Merge, 2965/2965 – Core 536, Presentation 629, Infrastructure 1800; seither nur Doku geändert)
+Testzähler: 0/4 seit letztem S3 (zuletzt 2026-11-02: S3 auf dem Testbranch von AP-04c vor dem Merge, 3344/3344 – Core 536, Presentation 921, Infrastructure 1887)
 
 ## Übergabe – so geht es weiter (Sessionende 2026-11-01)
 **Stand `main`:** AP-06, AP-04b und AP-04d gemergt und auf GitHub; von Dennis geprüft. Fall 18 (AP-07d) bestanden. `Act` ist nirgends eingeschaltet. Keine Worktrees offen.
@@ -342,7 +342,8 @@ Erledigt aus AP-07c: D8, J4 (Bremse) und die Sichtbarkeit von `EvaluationFailed`
 - [ ] Jedes Öffnen legt eine vollständige Kopie an, bis zum nächsten Start oder Beenden (secure.1 L8, akzeptiert); ein mehrfach geöffneter Anhang könnte dieselbe Kopie nutzen
 - [ ] „Harmlos“ hängt am zugeordneten Programm: Der Internet-Vermerk hilft nur, wo das Programm ihn auswertet (secure.1 L1, Dennis informiert)
 
-- [ ] Rest-Rennen in `Clear`: Ein Prozess desselben Benutzers kann einen Ordner in Mikrosekunden gegen einen Link tauschen; ein Durchlauf über Handles wäre ein Umbau (secure.2 S2, akzeptiert)
+- [ ] Rest-Rennen in `Clear`: Ein Prozess desselben Benutzers kann einen Ordner in Mikrosekunden gegen einen Link tauschen; ein Durchlauf über Handles wäre ein Umbau (secure.2 S2, secure.3 L2 auch für `Discard`, akzeptiert)
+- [ ] `Clear` läuft auf dem UI-Thread: bei der Grenze von 100.000 Ordnern rund 30 s beim Start und Beenden; dazu braucht es einen lokalen Prozess (secure.3 L3, akzeptiert)
 - [ ] Liegt der Datenordner in einem Cloud-Ordner, gelten dessen Ordner als Links: `attachments-open` bleibt gefüllt, Anhänge werden mit hochgeladen, und falls der Ordner selbst als Link gilt, öffnet kein Anhang mehr (review.2 N3, review.3 S3)
 
 ### Vertagt aus AP-06

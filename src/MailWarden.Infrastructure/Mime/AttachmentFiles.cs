@@ -101,7 +101,7 @@ public sealed class AttachmentFiles(string openFolder)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(preparedPath);
         string? fileFolder = Path.GetDirectoryName(preparedPath);
-        if (fileFolder is null || Path.GetDirectoryName(fileFolder) != openFolder)
+        if (fileFolder is null || Path.GetDirectoryName(fileFolder) != openFolder || Path.GetFullPath(preparedPath) != preparedPath)
         {
             throw new ArgumentException("The path is not the one of a prepared file.", nameof(preparedPath));
         }
