@@ -12,13 +12,15 @@ namespace MailWarden.Infrastructure.Mime;
 public sealed record MailAttachmentInfo(string FileName, string ContentType, long? Size)
 {
     /// <summary>
-    /// True for an attached message: the parser made it a message of its own, so it has no decoded size. A part that claims such a
-    /// type but was not parsed as a message (encoded, or at the depth limit) is either measured or not listed at all.
+    /// True for an attached message. A listed <c>message/rfc822</c> always is one: the parser leaves that type unlisted when it could
+    /// not make a message of it (encoded, or at the depth limit). The other types of a message have no decoded size, unlike parts such
+    /// as a delivery report, which are measured.
     /// </summary>
     public bool IsAttachedMessage =>
-        Size is null
-        && (ContentType.StartsWith("message/", StringComparison.OrdinalIgnoreCase)
-            || ContentType.Equals("text/rfc822-headers", StringComparison.OrdinalIgnoreCase));
+        ContentType.Equals("message/rfc822", StringComparison.OrdinalIgnoreCase)
+        || (Size is null
+            && (ContentType.StartsWith("message/", StringComparison.OrdinalIgnoreCase)
+                || ContentType.Equals("text/rfc822-headers", StringComparison.OrdinalIgnoreCase)));
 
     /// <summary>True when the part can be copied: it has decodable content, or it is an attached message.</summary>
     public bool HasContent => Size is not null || IsAttachedMessage;

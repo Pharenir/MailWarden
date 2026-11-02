@@ -270,3 +270,13 @@ Nur Ansehen, keine Aktionen auf dem Server: **Rückfragen immer mit „Abbrechen
 - [ ] Fall 27: Gut lesbar und unterscheidbar: ausgewählte Zeile in Liste und Baum, ungelesene Mails (fett), deaktivierte Buttons, Warnbanner, Hover auf Zeilen und auf Buttons, Rahmen des Suchfelds mit und ohne Fokus, in der Rückfrage der Standard-Button „Abbrechen“ (orange).
 - [ ] Fall 28: Newsletter in Nightshade: abgedunkeltes helles Blatt, Links lassen sich klicken, der Tooltip zeigt das Ziel, Text lässt sich markieren.
 - [ ] Fall 29 (optional): Windows im Hellmodus mit Nightshade: Palette hält, nur ein Button mit Fokus kann kurz die alte Farbe zeigen. Hochkontrast vor dem Start eingeschaltet: Systemfarben und lesbarer Text, nur der Lesebereich bleibt violett (gewollt). Hochkontrast bei laufender App eingeschaltet: Bis zum nächsten Themenwechsel oder Start kann die dunkle Fensterfläche bleiben (bekannt).
+
+## 11 – Anhänge (AP-04c Fälle 21–26)
+Nur künstliche Testmails zwischen Konto 2 und Konto 3 (Betreff beginnt mit `MailWarden test MWT`), auf der Datenkopie. „Beim Anzeigen als gelesen markieren“ aus. Nichts davon ändert etwas auf dem Server; die Testmails bleiben liegen.
+- [ ] Fall 21: PDF, Office-Datei und Bild speichern. Der Dialog schlägt den Namen vor, ohne doppelte Endung; die Datei öffnet sich danach; in den Dateieigenschaften steht der Internet-Vermerk. Office zeigt deshalb die geschützte Ansicht (gewollt). Bei einem großen Anhang erscheint „Anhang wird kopiert …“, danach „Anhang gespeichert.“.
+- [ ] Fall 22: PDF aus dem Posteingang öffnen: sofort, die Datei trägt den Internet-Vermerk.
+- [ ] Fall 23: Aus Junk, Quarantäne, Screener und Papierkorb öffnen: erst eine Rückfrage; **Abbrechen** öffnet nichts, „Trotzdem öffnen“ öffnet einmal.
+- [ ] Fall 24: Mail mit `rechnung.pdf.exe`: nur Speichern, keine Möglichkeit zum Öffnen. Reicht dir die Anzeige ohne Erklärung?
+- [ ] Fall 25: App schließen und neu starten: `attachments-open` im Datenordner ist leer. Eine Datei, die noch im Betrachter offen ist, darf bis zum nächsten Start liegen bleiben.
+- [ ] Fall 26: Mail mit sehr langem Anhangsnamen und einer `.zip`: Die Endung bleibt in eigener Spalte sichtbar; `zip` fragt zuerst.
+- [ ] Zusätzlich: Speichern ohne Endung und mit ungewöhnlicher Endung; `.xyz` öffnen; über eine Datei speichern, die noch im Betrachter offen ist (klare Meldung, alte Datei bleibt); optional in einen OneDrive-Ordner und auf einen USB-Stick ohne NTFS (Speichern klappt, ohne Vermerk). Nightshade: Zeilenhöhe und Spalten passen.

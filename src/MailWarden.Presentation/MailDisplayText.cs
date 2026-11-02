@@ -25,9 +25,6 @@ internal static class MailDisplayText
     /// <summary>Maximum length of a link target under the mouse.</summary>
     public const int MaxLinkCharacters = 500;
 
-    /// <summary>Attachment names listed before "und N weitere".</summary>
-    public const int MaxAttachmentNames = 50;
-
     // No valid host name is longer.
     private const int MaxLinkHostCharacters = 255;
 
@@ -40,6 +37,9 @@ internal static class MailDisplayText
     private const string Ellipsis = "…";
 
     private const long BytesPerUnit = 1024;
+
+    // With one decimal place, from here on a value would read 1024,0.
+    private const double RoundsUpToNextUnit = 0.05;
 
     /// <summary>The shortened subject; a fixed text when it is empty.</summary>
     /// <param name="subject">Raw subject.</param>
@@ -148,20 +148,6 @@ internal static class MailDisplayText
         return SafeDisplayText.Shorten(string.Join(", ", recipients), MaxRecipientCharacters);
     }
 
-    /// <summary>At most <see cref="MaxAttachmentNames"/> names, then one entry with the number of the others.</summary>
-    /// <param name="fileNames">Raw file names.</param>
-    /// <returns>The entries to show.</returns>
-    public static List<string> AttachmentNames(IReadOnlyCollection<string> fileNames)
-    {
-        List<string> names = fileNames.Take(MaxAttachmentNames).Select(AttachmentName).ToList();
-        if (fileNames.Count > MaxAttachmentNames)
-        {
-            names.Add(UiText.MoreAttachments(fileNames.Count - MaxAttachmentNames));
-        }
-
-        return names;
-    }
-
     /// <summary>The name of one attachment for display; a fixed text when it is empty.</summary>
     /// <param name="fileName">Raw file name.</param>
     /// <returns>The text to show.</returns>
@@ -194,7 +180,7 @@ internal static class MailDisplayText
             value /= BytesPerUnit;
             unitIndex++;
         }
-        while (value >= BytesPerUnit && unitIndex < units.Length - 1);
+        while (value >= BytesPerUnit - RoundsUpToNextUnit && unitIndex < units.Length - 1);
 
         string number = value.ToString("0.0", CultureInfo.InvariantCulture).Replace('.', ',');
         return $"{number} {units[unitIndex]}";
