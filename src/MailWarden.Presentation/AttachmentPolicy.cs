@@ -40,10 +40,10 @@ public static class AttachmentFileName
     private static readonly char[] PathSeparators = ['/', '\\'];
     private static readonly char[] TrimmedAtTheEnd = ['.', ' '];
 
-    // Beside what Windows refuses: wide forms of quote, slash, colon and backslash, and the signs that stand for the backslash in Asian
+    // Beside what Windows refuses: wide forms of quote, slash, colon, backslash, star, question mark, angle brackets and bar, and the signs that stand for the backslash in Asian
     // code pages. A program that converts the name to its code page would get the real character from them.
     private static readonly FrozenSet<char> InvalidCharacters = Path.GetInvalidFileNameChars()
-        .Concat(['\uFF02', '\uFF0F', '\uFF1A', '\uFF3C', '\u00A5', '\u20A9'])
+        .Concat(['\uFF02', '\uFF0A', '\uFF0F', '\uFF1A', '\uFF1C', '\uFF1E', '\uFF1F', '\uFF3C', '\uFF5C', '\u00A5', '\u20A9'])
         .ToFrozenSet();
 
     // Default-ignorable code points outside the categories of IsInvisible: they show nothing, so they could hide a part of the name.
