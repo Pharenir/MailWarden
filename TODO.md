@@ -335,6 +335,13 @@ Erledigt aus AP-07c: D8, J4 (Bremse) und die Sichtbarkeit von `EvaluationFailed`
 - [ ] AP-13: Der Installer darf nur `data\` beschreibbar machen, nicht `<install>`, sonst wären DLLs und das kompilierte Wörterbuch austauschbar (secure.1)
 - [ ] Bei einem WinAppSDK-Update `WINUI_PACKAGE_VERSION` in `tools\make_nightshade_theme.py` anpassen und das Wörterbuch neu erzeugen
 
+### Vertagt aus AP-04c
+- [ ] Eine Mail, die in einen anderen Ordner wandert, behält bis zum nächsten Anzeigen die Rolle ihrer Zeile; bräuchte ein Lesen je Nachrichten-ID (secure.1 L2)
+- [ ] Der MIME-Parser hat keine Grenze für die Zahl der Teile: 12 MB EML mit 300.000 Teilen brauchen 1,5 GB beim Lesen (secure.1 L7); die Anzeige ist bei 500 Zeilen gedeckelt
+- [ ] AP-13: Rechte auf `data\` einschränken: geöffnete Anhänge und Mails liegen sonst für andere Konten lesbar (secure.1 L9)
+- [ ] Jedes Öffnen legt eine vollständige Kopie an, bis zum nächsten Start oder Beenden (secure.1 L8, akzeptiert); ein mehrfach geöffneter Anhang könnte dieselbe Kopie nutzen
+- [ ] „Harmlos“ hängt am zugeordneten Programm: Der Internet-Vermerk hilft nur, wo das Programm ihn auswertet (secure.1 L1, Dennis informiert)
+
 ### Vertagt aus AP-06
 Stand: S3 2406/2406, review.3 APPROVE, Sicherheitsprüfung ohne Kritisch/Hoch (solange `Act` aus ist). Fall 19 (echte Daten) nach T5
 nicht erneut gezählt.
