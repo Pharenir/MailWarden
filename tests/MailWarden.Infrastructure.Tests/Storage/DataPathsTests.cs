@@ -57,6 +57,10 @@ public sealed class DataPathsTests
     [InlineData("nul.txt")]
     [InlineData("COM1")]
     [InlineData("LPT9.eml")]
+    [InlineData("COM0")] // AP-04c fix.1
+    [InlineData("LPT0.txt")]
+    [InlineData("CONIN$")]
+    [InlineData("CONOUT$")]
     [InlineData("accounts/a/aux/1.eml")]
     [InlineData("COM¹")] // D14: superscript one
     [InlineData("CON .eml")] // D14: device name with trailing space before the extension

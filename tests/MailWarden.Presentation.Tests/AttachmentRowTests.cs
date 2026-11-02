@@ -78,7 +78,15 @@ public sealed class AttachmentRowTests : IDisposable
         for (int position = 0; position < rows.Count; position++)
         {
             Assert.Equal(position, rows[position].Index);
-            Assert.Equal(content.Attachments[position].FileName, rows[position].Name);
+            string shownName = content.Attachments[position].FileName;
+            if (shownName.Length > 0)
+            {
+                Assert.Equal(shownName, rows[position].Name);
+            }
+            else
+            {
+                Assert.False(string.IsNullOrWhiteSpace(rows[position].Name), "an unnamed part still gets a visible name");
+            }
         }
 
         Assert.DoesNotContain(rows, row => row.Name.Contains("inline_logo", StringComparison.Ordinal));
@@ -208,7 +216,7 @@ public sealed class AttachmentRowTests : IDisposable
 
     // ---- A11 -----------------------------------------------------------------------------------------------
 
-    // A11: an attached message is saved or opened as .eml, level Ask. Named and unnamed variants.
+    // A11: an attached message is level Ask and can be opened. The .eml name is checked in AttachmentActionsTests.
     [Theory(Timeout = TestTimeouts.PerTestMilliseconds)]
     [InlineData("forwarded_a")]
     [InlineData("")]
@@ -219,10 +227,26 @@ public sealed class AttachmentRowTests : IDisposable
 
         AttachmentRow row = Assert.Single(harness.Shell.Reading.Attachments);
 
-        Assert.EndsWith(".eml", row.SafeFileName, StringComparison.OrdinalIgnoreCase);
         Assert.Equal(AttachmentRisk.Ask, row.Risk);
         Assert.True(row.CanOpen);
         Assert.True(row.HasContent);
+    }
+
+    // A11 / fix.1: a row without a size and without the message type has no decodable content; with the message type it counts.
+    [Fact(Timeout = TestTimeouts.PerTestMilliseconds)]
+    public async Task A_row_without_a_size_has_content_only_as_an_attached_message()
+    {
+        (ShellHarness harness, _) = await ShowAsync(
+            FolderRole.Inbox,
+            new MailAttachmentInfo("report_a.pdf", "application/pdf", null),
+            new MailAttachmentInfo("forwarded_a", "message/rfc822", null),
+            new MailAttachmentInfo("report_b.pdf", "application/pdf", 12));
+
+        IReadOnlyList<AttachmentRow> rows = harness.Shell.Reading.Attachments;
+
+        Assert.False(rows[0].HasContent);
+        Assert.True(rows[1].HasContent);
+        Assert.True(rows[2].HasContent);
     }
 
     // A11: a message below the depth limit is not a row at all (the reader flags it as opaque instead).

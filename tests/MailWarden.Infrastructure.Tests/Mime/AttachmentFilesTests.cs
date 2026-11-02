@@ -92,6 +92,41 @@ public sealed class AttachmentFilesTests : IDisposable
         Assert.Equal(new[] { target }, AllFiles(directory));
     }
 
+    // Case 10 / A2: the saved file carries the internet mark (zone 3).
+    [Fact(Timeout = TestTimeouts.PerTestMilliseconds)]
+    public async Task Save_marks_the_target_as_from_the_internet()
+    {
+        RequireNtfs();
+        string target = Path.Combine(NewDirectory("save_zone"), "marked_a.bin");
+        var files = new AttachmentFiles(NewDirectory("open"));
+
+        await files.SaveAsync(Writing([1, 2, 3]), target);
+
+        string zone = await File.ReadAllTextAsync(target + ":Zone.Identifier");
+        Assert.Contains("[ZoneTransfer]", zone, StringComparison.Ordinal);
+        Assert.Contains("ZoneId=3", zone, StringComparison.Ordinal);
+    }
+
+    // Case 10 / A2: a target that carried another zone (ZoneId=1) ends with zone 3, also when it had content.
+    [Theory(Timeout = TestTimeouts.PerTestMilliseconds)]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task Save_over_a_target_with_another_zone_ends_with_zone_3(bool targetHasContent)
+    {
+        RequireNtfs();
+        string target = Path.Combine(NewDirectory("save_zone_over"), "marked_b.bin");
+        await File.WriteAllBytesAsync(target, targetHasContent ? [7, 7, 7] : []);
+        await File.WriteAllTextAsync(target + ":Zone.Identifier", "[ZoneTransfer]\r\nZoneId=1\r\n");
+        var files = new AttachmentFiles(NewDirectory("open"));
+
+        await files.SaveAsync(Writing([4, 5, 6]), target);
+
+        Assert.Equal(new byte[] { 4, 5, 6 }, await File.ReadAllBytesAsync(target));
+        string zone = await File.ReadAllTextAsync(target + ":Zone.Identifier");
+        Assert.Contains("ZoneId=3", zone, StringComparison.Ordinal);
+        Assert.DoesNotContain("ZoneId=1", zone, StringComparison.Ordinal);
+    }
+
     // Case 10: an empty content is a valid save.
     [Fact(Timeout = TestTimeouts.PerTestMilliseconds)]
     public async Task Save_of_an_empty_part_gives_an_empty_file()
@@ -311,8 +346,8 @@ public sealed class AttachmentFilesTests : IDisposable
         Assert.Empty(AllFiles(openFolder));
     }
 
-    // Case 12: nothing to clear.
-    [Fact(Timeout = TestTimeouts.PerTestMilliseconds)]
+    // Case 12: nothing to clear (synchronous: no timeout attribute, xUnit supports it for async tests only).
+    [Fact]
     public void Clear_without_an_open_folder_does_not_throw()
     {
         var files = new AttachmentFiles(Path.Combine(_root, "never_created"));

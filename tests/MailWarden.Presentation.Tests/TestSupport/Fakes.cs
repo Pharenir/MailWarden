@@ -527,6 +527,7 @@ internal sealed class FakeMailboxReadModel : IMailboxReadModel
 
     private readonly Dictionary<(long MessageId, int Index), byte[]> _attachmentBytes = [];
     private readonly List<(long MessageId, int Index)> _copyCalls = [];
+    private readonly List<MailAttachmentInfo> _copyExpected = [];
 
     /// <summary>
     /// Replaces <see cref="CopyAttachmentAsync"/>; arguments are the message, the index, the destination and the token.
@@ -558,13 +559,26 @@ internal sealed class FakeMailboxReadModel : IMailboxReadModel
         }
     }
 
-    public async Task CopyAttachmentAsync(MailMessage message, int attachmentIndex, Stream destination, CancellationToken ct = default)
+    /// <summary>The <c>expected</c> entry of every <see cref="CopyAttachmentAsync"/> call, in order.</summary>
+    public IReadOnlyList<MailAttachmentInfo> CopyExpected
+    {
+        get
+        {
+            lock (_gate)
+            {
+                return [.. _copyExpected];
+            }
+        }
+    }
+
+    public async Task CopyAttachmentAsync(MailMessage message, int attachmentIndex, MailAttachmentInfo expected, Stream destination, CancellationToken ct = default)
     {
         Func<MailMessage, int, Stream, CancellationToken, Task>? behavior;
         byte[]? configured;
         lock (_gate)
         {
             _copyCalls.Add((message.Id, attachmentIndex));
+            _copyExpected.Add(expected);
             behavior = CopyBehavior;
             _attachmentBytes.TryGetValue((message.Id, attachmentIndex), out configured);
         }

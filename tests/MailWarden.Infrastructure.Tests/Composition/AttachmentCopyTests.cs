@@ -97,7 +97,10 @@ public sealed class AttachmentCopyTests : IAsyncLifetime
 
     private readonly List<MailWardenRuntime> _runtimes = [];
 
-    private static async Task<int> IndexOfAsync(Stored stored, string fileName)
+    private static async Task<int> IndexOfAsync(Stored stored, string fileName) => (await ShownAsync(stored, fileName)).Index;
+
+    /// <summary>Position and entry as the reading pane would hold them for the row of the file.</summary>
+    private static async Task<(int Index, MailAttachmentInfo Info)> ShownAsync(Stored stored, string fileName)
     {
         MailContent? content = await stored.Runtime.ReadModel.ReadContentAsync(stored.Message);
         Assert.NotNull(content);
@@ -111,15 +114,18 @@ public sealed class AttachmentCopyTests : IAsyncLifetime
         }
 
         Assert.True(index >= 0, $"attachment {fileName} is not listed");
-        return index;
+        return (index, content.Attachments[index]);
     }
 
-    private static async Task<byte[]> CopyAsync(Stored stored, int index)
+    private static async Task<byte[]> CopyAsync(Stored stored, string fileName)
     {
+        (int index, MailAttachmentInfo info) = await ShownAsync(stored, fileName);
         using var destination = new MemoryStream();
-        await stored.Runtime.ReadModel.CopyAttachmentAsync(stored.Message, index, destination);
+        await stored.Runtime.ReadModel.CopyAttachmentAsync(stored.Message, index, info, destination);
         return destination.ToArray();
     }
+
+    private static readonly MailAttachmentInfo AnyEntry = new("a.bin", "application/octet-stream", 1);
 
     // ---- Case 8 --------------------------------------------------------------------------------------------
 
@@ -129,9 +135,9 @@ public sealed class AttachmentCopyTests : IAsyncLifetime
     {
         Stored stored = await StoreAsync(Eml(Base64Part("all_bytes.bin", AllByteValues), QuotedPrintablePart("qp.txt"), EightBitPart("eight.txt")));
 
-        Assert.Equal(AllByteValues, await CopyAsync(stored, await IndexOfAsync(stored, "all_bytes.bin")));
-        Assert.Equal(QuotedPrintableDecoded, await CopyAsync(stored, await IndexOfAsync(stored, "qp.txt")));
-        Assert.Equal(EightBitDecoded, await CopyAsync(stored, await IndexOfAsync(stored, "eight.txt")));
+        Assert.Equal(AllByteValues, await CopyAsync(stored, "all_bytes.bin"));
+        Assert.Equal(QuotedPrintableDecoded, await CopyAsync(stored, "qp.txt"));
+        Assert.Equal(EightBitDecoded, await CopyAsync(stored, "eight.txt"));
     }
 
     // Case 8: a part of several megabytes (stream copy, more than one buffer) arrives complete.
@@ -142,7 +148,7 @@ public sealed class AttachmentCopyTests : IAsyncLifetime
         new Random(42).NextBytes(large);
         Stored stored = await StoreAsync(Eml(Base64Part("large.bin", large)));
 
-        byte[] copied = await CopyAsync(stored, await IndexOfAsync(stored, "large.bin"));
+        byte[] copied = await CopyAsync(stored, "large.bin");
 
         Assert.Equal(large.Length, copied.Length);
         Assert.True(large.AsSpan().SequenceEqual(copied), "the copied bytes differ");
@@ -154,9 +160,9 @@ public sealed class AttachmentCopyTests : IAsyncLifetime
     {
         Stored stored = await StoreAsync(Eml(Base64Part("first.bin", [1, 1, 1]), Base64Part("second.bin", [2, 2]), Base64Part("third.bin", [3])));
 
-        Assert.Equal(new byte[] { 1, 1, 1 }, await CopyAsync(stored, await IndexOfAsync(stored, "first.bin")));
-        Assert.Equal(new byte[] { 2, 2 }, await CopyAsync(stored, await IndexOfAsync(stored, "second.bin")));
-        Assert.Equal(new byte[] { 3 }, await CopyAsync(stored, await IndexOfAsync(stored, "third.bin")));
+        Assert.Equal(new byte[] { 1, 1, 1 }, await CopyAsync(stored, "first.bin"));
+        Assert.Equal(new byte[] { 2, 2 }, await CopyAsync(stored, "second.bin"));
+        Assert.Equal(new byte[] { 3 }, await CopyAsync(stored, "third.bin"));
     }
 
     // Case 8: no handle on the EML stays open after the copy (the sync may delete the file at any time).
@@ -164,7 +170,7 @@ public sealed class AttachmentCopyTests : IAsyncLifetime
     public async Task The_eml_is_not_held_open_after_the_copy()
     {
         Stored stored = await StoreAsync(Eml(Base64Part("a.bin", [1, 2, 3])));
-        await CopyAsync(stored, await IndexOfAsync(stored, "a.bin"));
+        await CopyAsync(stored, "a.bin");
 
         string absolute = stored.Paths.ResolveMailPath(stored.EmlPath);
         File.Delete(absolute);
@@ -179,7 +185,7 @@ public sealed class AttachmentCopyTests : IAsyncLifetime
         Stored stored = await StoreAsync(Eml(Base64Part("a.bin", [1, 2, 3])));
         SqliteDatabase database = await stored.Runtime.OpenDatabaseAsync();
 
-        await CopyAsync(stored, await IndexOfAsync(stored, "a.bin"));
+        await CopyAsync(stored, "a.bin");
 
         MailMessage? reloaded = await new SqliteMessageStore(database).GetAsync(stored.Message.Id);
         Assert.Equal(MessageFlags.None, reloaded?.Flags);
@@ -200,7 +206,7 @@ public sealed class AttachmentCopyTests : IAsyncLifetime
         using var destination = new MemoryStream();
 
         await Assert.ThrowsAsync<ArgumentOutOfRangeException>(
-            () => stored.Runtime.ReadModel.CopyAttachmentAsync(stored.Message, index, destination));
+            () => stored.Runtime.ReadModel.CopyAttachmentAsync(stored.Message, index, AnyEntry, destination));
 
         Assert.Equal(0, destination.Length);
     }
@@ -213,7 +219,20 @@ public sealed class AttachmentCopyTests : IAsyncLifetime
         using var destination = new MemoryStream();
 
         await Assert.ThrowsAsync<ArgumentOutOfRangeException>(
-            () => stored.Runtime.ReadModel.CopyAttachmentAsync(stored.Message, 0, destination));
+            () => stored.Runtime.ReadModel.CopyAttachmentAsync(stored.Message, 0, AnyEntry, destination));
+    }
+
+    // Case 9 / contract: no expected entry is a programming error.
+    [Fact(Timeout = TestTimeouts.PerTestMilliseconds)]
+    public async Task A_missing_expected_entry_throws_argument_null()
+    {
+        Stored stored = await StoreAsync(Eml(Base64Part("a.bin", [1])));
+        using var destination = new MemoryStream();
+
+        await Assert.ThrowsAsync<ArgumentNullException>(
+            () => stored.Runtime.ReadModel.CopyAttachmentAsync(stored.Message, 0, null!, destination));
+
+        Assert.Equal(0, destination.Length);
     }
 
     // Case 9: no EML on disk, or no path stored.
@@ -226,7 +245,7 @@ public sealed class AttachmentCopyTests : IAsyncLifetime
         using var destination = new MemoryStream();
 
         await Assert.ThrowsAsync<FileNotFoundException>(
-            () => stored.Runtime.ReadModel.CopyAttachmentAsync(stored.Message, 0, destination));
+            () => stored.Runtime.ReadModel.CopyAttachmentAsync(stored.Message, 0, AnyEntry, destination));
 
         Assert.Equal(0, destination.Length);
     }
@@ -236,12 +255,12 @@ public sealed class AttachmentCopyTests : IAsyncLifetime
     public async Task An_eml_deleted_after_showing_the_mail_throws_file_not_found()
     {
         Stored stored = await StoreAsync(Eml(Base64Part("a.bin", [1])));
-        int index = await IndexOfAsync(stored, "a.bin");
+        (int index, MailAttachmentInfo info) = await ShownAsync(stored, "a.bin");
         File.Delete(stored.Paths.ResolveMailPath(stored.EmlPath));
         using var destination = new MemoryStream();
 
         await Assert.ThrowsAsync<FileNotFoundException>(
-            () => stored.Runtime.ReadModel.CopyAttachmentAsync(stored.Message, index, destination));
+            () => stored.Runtime.ReadModel.CopyAttachmentAsync(stored.Message, index, info, destination));
     }
 
     // Case 9 (A9): the EML changed after the list was shown; the part at the index is another one now.
@@ -249,14 +268,14 @@ public sealed class AttachmentCopyTests : IAsyncLifetime
     public async Task A_changed_eml_with_swapped_parts_delivers_no_bytes_of_the_other_part()
     {
         Stored stored = await StoreAsync(Eml(Base64Part("first.bin", [1, 1, 1]), Base64Part("second.bin", [2, 2, 2, 2, 2])));
-        int index = await IndexOfAsync(stored, "first.bin");
+        (int index, MailAttachmentInfo info) = await ShownAsync(stored, "first.bin");
         await File.WriteAllBytesAsync(
             stored.Paths.ResolveMailPath(stored.EmlPath),
             Eml(Base64Part("second.bin", [2, 2, 2, 2, 2]), Base64Part("first.bin", [1, 1, 1])));
         using var destination = new MemoryStream();
 
         await Assert.ThrowsAsync<MailContentException>(
-            () => stored.Runtime.ReadModel.CopyAttachmentAsync(stored.Message, index, destination));
+            () => stored.Runtime.ReadModel.CopyAttachmentAsync(stored.Message, index, info, destination));
 
         Assert.Equal(0, destination.Length);
     }
@@ -266,12 +285,12 @@ public sealed class AttachmentCopyTests : IAsyncLifetime
     public async Task A_changed_eml_with_the_same_name_and_another_size_throws()
     {
         Stored stored = await StoreAsync(Eml(Base64Part("a.bin", [1, 1, 1])));
-        int index = await IndexOfAsync(stored, "a.bin");
+        (int index, MailAttachmentInfo info) = await ShownAsync(stored, "a.bin");
         await File.WriteAllBytesAsync(stored.Paths.ResolveMailPath(stored.EmlPath), Eml(Base64Part("a.bin", [9, 9, 9, 9, 9, 9, 9, 9])));
         using var destination = new MemoryStream();
 
         await Assert.ThrowsAsync<MailContentException>(
-            () => stored.Runtime.ReadModel.CopyAttachmentAsync(stored.Message, index, destination));
+            () => stored.Runtime.ReadModel.CopyAttachmentAsync(stored.Message, index, info, destination));
 
         Assert.Equal(0, destination.Length);
     }
@@ -281,12 +300,44 @@ public sealed class AttachmentCopyTests : IAsyncLifetime
     public async Task A_changed_eml_with_another_name_and_the_same_size_throws()
     {
         Stored stored = await StoreAsync(Eml(Base64Part("a.bin", [1, 1, 1])));
-        int index = await IndexOfAsync(stored, "a.bin");
+        (int index, MailAttachmentInfo info) = await ShownAsync(stored, "a.bin");
         await File.WriteAllBytesAsync(stored.Paths.ResolveMailPath(stored.EmlPath), Eml(Base64Part("other.bin", [9, 9, 9])));
         using var destination = new MemoryStream();
 
         await Assert.ThrowsAsync<MailContentException>(
-            () => stored.Runtime.ReadModel.CopyAttachmentAsync(stored.Message, index, destination));
+            () => stored.Runtime.ReadModel.CopyAttachmentAsync(stored.Message, index, info, destination));
+
+        Assert.Equal(0, destination.Length);
+    }
+
+    // Case 9 (A9): same name and size, other content type.
+    [Fact(Timeout = TestTimeouts.PerTestMilliseconds)]
+    public async Task A_changed_eml_with_another_content_type_throws()
+    {
+        Stored stored = await StoreAsync(Eml(Base64Part("a.bin", [1, 1, 1])));
+        (int index, MailAttachmentInfo info) = await ShownAsync(stored, "a.bin");
+        string changed = Base64Part("a.bin", [9, 9, 9]).Replace("application/octet-stream", "application/pdf", StringComparison.Ordinal);
+        await File.WriteAllBytesAsync(stored.Paths.ResolveMailPath(stored.EmlPath), Eml(changed));
+        using var destination = new MemoryStream();
+
+        await Assert.ThrowsAsync<MailContentException>(
+            () => stored.Runtime.ReadModel.CopyAttachmentAsync(stored.Message, index, info, destination));
+
+        Assert.Equal(0, destination.Length);
+    }
+
+    // Case 9 (A9, fix.1): the check also holds without any read before; an entry that does not match the stored mail fails.
+    [Theory(Timeout = TestTimeouts.PerTestMilliseconds)]
+    [InlineData("other.bin", "application/octet-stream", 3L)]
+    [InlineData("a.bin", "application/pdf", 3L)]
+    [InlineData("a.bin", "application/octet-stream", 4L)]
+    public async Task An_unmatching_expected_entry_throws_even_without_a_read_before(string name, string contentType, long size)
+    {
+        Stored stored = await StoreAsync(Eml(Base64Part("a.bin", [1, 1, 1])));
+        using var destination = new MemoryStream();
+
+        await Assert.ThrowsAsync<MailContentException>(
+            () => stored.Runtime.ReadModel.CopyAttachmentAsync(stored.Message, 0, new MailAttachmentInfo(name, contentType, size), destination));
 
         Assert.Equal(0, destination.Length);
     }
@@ -297,9 +348,12 @@ public sealed class AttachmentCopyTests : IAsyncLifetime
     {
         byte[] eml = Eml(Base64Part("a.bin", [4, 5, 6]));
         Stored stored = await StoreAsync(eml);
-        int index = await IndexOfAsync(stored, "a.bin");
+        (int index, MailAttachmentInfo info) = await ShownAsync(stored, "a.bin");
         await File.WriteAllBytesAsync(stored.Paths.ResolveMailPath(stored.EmlPath), eml);
+        using var destination = new MemoryStream();
 
-        Assert.Equal(new byte[] { 4, 5, 6 }, await CopyAsync(stored, index));
+        await stored.Runtime.ReadModel.CopyAttachmentAsync(stored.Message, index, info, destination);
+
+        Assert.Equal(new byte[] { 4, 5, 6 }, destination.ToArray());
     }
 }

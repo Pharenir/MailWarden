@@ -113,6 +113,24 @@ public sealed class AttachmentActionsTests : IDisposable
         Assert.True(File.Exists(SaveTargetIn(harness)));
     }
 
+    // Contract: host and open folder come together or not at all.
+    [Fact]
+    public void The_shell_takes_the_attachment_host_and_the_open_folder_together_or_not_at_all()
+    {
+        var readModel = new FakeMailboxReadModel();
+
+        ShellViewModel Build(IAttachmentHost? host, string? folder) => new(
+            readModel, new FakeMailboxController(), new FakeMailboxActions(readModel), new FakeUiDispatcher(),
+            new FakeUiSettingsStore { Stored = UiSettings.Default }, new FakeCriticalLog(), new FixedClock(ShellHarness.FixedNow),
+            null, host, folder);
+
+        string folderPath = Path.Combine(AppContext.BaseDirectory, "ap04c-ui", "ctor-check");
+        Assert.Throws<ArgumentException>(() => Build(new FakeAttachmentHost(), null));
+        Assert.Throws<ArgumentException>(() => Build(null, folderPath));
+        Assert.Null(Record.Exception(() => Build(null, null)));
+        Assert.Null(Record.Exception(() => Build(new FakeAttachmentHost(), folderPath)));
+    }
+
     // Case 13: cancelled dialog.
     [Fact(Timeout = TestTimeouts.PerTestMilliseconds)]
     public async Task A_cancelled_save_dialog_writes_nothing_and_shows_no_notice()
@@ -148,6 +166,26 @@ public sealed class AttachmentActionsTests : IDisposable
         Assert.Equal(row.SafeFileName, Path.GetFileName(opened));
         Assert.Equal(new byte[] { 9, 8, 7, 6 }, Assert.Single(harness.AttachmentHost.OpenedContents));
         Assert.Null(harness.Shell.Reading.AttachmentNotice);
+    }
+
+    // A11: an attached message is saved and opened as its message, so the file ends in .eml (named and unnamed).
+    [Theory(Timeout = TestTimeouts.PerTestMilliseconds)]
+    [InlineData("forwarded_a")]
+    [InlineData("")]
+    [InlineData("forwarded_b.eml")]
+    public async Task An_attached_message_is_proposed_and_opened_as_an_eml_file(string name)
+    {
+        (ShellHarness harness, _) = await ShowAsync(FolderRole.Inbox, new MailAttachmentInfo(name, "message/rfc822", 300));
+        AttachmentRow row = Assert.Single(harness.Shell.Reading.Attachments);
+        harness.AttachmentHost.SaveTarget = SaveTargetIn(harness, "forwarded.eml");
+        harness.ConfirmationAnswer = true;
+
+        await harness.Shell.Reading.SaveAttachmentAsync(row);
+        await harness.Shell.Reading.OpenAttachmentAsync(row);
+
+        Assert.EndsWith(".eml", Assert.Single(harness.AttachmentHost.ProposedNames), StringComparison.OrdinalIgnoreCase);
+        Assert.EndsWith(".eml", Assert.Single(harness.AttachmentHost.OpenedPaths), StringComparison.OrdinalIgnoreCase);
+        Assert.Single(harness.ConfirmationTexts);
     }
 
     // Case 15: answer no.
@@ -317,7 +355,7 @@ public sealed class AttachmentActionsTests : IDisposable
         harness.ReadModel.CopyBehavior = (_, _, stream, _) =>
         {
             stream.WriteByte(1);
-            throw new MailContentException("decoding failed");
+            throw new MailContentException();
         };
 
         Exception? failure = await Record.ExceptionAsync(() => harness.Shell.Reading.OpenAttachmentAsync(RowNamed(harness, HarmlessName)));
@@ -340,7 +378,7 @@ public sealed class AttachmentActionsTests : IDisposable
         harness.ReadModel.CopyBehavior = (_, _, stream, _) =>
         {
             stream.Write([1, 2, 3]);
-            throw new MailContentException("decoding failed");
+            throw new MailContentException();
         };
 
         Exception? failure = await Record.ExceptionAsync(() => harness.Shell.Reading.SaveAttachmentAsync(RowNamed(harness, HarmlessName)));
@@ -452,7 +490,7 @@ public sealed class AttachmentActionsTests : IDisposable
         harness.ReadModel.CopyBehavior = async (message, index, stream, ct) =>
         {
             await slow(message, index, stream, ct);
-            throw new MailContentException("decoding failed");
+            throw new MailContentException();
         };
         Task saving = harness.Shell.Reading.SaveAttachmentAsync(RowNamed(harness, HarmlessName));
         await entered.Task.WaitAsync(TimeSpan.FromSeconds(10));
@@ -516,7 +554,7 @@ public sealed class AttachmentActionsTests : IDisposable
         (ShellHarness harness, MailMessage message) = await ShowAsync(FolderRole.Inbox, ThreeAttachments());
         harness.AttachmentHost.OpenResult = false;
         harness.AttachmentHost.SaveTarget = SaveTargetIn(harness);
-        harness.ReadModel.CopyBehavior = (_, _, _, _) => throw new MailContentException("decoding failed");
+        harness.ReadModel.CopyBehavior = (_, _, _, _) => throw new MailContentException();
 
         await harness.Shell.Reading.OpenAttachmentAsync(RowNamed(harness, HarmlessName));
         await harness.Shell.Reading.SaveAttachmentAsync(RowNamed(harness, HarmlessName));
