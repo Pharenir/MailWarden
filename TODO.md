@@ -84,7 +84,7 @@ Testzähler: 0/4 seit letztem S3 (zuletzt 2026-11-02: S3 auf dem Testbranch von 
 
 **AP-04e Nightshade-Thema (Branch `feat/ap-04e-nightshade-theme`, lokal, nicht gemergt):** umgesetzt; verify.2 S3 2965/2965, secure.1 ohne Kritisch/Hoch. Es wartet auf Dennis: `work\manual-tests.md` Teil 10 (Fälle 23–28), danach CPM. Danach `chore/plan-archive` mergen (baut auf AP-04e auf) und AP-04e selbst ins Archiv verschieben. `_private\themes.md`, Zeile MailWarden, beim Merge nachziehen.
 
-**Danach:** AP-04c (Konten-UI, Anhänge), AP-08 (Regeln, Warum-Ansicht, Oberfläche Adressbuch, Bilder bei `TrustedContact` direkt laden, zurückgehaltene Mails), AP-05 (Versand), AP-09 (Ordnergrenzen).
+**Danach:** AP-04c (Anhänge, Entwurf `work\AP-04c\requirement.md` wartet auf Freigabe), AP-02b (Konten-UI, Entwurf `work\AP-02b\requirement.md`), AP-08 (Regeln, Warum-Ansicht, Oberfläche Adressbuch, Bilder bei `TrustedContact` direkt laden, zurückgehaltene Mails), AP-05 (Versand), AP-09 (Ordnergrenzen).
 
 **Entscheidungen von Dennis vor `Act`** (Abschnitt „Bedingungen vor `Act`“): Ordner leeren gegen Rettung aus Junk (Empfehlung: bestätigtes Löschen hat Vorrang); Junk kürzer abfragen, denn neue Mail dort löst keinen Zyklus aus und wartet bis zu 15 Minuten.
 
