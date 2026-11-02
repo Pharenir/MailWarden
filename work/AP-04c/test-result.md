@@ -107,3 +107,34 @@ Done without touching `src\` of the test worktree: a separate detached worktree 
 - Testzähler in TODO.md and the column *Getestet* of PLAN.md are not changed (instruction); the counter would be reset after this green S3. `.test-logs\durations.jsonl` is written (git-ignored).
 
 Logs: `.test-logs\run-Core.log`, `run-Infrastructure.log`, `run-Presentation.log`.
+
+---
+
+# verify.3 (fix.3, S3 green)
+
+## Testzahlen je Projekt
+| Projekt | Tests | grün | rot |
+|---|---|---|---|
+| MailWarden.Core.Tests | 536 | 536 | 0 |
+| MailWarden.Infrastructure.Tests | 1886 | 1886 | 0 |
+| MailWarden.Presentation.Tests | 919 | 919 | 0 |
+
+Before (verify.2): 536 / 1847 / 888. New: Infrastructure +39, Presentation +31. Run per test project through the watchdog (about 47 s in total), logs `.test-logs\run-<Project>.log`. Solution build with `-warnaserror`: 0 warnings, 0 errors.
+
+## New and changed cases
+- Case 12, `Clear` with names Windows would normalise (`. `, `.. `, `...`, `.... `, `. .`, `.. .`, `x.`, `x `, `...x `, ` . `, created through `\?\`): each name alone as empty folder, folder with file and file (30 cases), all together (folders with content, files, empty folders, beside a regular prepared file), nested in each other (two chains, a file per level). After `Clear` nothing is below the open folder; the neighbour file and the neighbour folder beside the open folder are intact. `Clear` runs in its own task with a limit of 20 s that the test enforces itself (`Assert.Fail` on expiry).
+- Case 12, junction with `ReadOnly`: link removed, target, its files and its attributes unchanged. Normal folder with `ReadOnly` including a write-protected file (nested too): removed. Hard link: gone, the file outside keeps content and `Hidden`.
+- Case 11, open folder is a junction: `PrepareForOpeningAsync` throws `IOException`, the link target stays empty; after `Clear` it works again and the target is still empty.
+- `Discard`: removes the prepared file and its guid folder, leaves other prepared files; a file that is not there does not throw; a locked file does not throw and `Clear` finishes it. Assumption (c, contract silent): "no exception" for a missing or locked file.
+- Case 19c: another mail selected during the preparation (once for a harmless type, once for one that asked first and got yes): nothing opens, open folder empty, no notice, no banner.
+- `ToSafe`: the 21 new characters give `_` (theory of fix.2 extended). `Classify`: `mat psdm1 p7r spc crl cat p7c stl` are `SaveOnly`, upper and lower case.
+- Banner text: `UiText.BannerAttachmentSaveFailed` equals "Der Anhang konnte nicht gespeichert werden." and is in the banner after the failed save. No test checked the old text.
+- Test support: `AttachmentFilesTests` cleans up through extended paths and resets attributes first (links, read-only, hidden); no leftovers in `ap04c-files` after the run.
+
+## Failures
+None. Own test errors in this round: one (class a): `Extended()` lost a backslash through my patch script, so the first run failed at 32 tests; fixed in the second attempt (the fix is in the test code only).
+
+## Not tested / open
+- Same as verify.2: non-NTFS path, file symbolic links (need elevation), `FileSavePicker` and launch (Dennis, cases 21 to 26).
+- A read-only hard link remains accepted without a test (Decisions fix.3).
+- Testzähler in TODO.md and the column *Getestet* of PLAN.md are not changed (instruction); after this green S3 the counter is to be reset to 0 by the caller.

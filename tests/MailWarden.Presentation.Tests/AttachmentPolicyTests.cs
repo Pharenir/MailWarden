@@ -231,6 +231,27 @@ public sealed class AttachmentPolicyTests
     [InlineData("\uFF5C", "vertical bar")]
     [InlineData("\u00A5", "yen sign")]
     [InlineData("\u20A9", "won sign")]
+    [InlineData("\u01C0", "dental click (fix.3)")]
+    [InlineData("\u02BA", "modifier double prime (fix.3)")]
+    [InlineData("\u030E", "combining double vertical line above (fix.3)")]
+    [InlineData("\u0589", "armenian full stop (fix.3)")]
+    [InlineData("\u201C", "left double quotation mark (fix.3)")]
+    [InlineData("\u201D", "right double quotation mark (fix.3)")]
+    [InlineData("\u201F", "double high-reversed-9 quotation mark (fix.3)")]
+    [InlineData("\u2033", "double prime (fix.3)")]
+    [InlineData("\u2036", "reversed double prime (fix.3)")]
+    [InlineData("\u2044", "fraction slash (fix.3)")]
+    [InlineData("\u2215", "division slash (fix.3)")]
+    [InlineData("\u2216", "set minus (fix.3)")]
+    [InlineData("\u2217", "asterisk operator (fix.3)")]
+    [InlineData("\u2223", "divides (fix.3)")]
+    [InlineData("\u2236", "ratio (fix.3)")]
+    [InlineData("\u2329", "left-pointing angle bracket (fix.3)")]
+    [InlineData("\u232A", "right-pointing angle bracket (fix.3)")]
+    [InlineData("\u2758", "light vertical bar (fix.3)")]
+    [InlineData("\u3008", "left angle bracket (fix.3)")]
+    [InlineData("\u3009", "right angle bracket (fix.3)")]
+    [InlineData("\u00A6", "broken bar (fix.3)")]
     public void Wide_and_code_page_forms_of_reserved_characters_become_an_underscore(string character, string description)
     {
         string safe = AttachmentFileName.ToSafe($"a{character}b.pdf", 0);
@@ -379,6 +400,14 @@ public sealed class AttachmentPolicyTests
     [InlineData("appcontent-ms")]
     [InlineData("bas")]
     [InlineData("pl")]
+    [InlineData("mat")]
+    [InlineData("psdm1")]
+    [InlineData("p7r")]
+    [InlineData("spc")]
+    [InlineData("crl")]
+    [InlineData("cat")]
+    [InlineData("p7c")]
+    [InlineData("stl")]
     public void The_longer_list_of_general_windows_and_office_types_is_save_only(string extension)
     {
         Assert.Equal(AttachmentRisk.SaveOnly, AttachmentPolicy.Classify($"file_a.{extension}"));

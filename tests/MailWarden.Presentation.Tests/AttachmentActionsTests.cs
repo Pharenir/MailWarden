@@ -517,6 +517,8 @@ public sealed class AttachmentActionsTests : IDisposable
         Assert.False(harness.Shell.Reading.HasAttachmentNotice);
         Assert.False(string.IsNullOrWhiteSpace(harness.Shell.Banner), "the failure of the save has no place but the banner");
         Assert.Contains(UiText.BannerAttachmentSaveFailed, harness.Shell.Banner, StringComparison.Ordinal);
+        Assert.Equal("Der Anhang konnte nicht gespeichert werden.", UiText.BannerAttachmentSaveFailed);
+        Assert.Contains("Der Anhang konnte nicht gespeichert werden.", harness.Shell.Banner, StringComparison.Ordinal);
         Assert.DoesNotContain("report_a", harness.Shell.Banner, StringComparison.Ordinal);
     }
 
@@ -838,6 +840,32 @@ public sealed class AttachmentActionsTests : IDisposable
         await opening.WaitAsync(TimeSpan.FromSeconds(10));
 
         Assert.Single(harness.AttachmentHost.OpenedPaths);
+    }
+
+    // Case 19c (fix.3) / A6: another mail selected during the preparation; nothing starts, the prepared file is gone, no notice.
+    [Theory(Timeout = TestTimeouts.PerTestMilliseconds)]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task Another_mail_during_the_preparation_starts_nothing_and_removes_the_prepared_file(bool askedFirst)
+    {
+        (ShellHarness harness, MailMessage second, TaskCompletionSource entered, TaskCompletionSource release) = await ArrangeSlowCopyAsync();
+        harness.ConfirmationAnswer = true;
+        string name = askedFirst ? AskName : HarmlessName;
+
+        Task opening = harness.Shell.Reading.OpenAttachmentAsync(RowNamed(harness, name));
+        await entered.Task.WaitAsync(TimeSpan.FromSeconds(10));
+        await harness.Shell.Reading.ShowAsync(second);
+        release.SetResult();
+        Exception? failure = await Record.ExceptionAsync(() => opening.WaitAsync(TimeSpan.FromSeconds(10)));
+        await Wait.NegativeWindowAsync();
+
+        Assert.Null(failure);
+        Assert.Empty(harness.AttachmentHost.OpenedPaths);
+        Assert.Empty(FilesInOpenFolder(harness));
+        Assert.Equal(new[] { "second_d.png" }, harness.Shell.Reading.Attachments.Select(row => row.Name).ToArray());
+        Assert.Null(harness.Shell.Reading.AttachmentNotice);
+        Assert.False(harness.Shell.Reading.HasAttachmentNotice);
+        Assert.True(string.IsNullOrWhiteSpace(harness.Shell.Banner), $"no hint expected, got: {harness.Shell.Banner}");
     }
 
     // ---- Case 20 -------------------------------------------------------------------------------------------
