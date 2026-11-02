@@ -620,4 +620,61 @@ public sealed class ShellViewModelTests
         releaseFirst.SetResult();
 
         await Wait.UntilAsync(() => harness.ReadModel.ListMessagesCalls >= baseline + 2, "second reload ran");
-    }}
+    }
+
+    // ---- AP-04e case 22 (E1, E2) ---------------------------------------------------------------------------
+
+    // Case 22: Nightshade is chosen like the other themes: change event, saved with all other values kept.
+    [Fact(Timeout = TestTimeouts.PerTestMilliseconds)]
+    public async Task Choosing_nightshade_raises_property_changed_and_saves_it()
+    {
+        UiSettings stored = new(ReadingPaneLayout.ListAbove, AppTheme.Light, 300, 500, 350);
+        var harness = new ShellHarness(stored);
+        harness.SeedInbox();
+        await harness.Shell.InitializeAsync();
+        Assert.Equal(AppTheme.Light, harness.Shell.Theme);
+        List<string?> changed = [];
+        ((INotifyPropertyChanged)harness.Shell).PropertyChanged += (_, args) => changed.Add(args.PropertyName);
+
+        harness.Shell.Theme = AppTheme.Nightshade;
+
+        Assert.Contains(nameof(ShellViewModel.Theme), changed);
+        Assert.Equal(AppTheme.Nightshade, harness.Shell.Theme);
+        Assert.Equal(stored with { Theme = AppTheme.Nightshade }, harness.Settings.Saved.Last());
+        Assert.Null(harness.Shell.Banner);
+    }
+
+    // Case 22 / E2: without a stored choice the shell starts on Nightshade, and a change to another theme and back is saved each time.
+    [Fact(Timeout = TestTimeouts.PerTestMilliseconds)]
+    public async Task Shell_starts_on_nightshade_by_default_and_every_change_is_saved()
+    {
+        var harness = new ShellHarness();
+        harness.SeedInbox();
+        await harness.Shell.InitializeAsync();
+        Assert.Equal(AppTheme.Nightshade, harness.Shell.Theme);
+        int savesBefore = harness.Settings.Saved.Count;
+
+        harness.Shell.Theme = AppTheme.Dark;
+        harness.Shell.Theme = AppTheme.Nightshade;
+
+        Assert.Equal(AppTheme.Nightshade, harness.Shell.Theme);
+        Assert.Equal(savesBefore + 2, harness.Settings.Saved.Count);
+        Assert.Equal(AppTheme.Dark, harness.Settings.Saved[^2].Theme);
+        Assert.Equal(AppTheme.Nightshade, harness.Settings.Saved[^1].Theme);
+    }
+
+    // Case 22 / E2: a stored theme is kept by the shell, whichever it is.
+    [Theory(Timeout = TestTimeouts.PerTestMilliseconds)]
+    [InlineData(AppTheme.System)]
+    [InlineData(AppTheme.Light)]
+    [InlineData(AppTheme.Dark)]
+    [InlineData(AppTheme.Nightshade)]
+    public async Task A_stored_theme_is_applied_by_the_shell(AppTheme theme)
+    {
+        var harness = new ShellHarness(UiSettings.Default with { Theme = theme });
+
+        await harness.Shell.InitializeAsync();
+
+        Assert.Equal(theme, harness.Shell.Theme);
+    }
+}

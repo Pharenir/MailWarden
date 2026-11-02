@@ -737,4 +737,345 @@ public sealed class ReadingPaneThemeTests
 
         Assert.DoesNotContain("tracker.test", reading.DocumentHtml ?? string.Empty, StringComparison.Ordinal);
     }
+
+    // ---- AP-04e cases 16-18 (E10): Nightshade --------------------------------------------------------------
+
+    // The plain dark style (not Nightshade): dark scheme and the grey page of the dark theme.
+    private static bool IsPlainDark(ReadingPaneViewModel reading) =>
+        IsDark(reading) && reading.DocumentHtml!.Contains("background:#202020", StringComparison.Ordinal)
+        && !reading.DocumentHtml.Contains("#231e33", StringComparison.OrdinalIgnoreCase);
+
+    // Nightshade page: dark scheme, palette page colour, no light sheet, no veil.
+    private static bool IsNightshade(ReadingPaneViewModel reading) =>
+        reading.DocumentHtml is { } html
+        && html.Contains(DarkSchemeMarker, StringComparison.Ordinal)
+        && html.Contains("#231e33", StringComparison.OrdinalIgnoreCase)
+        && !html.Contains(LightMarker, StringComparison.Ordinal)
+        && !html.Contains("html::after", StringComparison.Ordinal);
+
+    // Light sheet under the veil (a mail with own colours in a dark style).
+    private static bool IsVeiledLight(ReadingPaneViewModel reading) =>
+        reading.DocumentHtml is { } html
+        && html.Contains(LightMarker, StringComparison.Ordinal)
+        && html.Contains("html::after", StringComparison.Ordinal)
+        && !html.Contains("#231e33", StringComparison.OrdinalIgnoreCase);
+
+    private static bool Shows(ReadingPaneViewModel reading, ReadingTheme theme) => theme switch
+    {
+        ReadingTheme.Light => IsLight(reading),
+        ReadingTheme.Dark => IsPlainDark(reading),
+        ReadingTheme.Nightshade => IsNightshade(reading),
+        _ => throw new ArgumentOutOfRangeException(nameof(theme)),
+    };
+
+    // Case 16: new document, no read from the store, state kept.
+    [Fact(Timeout = TestTimeouts.PerTestMilliseconds)]
+    public async Task Dark_to_nightshade_with_an_open_mail_builds_a_new_document_without_reading_again()
+    {
+        (ShellHarness harness, _, ThemeBuilder builder, MailFolder inbox) = NewHarness();
+        MailMessage mail = AddHtml(harness, inbox, "mail_a", "<p>mail_a_html_marker</p>");
+        ReadingPaneViewModel reading = harness.Shell.Reading;
+        await reading.ApplyThemeAsync(ReadingTheme.Dark);
+        await reading.ShowAsync(mail);
+        Assert.True(IsPlainDark(reading));
+        string darkDocument = reading.DocumentHtml!;
+        int readsBefore = harness.ReadModel.ReadCalls;
+        int controllerCallsBefore = harness.Controller.Calls.Count;
+        int buildsBefore = builder.Calls.Count;
+        var changed = new List<string?>();
+        ((INotifyPropertyChanged)reading).PropertyChanged += (_, args) => changed.Add(args.PropertyName);
+
+        await reading.ApplyThemeAsync(ReadingTheme.Nightshade);
+
+        Assert.Equal(readsBefore, harness.ReadModel.ReadCalls);
+        Assert.Equal(controllerCallsBefore, harness.Controller.Calls.Count);
+        Assert.Equal(buildsBefore + 1, builder.Calls.Count);
+        Assert.Equal(ReadingTheme.Nightshade, builder.Calls[^1].Theme);
+        Assert.Equal(ReadingState.Ready, reading.State);
+        Assert.Equal("mail_a", reading.Subject);
+        Assert.True(IsNightshade(reading));
+        Assert.NotEqual(darkDocument, reading.DocumentHtml);
+        Assert.Contains(nameof(ReadingPaneViewModel.DocumentHtml), changed);
+        Assert.Contains("mail_a_html_marker", reading.DocumentHtml, StringComparison.Ordinal);
+        Assert.Null(reading.ContentNotice);
+    }
+
+    // Case 16: plain text follows too.
+    [Fact(Timeout = TestTimeouts.PerTestMilliseconds)]
+    public async Task Plain_text_mail_follows_the_switch_from_dark_to_nightshade()
+    {
+        (ShellHarness harness, _, _, MailFolder inbox) = NewHarness();
+        MailMessage mail = harness.ReadModel.AddMessage(inbox, "plain_a");
+        harness.ReadModel.SetContent(mail.Id, TestContent.Plain("plain_a", "plain_marker_text"));
+        ReadingPaneViewModel reading = harness.Shell.Reading;
+        await reading.ApplyThemeAsync(ReadingTheme.Dark);
+        await reading.ShowAsync(mail);
+
+        await reading.ApplyThemeAsync(ReadingTheme.Nightshade);
+
+        Assert.True(IsNightshade(reading));
+        Assert.Contains("plain_marker_text", reading.DocumentHtml, StringComparison.Ordinal);
+        Assert.Equal(1, harness.ReadModel.ReadCalls);
+    }
+
+    // Case 16: the selection in the list survives.
+    [Fact(Timeout = TestTimeouts.PerTestMilliseconds)]
+    public async Task Switch_to_nightshade_keeps_the_selection_in_the_list()
+    {
+        (ShellHarness harness, _, _, MailFolder inbox) = NewHarness();
+        AddHtml(harness, inbox, "mail_a", "<p>mail_a_html_marker</p>");
+        await harness.Shell.Reading.ApplyThemeAsync(ReadingTheme.Dark);
+        await harness.Shell.InitializeAsync();
+        await Wait.UntilAsync(() => harness.Shell.Messages.Items.Count == 1, "inbox listed");
+        harness.Shell.Messages.SelectedRow = harness.Shell.Messages.Items[0];
+        await Wait.UntilAsync(() => harness.Shell.Reading.State == ReadingState.Ready, "mail shown");
+        object? selected = harness.Shell.Messages.SelectedRow;
+
+        await harness.Shell.Reading.ApplyThemeAsync(ReadingTheme.Nightshade);
+
+        Assert.Same(selected, harness.Shell.Messages.SelectedRow);
+        Assert.Equal("mail_a", harness.Shell.Reading.Subject);
+        Assert.Equal(ReadingState.Ready, harness.Shell.Reading.State);
+        Assert.True(IsNightshade(harness.Shell.Reading));
+    }
+
+    // Case 16: the approval of remote images survives.
+    [Fact(Timeout = TestTimeouts.PerTestMilliseconds)]
+    public async Task Switch_to_nightshade_keeps_the_approval_of_remote_images()
+    {
+        (ShellHarness harness, _, ThemeBuilder builder, MailFolder inbox) = NewHarness();
+        MailMessage mail = AddHtml(harness, inbox, "mail_a", RemoteImageHtml);
+        ReadingPaneViewModel reading = harness.Shell.Reading;
+        await reading.ApplyThemeAsync(ReadingTheme.Dark);
+        await reading.ShowAsync(mail);
+        reading.LoadRemoteImagesCommand.Execute(null);
+        await Wait.UntilAsync(() => reading.DocumentHtml?.Contains("tracker.test", StringComparison.Ordinal) == true, "images shown");
+        int readsBefore = harness.ReadModel.ReadCalls;
+
+        await reading.ApplyThemeAsync(ReadingTheme.Nightshade);
+
+        Assert.Equal(readsBefore, harness.ReadModel.ReadCalls);
+        Assert.Contains("tracker.test", reading.DocumentHtml, StringComparison.Ordinal);
+        Assert.False(reading.CanLoadRemoteImages);
+        Assert.Equal(0, reading.BlockedRemoteResourceCount);
+        Assert.Equal(new BuildCall("mail_a", true, true, ReadingTheme.Nightshade), builder.Calls[^1]);
+    }
+
+    // Case 16: without approval the images stay blocked after the switch.
+    [Fact(Timeout = TestTimeouts.PerTestMilliseconds)]
+    public async Task Switch_to_nightshade_without_approval_still_blocks_remote_images()
+    {
+        (ShellHarness harness, _, ThemeBuilder builder, MailFolder inbox) = NewHarness();
+        MailMessage mail = AddHtml(harness, inbox, "mail_a", RemoteImageHtml);
+        ReadingPaneViewModel reading = harness.Shell.Reading;
+        await reading.ShowAsync(mail);
+
+        await reading.ApplyThemeAsync(ReadingTheme.Nightshade);
+
+        Assert.DoesNotContain("tracker.test", reading.DocumentHtml, StringComparison.Ordinal);
+        Assert.True(reading.CanLoadRemoteImages);
+        Assert.Equal(1, reading.BlockedRemoteResourceCount);
+        Assert.All(builder.Calls, call => Assert.False(call.AllowRemoteImages));
+    }
+
+    // Case 16 / E6: a mail with own colours keeps the veiled light sheet in Nightshade, and the switch still builds anew.
+    [Fact(Timeout = TestTimeouts.PerTestMilliseconds)]
+    public async Task Mail_with_own_colours_gets_the_veiled_light_sheet_in_nightshade()
+    {
+        (ShellHarness harness, _, ThemeBuilder builder, MailFolder inbox) = NewHarness();
+        MailMessage mail = AddHtml(harness, inbox, "mail_a", "<p style=\"color:#000\">mail_a_html_marker</p>");
+        ReadingPaneViewModel reading = harness.Shell.Reading;
+        await reading.ApplyThemeAsync(ReadingTheme.Dark);
+        await reading.ShowAsync(mail);
+        Assert.True(IsVeiledLight(reading));
+        int readsBefore = harness.ReadModel.ReadCalls;
+        int buildsBefore = builder.Calls.Count;
+
+        await reading.ApplyThemeAsync(ReadingTheme.Nightshade);
+
+        Assert.True(IsVeiledLight(reading));
+        Assert.Equal(buildsBefore + 1, builder.Calls.Count);
+        Assert.Equal(ReadingTheme.Nightshade, builder.Calls[^1].Theme);
+        Assert.Equal(readsBefore, harness.ReadModel.ReadCalls);
+        Assert.Equal(ReadingState.Ready, reading.State);
+        Assert.Contains("mail_a_html_marker", reading.DocumentHtml, StringComparison.Ordinal);
+    }
+
+    // Case 16: the next mail after the switch is built in Nightshade.
+    [Fact(Timeout = TestTimeouts.PerTestMilliseconds)]
+    public async Task Next_mail_after_the_switch_to_nightshade_is_built_in_nightshade()
+    {
+        (ShellHarness harness, _, ThemeBuilder builder, MailFolder inbox) = NewHarness();
+        MailMessage first = AddHtml(harness, inbox, "mail_a", "<p>mail_a_html_marker</p>");
+        MailMessage second = AddHtml(harness, inbox, "mail_b", "<p>mail_b_html_marker</p>");
+        ReadingPaneViewModel reading = harness.Shell.Reading;
+        await reading.ShowAsync(first);
+        await reading.ApplyThemeAsync(ReadingTheme.Nightshade);
+
+        await reading.ShowAsync(second);
+
+        Assert.Equal("mail_b", reading.Subject);
+        Assert.True(IsNightshade(reading));
+        Assert.Equal(ReadingTheme.Nightshade, builder.Calls[^1].Theme);
+    }
+
+    // Case 17: every direction with an open mail: new document in the target style, no read, state Ready.
+    [Theory(Timeout = TestTimeouts.PerTestMilliseconds)]
+    [InlineData(ReadingTheme.Nightshade, ReadingTheme.Dark)]
+    [InlineData(ReadingTheme.Nightshade, ReadingTheme.Light)]
+    [InlineData(ReadingTheme.Light, ReadingTheme.Nightshade)]
+    [InlineData(ReadingTheme.Dark, ReadingTheme.Nightshade)]
+    [InlineData(ReadingTheme.Dark, ReadingTheme.Light)]
+    [InlineData(ReadingTheme.Light, ReadingTheme.Dark)]
+    public async Task Every_direction_builds_the_target_style_from_the_held_content(ReadingTheme from, ReadingTheme to)
+    {
+        (ShellHarness harness, _, ThemeBuilder builder, MailFolder inbox) = NewHarness();
+        MailMessage mail = AddHtml(harness, inbox, "mail_a", "<p>mail_a_html_marker</p>");
+        ReadingPaneViewModel reading = harness.Shell.Reading;
+        await reading.ApplyThemeAsync(from);
+        await reading.ShowAsync(mail);
+        Assert.True(Shows(reading, from), $"start style {from}");
+        int readsBefore = harness.ReadModel.ReadCalls;
+        int buildsBefore = builder.Calls.Count;
+
+        await reading.ApplyThemeAsync(to);
+
+        Assert.True(Shows(reading, to), $"target style {to}");
+        Assert.Equal(readsBefore, harness.ReadModel.ReadCalls);
+        Assert.Equal(buildsBefore + 1, builder.Calls.Count);
+        Assert.Equal(to, builder.Calls[^1].Theme);
+        Assert.Equal(ReadingState.Ready, reading.State);
+        Assert.Equal("mail_a", reading.Subject);
+        Assert.Contains("mail_a_html_marker", reading.DocumentHtml, StringComparison.Ordinal);
+    }
+
+    // Case 17: with the approval given, the directions keep it.
+    [Theory(Timeout = TestTimeouts.PerTestMilliseconds)]
+    [InlineData(ReadingTheme.Nightshade, ReadingTheme.Dark)]
+    [InlineData(ReadingTheme.Nightshade, ReadingTheme.Light)]
+    [InlineData(ReadingTheme.Light, ReadingTheme.Nightshade)]
+    public async Task Every_direction_keeps_the_approval_of_remote_images(ReadingTheme from, ReadingTheme to)
+    {
+        (ShellHarness harness, _, ThemeBuilder builder, MailFolder inbox) = NewHarness();
+        MailMessage mail = AddHtml(harness, inbox, "mail_a", RemoteImageHtml);
+        ReadingPaneViewModel reading = harness.Shell.Reading;
+        await reading.ApplyThemeAsync(from);
+        await reading.ShowAsync(mail);
+        reading.LoadRemoteImagesCommand.Execute(null);
+        await Wait.UntilAsync(() => reading.DocumentHtml?.Contains("tracker.test", StringComparison.Ordinal) == true, "images shown");
+
+        await reading.ApplyThemeAsync(to);
+
+        Assert.Equal(new BuildCall("mail_a", true, true, to), builder.Calls[^1]);
+        Assert.Contains("tracker.test", reading.DocumentHtml, StringComparison.Ordinal);
+        Assert.False(reading.CanLoadRemoteImages);
+        Assert.Equal(1, harness.ReadModel.ReadCalls);
+    }
+
+    // Case 17: a round trip through Nightshade and Light returns to the first document.
+    [Fact(Timeout = TestTimeouts.PerTestMilliseconds)]
+    public async Task Round_trip_through_nightshade_returns_to_the_first_document()
+    {
+        (ShellHarness harness, _, _, MailFolder inbox) = NewHarness();
+        MailMessage mail = AddHtml(harness, inbox, "mail_a", "<p>mail_a_html_marker</p>");
+        ReadingPaneViewModel reading = harness.Shell.Reading;
+        await reading.ApplyThemeAsync(ReadingTheme.Dark);
+        await reading.ShowAsync(mail);
+        string dark = reading.DocumentHtml!;
+
+        await reading.ApplyThemeAsync(ReadingTheme.Nightshade);
+        await reading.ApplyThemeAsync(ReadingTheme.Light);
+        await reading.ApplyThemeAsync(ReadingTheme.Dark);
+
+        Assert.Equal(dark, reading.DocumentHtml);
+        Assert.Equal(1, harness.ReadModel.ReadCalls);
+    }
+
+    // Case 18: the same theme reported twice builds once.
+    [Theory(Timeout = TestTimeouts.PerTestMilliseconds)]
+    [InlineData(ReadingTheme.Nightshade)]
+    [InlineData(ReadingTheme.Dark)]
+    public async Task The_same_theme_reported_twice_causes_no_new_build(ReadingTheme theme)
+    {
+        (ShellHarness harness, _, ThemeBuilder builder, MailFolder inbox) = NewHarness();
+        MailMessage mail = AddHtml(harness, inbox, "mail_a", "<p>mail_a_html_marker</p>");
+        ReadingPaneViewModel reading = harness.Shell.Reading;
+        await reading.ShowAsync(mail);
+        await reading.ApplyThemeAsync(theme);
+        string document = reading.DocumentHtml!;
+        int buildsBefore = builder.Calls.Count;
+        var changed = new List<string?>();
+        ((INotifyPropertyChanged)reading).PropertyChanged += (_, args) => changed.Add(args.PropertyName);
+
+        await reading.ApplyThemeAsync(theme);
+
+        Assert.Equal(buildsBefore, builder.Calls.Count);
+        Assert.Equal(document, reading.DocumentHtml);
+        Assert.DoesNotContain(nameof(ReadingPaneViewModel.DocumentHtml), changed);
+        Assert.Equal(ReadingState.Ready, reading.State);
+        Assert.Equal(1, harness.ReadModel.ReadCalls);
+    }
+
+    // Case 18: reporting the starting theme (Light) before anything changed builds nothing either.
+    [Fact(Timeout = TestTimeouts.PerTestMilliseconds)]
+    public async Task Reporting_the_starting_theme_causes_no_new_build()
+    {
+        (ShellHarness harness, _, ThemeBuilder builder, MailFolder inbox) = NewHarness();
+        MailMessage mail = AddHtml(harness, inbox, "mail_a", "<p>mail_a_html_marker</p>");
+        ReadingPaneViewModel reading = harness.Shell.Reading;
+        await reading.ShowAsync(mail);
+        int buildsBefore = builder.Calls.Count;
+
+        await reading.ApplyThemeAsync(ReadingTheme.Light);
+
+        Assert.Equal(buildsBefore, builder.Calls.Count);
+        Assert.True(IsLight(reading));
+    }
+
+    // Case 18 / decision (bounce): a report of another theme in between does not leave the pane on it.
+    [Fact(Timeout = TestTimeouts.PerTestMilliseconds)]
+    public async Task Nightshade_light_nightshade_in_a_row_ends_on_nightshade()
+    {
+        (ShellHarness harness, _, _, MailFolder inbox) = NewHarness();
+        MailMessage mail = AddHtml(harness, inbox, "mail_a", "<p>mail_a_html_marker</p>");
+        ReadingPaneViewModel reading = harness.Shell.Reading;
+        await reading.ApplyThemeAsync(ReadingTheme.Nightshade);
+        await reading.ShowAsync(mail);
+
+        await reading.ApplyThemeAsync(ReadingTheme.Light);
+        await reading.ApplyThemeAsync(ReadingTheme.Nightshade);
+
+        Assert.True(IsNightshade(reading));
+        Assert.Equal(ReadingState.Ready, reading.State);
+        Assert.Equal(1, harness.ReadModel.ReadCalls);
+    }
+
+    // Case 17 (race): a Dark rebuild is running, Nightshade is reported meanwhile: the newest theme wins.
+    [Fact(Timeout = TestTimeouts.PerTestMilliseconds)]
+    public async Task Nightshade_reported_during_a_running_dark_rebuild_ends_on_nightshade()
+    {
+        (ShellHarness harness, _, ThemeBuilder builder, MailFolder inbox) = NewHarness();
+        MailMessage mail = AddHtml(harness, inbox, "mail_a", "<p>mail_a_html_marker</p>");
+        ReadingPaneViewModel reading = harness.Shell.Reading;
+        await reading.ShowAsync(mail);
+        builder.HoldNext(call => call.Theme == ReadingTheme.Dark);
+        Task toDark = reading.ApplyThemeAsync(ReadingTheme.Dark);
+        await Wait.UntilAsync(() => builder.HoldEntered, "dark rebuild running");
+
+        Task toNightshade = reading.ApplyThemeAsync(ReadingTheme.Nightshade);
+        await Wait.NegativeWindowAsync();
+        builder.Release();
+        Exception? darkFailure = await Record.ExceptionAsync(() => toDark);
+        Exception? nightshadeFailure = await Record.ExceptionAsync(() => toNightshade);
+        for (int round = 0; round < 3; round++)
+        {
+            await Wait.NegativeWindowAsync();
+        }
+
+        Assert.Null(darkFailure);
+        Assert.Null(nightshadeFailure);
+        Assert.True(IsNightshade(reading), "the late dark result replaced the newer Nightshade theme");
+        Assert.Equal(ReadingState.Ready, reading.State);
+        Assert.Equal(1, harness.ReadModel.ReadCalls);
+    }
 }

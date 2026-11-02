@@ -34,12 +34,12 @@ public sealed class UiSettingsFileTests : IDisposable
 
     // Case 23
     [Fact]
-    public void Defaults_are_side_by_side_system_280_and_420()
+    public void Defaults_are_side_by_side_nightshade_280_and_420()
     {
         UiSettings defaults = UiSettings.Default;
 
         Assert.Equal(ReadingPaneLayout.SideBySide, defaults.Layout);
-        Assert.Equal(AppTheme.System, defaults.Theme);
+        Assert.Equal(AppTheme.Nightshade, defaults.Theme);
         Assert.Equal(280d, defaults.NavigationWidth);
         Assert.Equal(420d, defaults.ListWidth);
         Assert.Equal(320d, defaults.ListHeight);
@@ -97,6 +97,7 @@ public sealed class UiSettingsFileTests : IDisposable
     [InlineData("system", AppTheme.System)]
     [InlineData("light", AppTheme.Light)]
     [InlineData("dark", AppTheme.Dark)]
+    [InlineData("nightshade", AppTheme.Nightshade)]
     public void Each_theme_value_is_read(string text, AppTheme expected)
     {
         Assert.Equal(expected, LoadFrom($$"""{"theme": "{{text}}"}""").Theme);
@@ -170,6 +171,9 @@ public sealed class UiSettingsFileTests : IDisposable
     [InlineData("""{"layout": "diagonal_secret"}""", "layout")]
     [InlineData("""{"theme": true}""", "theme")]
     [InlineData("""{"theme": "neon_secret"}""", "theme")]
+    [InlineData("""{"theme": "Nightshade"}""", "theme")]
+    [InlineData("""{"theme": "frost"}""", "theme")]
+    [InlineData("""{"theme": 3}""", "theme")]
     [InlineData("""{"navigationWidth": "wide_secret"}""", "navigationWidth")]
     [InlineData("""{"listWidth": "huge_secret"}""", "listWidth")]
     [InlineData("""{"listHeight": "huge_secret"}""", "listHeight")]
@@ -219,5 +223,94 @@ public sealed class UiSettingsFileTests : IDisposable
         File.WriteAllText(SettingsPath, """{"theme": "light"}""", new UTF8Encoding(false));
 
         Assert.Equal(AppTheme.Light, store.Load().Theme);
+    }
+
+    // ---- AP-04e cases 1-5 (E1, E2) -------------------------------------------------------------------------
+
+    // AP-04e case 1
+    [Fact]
+    public void Nightshade_is_the_default_theme()
+    {
+        Assert.Equal(AppTheme.Nightshade, UiSettings.Default.Theme);
+    }
+
+    // AP-04e case 2: no file.
+    [Fact]
+    public void Missing_file_gives_nightshade()
+    {
+        var store = new UiSettingsFile(Path.Combine(_temp.RootPath, "absent", UiSettingsFile.FileName));
+
+        Assert.Equal(AppTheme.Nightshade, store.Load().Theme);
+    }
+
+    // AP-04e case 2: file without the key theme (also with other keys, also empty).
+    [Theory]
+    [InlineData("{}")]
+    [InlineData("""{"layout": "listAbove"}""")]
+    [InlineData("""{"navigationWidth": 300, "listWidth": 500, "listHeight": 350}""")]
+    [InlineData("""{"markReadOnSelect": true, "windowMaximized": true}""")]
+    public void File_without_the_theme_key_gives_nightshade(string json)
+    {
+        Assert.Equal(AppTheme.Nightshade, LoadFrom(json).Theme);
+    }
+
+    // AP-04e case 3: a stored theme stays exactly as stored.
+    [Theory]
+    [InlineData("system", AppTheme.System)]
+    [InlineData("light", AppTheme.Light)]
+    [InlineData("dark", AppTheme.Dark)]
+    [InlineData("nightshade", AppTheme.Nightshade)]
+    public void A_stored_theme_stays_as_stored(string text, AppTheme expected)
+    {
+        UiSettings loaded = LoadFrom($$"""{"layout": "listAbove", "theme": "{{text}}", "listWidth": 500}""");
+
+        Assert.Equal(expected, loaded.Theme);
+        Assert.Equal(ReadingPaneLayout.ListAbove, loaded.Layout);
+        Assert.Equal(500d, loaded.ListWidth);
+    }
+
+    // AP-04e case 4: save and load again, the file holds "nightshade".
+    [Fact]
+    public void Nightshade_round_trips_and_is_written_as_nightshade()
+    {
+        var store = new UiSettingsFile(SettingsPath);
+
+        store.Save(UiSettings.Default with { Theme = AppTheme.Nightshade });
+
+        Assert.Equal(AppTheme.Nightshade, new UiSettingsFile(SettingsPath).Load().Theme);
+        using JsonDocument document = JsonDocument.Parse(File.ReadAllBytes(SettingsPath));
+        Assert.Equal("nightshade", document.RootElement.GetProperty("theme").GetString());
+    }
+
+    // AP-04e case 4: every theme is written with its own lower-case spelling.
+    [Theory]
+    [InlineData(AppTheme.System, "system")]
+    [InlineData(AppTheme.Light, "light")]
+    [InlineData(AppTheme.Dark, "dark")]
+    [InlineData(AppTheme.Nightshade, "nightshade")]
+    public void Every_theme_is_written_with_its_spelling(AppTheme theme, string expectedText)
+    {
+        new UiSettingsFile(SettingsPath).Save(UiSettings.Default with { Theme = theme });
+
+        using JsonDocument document = JsonDocument.Parse(File.ReadAllBytes(SettingsPath));
+        Assert.Equal(expectedText, document.RootElement.GetProperty("theme").GetString());
+        Assert.Equal(theme, new UiSettingsFile(SettingsPath).Load().Theme);
+    }
+
+    // AP-04e case 5: a rejected theme value names the key and never the value (the capital spelling is rejected too).
+    [Theory]
+    [InlineData("""{"theme": "Nightshade"}""")]
+    [InlineData("""{"theme": "frost"}""")]
+    [InlineData("""{"theme": 3}""")]
+    [InlineData("""{"theme": "NIGHTSHADE"}""")]
+    public void Unknown_theme_values_are_rejected_naming_the_key_but_not_the_value(string json)
+    {
+        UiSettingsException exception = LoadFailureOf(json);
+
+        Assert.Contains("theme", exception.Message, StringComparison.Ordinal);
+        Assert.Contains(UiSettingsFile.FileName, exception.Message, StringComparison.Ordinal);
+        Assert.DoesNotContain("frost", exception.Message, StringComparison.Ordinal);
+        Assert.DoesNotContain("Nightshade", exception.Message, StringComparison.Ordinal);
+        Assert.DoesNotContain("NIGHTSHADE", exception.Message, StringComparison.Ordinal);
     }
 }
