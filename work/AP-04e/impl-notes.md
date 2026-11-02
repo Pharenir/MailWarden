@@ -1,7 +1,7 @@
 # AP-04e – implementation notes (implement.1)
 
 STEP-RESULT: implemented in full. `dotnet build MailWarden.sln -warnaserror` from the worktree: 0 warnings, 0 errors. The GUI
-was never started, so everything in `App` (E12 to E15) is built but has never run. No test stage was run.
+was never started by the builder. No test stage was run in this step. Later rounds: "Tested / untested" below and `requirement.md`.
 
 Branch `feat/ap-04e-nightshade-theme`. No new package, no csproj change.
 
@@ -36,15 +36,15 @@ Left as they are, on purpose: `AccentControlElevationBorderBrush`, `CircleElevat
 fill, which still reads). `ComboBoxItemBackgroundSelected` stays `#30294A` as in the spike, not the selection colour.
 
 ## How the start avoids another theme
-`MainWindow` calls `WindowThemeChrome.PrepareResources` **before** `InitializeComponent`. The spike only ever swapped on a live tree;
-what a bounce does on a tree that is not live yet is unproven, and with the dictionary merged before parsing no bounce is needed
-at the start. `SetPaletteMerged` then reports no change, so `Apply` in the constructor does not bounce.
+`MainWindow` calls `WindowThemeChrome.PrepareResources` **before** `InitializeComponent`. The first idea, no bounce at the start, was
+wrong: the planner measured text outside a control staying white until the first change of the theme (fix.2). So the first `Apply`
+with the palette bounces too, also on a tree that is not live yet; measured in the spike, where `Apply` runs before `Content = root`.
 
 ## The bounce and the reading pane
 As in the decision, no guard flag: `ApplyTheme` calls `themeChrome.Apply` and then `ApplyReadingTheme`, which asks
 `AppThemes.ToReadingTheme(ViewModel.Theme, RootGrid.ActualTheme == ElementTheme.Dark)`. The events of the bounce come later, by
-then `ActualTheme` is the target and `ApplyThemeAsync` does nothing. Only reasoned; the spike measured `ActualTheme` for Dark only,
-not for `Default` with Windows in dark or light mode (Nightshade → System).
+then `ActualTheme` is the target and `ApplyThemeAsync` does nothing. Measured in the spike for Dark, Light and `Default` with Windows
+in dark mode (`real-*`). `Default` with Windows in light mode is not measured; Light would be the target there anyway.
 
 ## High contrast
 Removed in fix.1 by the planner: subscribing to `AccessibilitySettings.HighContrastChanged` throws `0x80070490` in the unpackaged
@@ -66,8 +66,8 @@ theme change or start. Until then a solid background can stay under system text 
 - Only built here; the planner then ran the real `WindowThemeChrome` and the real dictionary in the spike (planner, fix.1): the
   read back of `palette.ThemeDictionaries["Dark"]["..."]` works, and so does every direction including System. `MainWindow` itself
   has never run: the first run with mails is Dennis's first start.
-- Ich bin mir unsicher: whether `TextBlock` with `IsTextSelectionEnabled` (mail header lines) selects in the Windows accent colour.
-  No key found that decides it; `TextControlSelectionHighlightColor` covers the text boxes.
+- `TextBlock` with `IsTextSelectionEnabled` (mail header lines) selects in `#0078D4` in every theme, measured in fix.2. No key of the
+  palette decides it; `TextControlSelectionHighlightColor` covers the text boxes. Dennis decides in case 26b.
 
 ## Questions
 None that block. Regeneration: `python tools\make_nightshade_theme.py` from the project folder; `WINUI_PACKAGE_VERSION` at

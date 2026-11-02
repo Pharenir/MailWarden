@@ -171,3 +171,13 @@ The planner ran the real `WindowThemeChrome` and the real `NightshadeTheme.xaml`
 - secure.1 N1: wording. `HasOwnColors = false` means no text or background colour, not no colour at all (`border`, `text-shadow` stay). Accepted as in AP-04d, the same works in the dark style.
 - secure.1 N2: a high contrast setting changed while Nightshade runs leaves the solid background until the next theme change or start. Accepted, case 29.
 - secure.1, for AP-13: only `data\` may become writable, not `<install>`. Goes to `TODO.md`.
+
+## Decisions fix.3 (planner, 2026-11-02, after review.2 CHANGES, text only)
+- S1: the manual cases 26 and 27 could have moved a real mail: Del outside Trash moves without asking. Now the dialog is reached through "Ordner leeren" on Junk or Trash and closed with Abbrechen, and the context menu in the tree is named only for the folders that have one. Corrected together with N1, N2, N3 of the same sheet.
+- S2: `impl-notes.md` brought in line with fix.1 and fix.2.
+- S3, accepted: `ApplyThemeWhileRunning` runs inside the property change, so a failed switch is still saved. With a permanently broken palette (damaged install, wrongly regenerated dictionary) the next start lands in the error window and only editing `ui-settings.json` helps. Taking the choice back inside the selection event would be riskier than this rare case. New line E17; the trade-off goes to `TODO.md`.
+- N5 (the border of a button disappears on hover): look only, Dennis sees it in case 27.
+
+| # | Behaviour |
+|---|---|
+| E17 | A failure while switching the theme does not end the running app: a critical log line with the type name. At the start the error window stays (fail fast) |
