@@ -523,6 +523,75 @@ internal sealed class FakeMailboxReadModel : IMailboxReadModel
         return message.EmlPath is null ? null : TestContent.Plain(message.Subject, $"body of {message.Subject}");
     }
 
+    // ---- attachments (AP-04c) ------------------------------------------------------------------------------
+
+    private readonly Dictionary<(long MessageId, int Index), byte[]> _attachmentBytes = [];
+    private readonly List<(long MessageId, int Index)> _copyCalls = [];
+    private readonly List<MailAttachmentInfo> _copyExpected = [];
+
+    /// <summary>
+    /// Replaces <see cref="CopyAttachmentAsync"/>; arguments are the message, the index, the destination and the token.
+    /// The behaviour writes to the destination itself or throws.
+    /// </summary>
+    public Func<MailMessage, int, Stream, CancellationToken, Task>? CopyBehavior { get; set; }
+
+    /// <summary>Bytes the fake writes for an attachment without configured content.</summary>
+    public static byte[] DefaultAttachmentBytes(int index) => System.Text.Encoding.UTF8.GetBytes($"attachment_bytes_{index}");
+
+    /// <summary>Sets the decoded content of one attachment.</summary>
+    public void SetAttachmentBytes(long messageId, int index, byte[] bytes)
+    {
+        lock (_gate)
+        {
+            _attachmentBytes[(messageId, index)] = bytes;
+        }
+    }
+
+    /// <summary>Message id and index of every <see cref="CopyAttachmentAsync"/> call, in order.</summary>
+    public IReadOnlyList<(long MessageId, int Index)> CopyCalls
+    {
+        get
+        {
+            lock (_gate)
+            {
+                return [.. _copyCalls];
+            }
+        }
+    }
+
+    /// <summary>The <c>expected</c> entry of every <see cref="CopyAttachmentAsync"/> call, in order.</summary>
+    public IReadOnlyList<MailAttachmentInfo> CopyExpected
+    {
+        get
+        {
+            lock (_gate)
+            {
+                return [.. _copyExpected];
+            }
+        }
+    }
+
+    public async Task CopyAttachmentAsync(MailMessage message, int attachmentIndex, MailAttachmentInfo expected, Stream destination, CancellationToken ct = default)
+    {
+        Func<MailMessage, int, Stream, CancellationToken, Task>? behavior;
+        byte[]? configured;
+        lock (_gate)
+        {
+            _copyCalls.Add((message.Id, attachmentIndex));
+            _copyExpected.Add(expected);
+            behavior = CopyBehavior;
+            _attachmentBytes.TryGetValue((message.Id, attachmentIndex), out configured);
+        }
+
+        if (behavior is not null)
+        {
+            await behavior(message, attachmentIndex, destination, ct);
+            return;
+        }
+
+        await destination.WriteAsync(configured ?? DefaultAttachmentBytes(attachmentIndex), ct);
+    }
+
     /// <summary>Awaited before <see cref="SearchAsync"/> answers; arguments are the text and the 1-based call number.</summary>
     public Func<string, int, Task>? SearchGate { get; set; }
 
@@ -646,4 +715,91 @@ internal static class TestContent
 
     public static MailContent Html(string subject, string html, IReadOnlyList<MailAttachmentInfo>? attachments = null) =>
         Plain(subject, "plain text", attachments) with { Html = html };
+}
+
+/// <summary>
+/// Attachment host fake: the save dialog answers <see cref="SaveTarget"/> (null = cancelled), the launch answers
+/// <see cref="OpenResult"/>. For every launch it keeps the path and a snapshot of the file content at call time.
+/// </summary>
+internal sealed class FakeAttachmentHost : IAttachmentHost
+{
+    private readonly object _gate = new();
+    private readonly List<string> _proposedNames = [];
+    private readonly List<string> _openedPaths = [];
+    private readonly List<byte[]?> _openedContents = [];
+
+    /// <summary>Path the dialog returns; null stands for a cancelled dialog.</summary>
+    public string? SaveTarget { get; set; }
+
+    /// <summary>When true the dialog creates an empty file at the target, as the Windows save picker does.</summary>
+    public bool CreateEmptyTarget { get; set; } = true;
+
+    /// <summary>Replaces the dialog answer; the argument is the proposed name.</summary>
+    public Func<string, Task<string?>>? PickBehavior { get; set; }
+
+    /// <summary>Answer of <see cref="OpenWithDefaultProgramAsync"/>.</summary>
+    public bool OpenResult { get; set; } = true;
+
+    public IReadOnlyList<string> ProposedNames
+    {
+        get
+        {
+            lock (_gate)
+            {
+                return [.. _proposedNames];
+            }
+        }
+    }
+
+    public IReadOnlyList<string> OpenedPaths
+    {
+        get
+        {
+            lock (_gate)
+            {
+                return [.. _openedPaths];
+            }
+        }
+    }
+
+    /// <summary>File content at the moment of each launch (null when the file did not exist then).</summary>
+    public IReadOnlyList<byte[]?> OpenedContents
+    {
+        get
+        {
+            lock (_gate)
+            {
+                return [.. _openedContents];
+            }
+        }
+    }
+
+    public async Task<string?> PickSaveTargetAsync(string proposedFileName, CancellationToken ct = default)
+    {
+        lock (_gate)
+        {
+            _proposedNames.Add(proposedFileName);
+        }
+
+        string? target = PickBehavior is { } behavior ? await behavior(proposedFileName) : SaveTarget;
+        if (target is not null && CreateEmptyTarget)
+        {
+            Directory.CreateDirectory(Path.GetDirectoryName(target)!);
+            await File.WriteAllBytesAsync(target, [], ct);
+        }
+
+        return target;
+    }
+
+    public async Task<bool> OpenWithDefaultProgramAsync(string fullPath)
+    {
+        byte[]? content = File.Exists(fullPath) ? await File.ReadAllBytesAsync(fullPath) : null;
+        lock (_gate)
+        {
+            _openedPaths.Add(fullPath);
+            _openedContents.Add(content);
+        }
+
+        return OpenResult;
+    }
 }

@@ -11,16 +11,17 @@ public sealed class DataPaths
     private const string DatabaseFileName = "mailwarden.db";
     private const string MailDirectoryName = "mail";
     private const string LogDirectoryName = "logs";
+    private const string AttachmentsOpenDirectoryName = "attachments-open";
 
     private static readonly char[] PathSeparators = ['/', '\\'];
     private static readonly char[] InvalidSegmentCharacters = Path.GetInvalidFileNameChars();
 
-    // Reserved DOS device names (case-insensitive); COM/LPT with superscript 1-3 are devices on Windows as well.
+    // Reserved DOS device names (case-insensitive); COM/LPT with superscript 1-3 and the console names are devices as well.
     private static readonly FrozenSet<string> DosDeviceNames = new[]
     {
-        "CON", "PRN", "AUX", "NUL",
-        "COM1", "COM2", "COM3", "COM4", "COM5", "COM6", "COM7", "COM8", "COM9",
-        "LPT1", "LPT2", "LPT3", "LPT4", "LPT5", "LPT6", "LPT7", "LPT8", "LPT9",
+        "CON", "PRN", "AUX", "NUL", "CONIN$", "CONOUT$",
+        "COM0", "COM1", "COM2", "COM3", "COM4", "COM5", "COM6", "COM7", "COM8", "COM9",
+        "LPT0", "LPT1", "LPT2", "LPT3", "LPT4", "LPT5", "LPT6", "LPT7", "LPT8", "LPT9",
         "COM¹", "COM²", "COM³", "LPT¹", "LPT²", "LPT³",
     }.ToFrozenSet(StringComparer.OrdinalIgnoreCase);
 
@@ -42,6 +43,7 @@ public sealed class DataPaths
         DatabasePath = Path.Combine(Root, DatabaseFileName);
         MailRoot = Path.Combine(Root, MailDirectoryName);
         LogRoot = Path.Combine(Root, LogDirectoryName);
+        AttachmentsOpenRoot = Path.Combine(Root, AttachmentsOpenDirectoryName);
     }
 
     /// <summary>Normalised data root directory.</summary>
@@ -56,6 +58,9 @@ public sealed class DataPaths
     /// <summary>Log directory: <c>&lt;Root&gt;\logs</c>.</summary>
     public string LogRoot { get; }
 
+    /// <summary>Attachments prepared for opening; emptied at every start and exit: <c>&lt;Root&gt;\attachments-open</c>.</summary>
+    public string AttachmentsOpenRoot { get; }
+
     /// <summary>
     /// Resolves a path relative to <see cref="MailRoot"/> (forward or back slashes) to an absolute path with OS
     /// separators.
@@ -64,8 +69,9 @@ public sealed class DataPaths
     /// <returns>Absolute path below <see cref="MailRoot"/>.</returns>
     /// <exception cref="ArgumentException">
     /// The path is empty, rooted, contains "..", "." or empty segments, segments ending in "." or a space, reserved
-    /// device names (<c>CON</c>, <c>PRN</c>, <c>AUX</c>, <c>NUL</c>, <c>COM1</c>-<c>COM9</c>, <c>LPT1</c>-<c>LPT9</c>,
-    /// the superscript variants <c>COM¹</c>-<c>COM³</c> and <c>LPT¹</c>-<c>LPT³</c>, with or without extension), or
+    /// device names (<c>CON</c>, <c>PRN</c>, <c>AUX</c>, <c>NUL</c>, <c>CONIN$</c>, <c>CONOUT$</c>, <c>COM0</c>-<c>COM9</c>,
+    /// <c>LPT0</c>-<c>LPT9</c>, the superscript variants <c>COM¹</c>-<c>COM³</c> and <c>LPT¹</c>-<c>LPT³</c>, with or without
+    /// extension), or
     /// characters invalid in file names.
     /// </exception>
     public string ResolveMailPath(string relativePath)
@@ -123,10 +129,16 @@ public sealed class DataPaths
         return resolvedPath;
     }
 
-    // Windows maps these names to devices in every directory, with or without extension ("NUL", "con.eml");
-    // trailing spaces before the extension are ignored by Windows as well ("CON .eml").
-    private static bool IsDosDeviceName(string segment)
+    /// <summary>
+    /// Checks for a name Windows maps to a device in every directory, with or without extension ("NUL", "con.eml"); trailing
+    /// spaces before the extension are ignored by Windows as well ("CON .eml").
+    /// </summary>
+    /// <param name="segment">One path segment.</param>
+    /// <returns>True when the segment names a device.</returns>
+    /// <exception cref="ArgumentNullException"><paramref name="segment"/> is null.</exception>
+    public static bool IsDosDeviceName(string segment)
     {
+        ArgumentNullException.ThrowIfNull(segment);
         int extensionStart = segment.IndexOf('.', StringComparison.Ordinal);
         string baseName = (extensionStart < 0 ? segment : segment[..extensionStart]).TrimEnd(' ');
         return DosDeviceNames.Contains(baseName);

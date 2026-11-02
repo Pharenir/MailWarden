@@ -84,6 +84,9 @@ public static class UiText
     /// <summary>Confirmation dialog: the button that goes on.</summary>
     public static string ConfirmationAccept => "Endgültig löschen";
 
+    /// <summary>Confirmation dialog: the button that goes on with opening an attachment.</summary>
+    public static string ConfirmationOpenAttachment => "Trotzdem öffnen";
+
     /// <summary>Confirmation dialog: the button that stops.</summary>
     public static string ConfirmationCancel => "Abbrechen";
 
@@ -101,6 +104,50 @@ public static class UiText
 
     /// <summary>Reading header: attachment label.</summary>
     public static string AttachmentsLabel => "Anhänge:";
+
+    /// <summary>Attachment row: open with the program Windows assigns.</summary>
+    public static string AttachmentOpen => "Öffnen";
+
+    /// <summary>Attachment row: save with the dialog of Windows.</summary>
+    public static string AttachmentSave => "Speichern";
+
+    /// <summary>Save dialog: name of the file type.</summary>
+    public static string AttachmentFileType => "Anhang";
+
+    /// <summary>Attachment notice: a copy is running.</summary>
+    public static string AttachmentCopying => "Anhang wird kopiert …";
+
+    /// <summary>Attachment notice: the file is complete at the chosen place.</summary>
+    public static string AttachmentSaved => "Anhang gespeichert.";
+
+    /// <summary>Attachment notice: the window offers no way to save or open here.</summary>
+    public static string AttachmentActionsUnavailable => "Anhänge können hier nicht geöffnet oder gespeichert werden.";
+
+    /// <summary>Attachment notice: the local copy of the mail is gone.</summary>
+    public static string AttachmentMailGone => "Der Anhang ist nicht mehr da: Die Mail wurde inzwischen gelöscht.";
+
+    /// <summary>Attachment notice: the part is not the listed one any more, or it cannot be decoded.</summary>
+    public static string AttachmentChangedOrUnreadable =>
+        "Der Anhang passt nicht mehr zur angezeigten Mail oder lässt sich nicht lesen. Es wurde nichts übernommen.";
+
+    /// <summary>Attachment notice: saving failed for another reason.</summary>
+    public static string AttachmentSaveFailed =>
+        "Der Anhang konnte nicht gespeichert werden. Ist das Laufwerk voll, der Ordner schreibgeschützt oder die Datei noch geöffnet?";
+
+    /// <summary>Attachment notice: preparing the file for opening failed for another reason.</summary>
+    public static string AttachmentOpenFailed =>
+        "Der Anhang konnte nicht zum Öffnen vorbereitet werden. Ist das Laufwerk voll?";
+
+    /// <summary>Attachment notice: the folder for opened attachments is a link, so the file is not opened.</summary>
+    public static string AttachmentOpenFolderIsLink =>
+        "Der Anhang wurde nicht geöffnet: Der Ordner für geöffnete Anhänge ist eine Verknüpfung. Nach einem Neustart von MailWarden sollte es wieder gehen. Speichern ist weiterhin möglich.";
+
+    /// <summary>Attachment notice: the mark "from the internet" could not be set, so the file is not opened.</summary>
+    public static string AttachmentMarkFailed =>
+        "Der Anhang wurde nicht geöffnet: Auf diesem Laufwerk lässt sich der Vermerk „aus dem Internet“ nicht setzen. Er kann weiterhin gespeichert werden.";
+
+    /// <summary>Attachment notice: Windows did not open the file.</summary>
+    public static string AttachmentOpenRefused => "Windows hat den Anhang nicht geöffnet.";
 
     /// <summary>Reading pane without a selected message.</summary>
     public static string ReadingEmpty => "Keine Nachricht ausgewählt.";
@@ -149,6 +196,9 @@ public static class UiText
             CultureInfo.InvariantCulture,
             $"Spamfilter seit dem Start: nicht bewertet {evaluationFailed}, von der Bremse zurückgehalten {brakeHeld}. Diese Mails bleiben in ihrem Ordner.");
     }
+
+    /// <summary>Banner: a save failed after another mail was selected.</summary>
+    public static string BannerAttachmentSaveFailed => "Der Anhang konnte nicht gespeichert werden.";
 
     /// <summary>Banner: the queued actions could not be read.</summary>
     public static string BannerActionsReadFailed => "Die offenen Aktionen konnten nicht gelesen werden.";
@@ -227,6 +277,31 @@ public static class UiText
         return $"{folderWords}{ofAccount} leeren: {CountOfMails(count)} endgültig löschen? Das kann nicht rückgängig gemacht werden.";
     }
 
+    /// <summary>
+    /// Question before opening an attachment: the reasons of A5 and A6 in fixed words, never a file name, sender or subject.
+    /// </summary>
+    /// <param name="risk">Risk level of the file.</param>
+    /// <param name="folderRole">Role of the folder of the mail now; null when it is unknown.</param>
+    /// <param name="hasFolderChanged">True when the role is another one than when the mail was shown.</param>
+    /// <returns>The text.</returns>
+    internal static string ConfirmOpenAttachment(AttachmentRisk risk, FolderRole? folderRole, bool hasFolderChanged)
+    {
+        string folderReason = folderRole switch
+        {
+            null => "Der Ordner dieser Mail ist unbekannt. ",
+            FolderRole.Junk => "Diese Mail liegt im Junk-Ordner. ",
+            FolderRole.Quarantine => "Diese Mail liegt in der Quarantäne. ",
+            FolderRole.Screener => "Diese Mail liegt im Screener, ihr Absender ist noch nicht bestätigt. ",
+            FolderRole.Trash => "Diese Mail liegt im Papierkorb. ",
+            _ when hasFolderChanged => "Der Ordner dieser Mail hat sich geändert. ",
+            _ => string.Empty,
+        };
+        string typeReason = risk == AttachmentRisk.Ask
+            ? "Dieser Dateityp kann Programme oder Makros enthalten. "
+            : string.Empty;
+        return $"{folderReason}{typeReason}Den Anhang trotzdem öffnen?";
+    }
+
     /// <summary>Error window: title.</summary>
     public static string StartErrorTitle => "MailWarden kann nicht starten";
 
@@ -303,12 +378,14 @@ public static class UiText
         return string.Create(CultureInfo.InvariantCulture, $"+{count} weitere");
     }
 
-    /// <summary>Last entry of a long attachment list.</summary>
-    /// <param name="count">Number of attachments not listed.</param>
-    /// <returns>The entry.</returns>
-    public static string MoreAttachments(int count)
+    /// <summary>Under a long attachment list: how many have no row.</summary>
+    /// <param name="count">Number of attachments without a row.</param>
+    /// <returns>The notice.</returns>
+    public static string AttachmentsNotListed(int count)
     {
-        return string.Create(CultureInfo.InvariantCulture, $"und {count} weitere");
+        return count == 1
+            ? "1 weiterer Anhang wird nicht aufgeführt."
+            : string.Create(CultureInfo.InvariantCulture, $"{count} weitere Anhänge werden nicht aufgeführt.");
     }
 
     /// <summary>Status text of an account node: fixed text per state, plus counts during a sync.</summary>

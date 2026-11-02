@@ -3,10 +3,28 @@ namespace MailWarden.Infrastructure.Mime;
 /// <summary>
 /// One attachment as listed in the reading pane; its content is never kept or interpreted.
 /// </summary>
-/// <param name="FileName">File name cleaned for display, never used as a path; empty when the part has no name.</param>
+/// <param name="FileName">
+/// File name cleaned for display, not cut; empty when the part has no name. It is foreign data: never a path, and a file on
+/// disk only gets a name made from it by <c>AttachmentFileName.ToSafe</c>.
+/// </param>
 /// <param name="ContentType">MIME type, e.g. <c>application/pdf</c>.</param>
 /// <param name="Size">Decoded size in bytes, or null when the part has no decodable content.</param>
-public sealed record MailAttachmentInfo(string FileName, string ContentType, long? Size);
+public sealed record MailAttachmentInfo(string FileName, string ContentType, long? Size)
+{
+    /// <summary>
+    /// True for an attached message. A listed <c>message/rfc822</c> always is one: the parser leaves that type unlisted when it could
+    /// not make a message of it (encoded, or at the depth limit). The other types of a message have no decoded size, unlike parts such
+    /// as a delivery report, which are measured.
+    /// </summary>
+    public bool IsAttachedMessage =>
+        ContentType.Equals("message/rfc822", StringComparison.OrdinalIgnoreCase)
+        || (Size is null
+            && (ContentType.StartsWith("message/", StringComparison.OrdinalIgnoreCase)
+                || ContentType.Equals("text/rfc822-headers", StringComparison.OrdinalIgnoreCase)));
+
+    /// <summary>True when the part can be copied: it has decodable content, or it is an attached message.</summary>
+    public bool HasContent => Size is not null || IsAttachedMessage;
+}
 
 /// <summary>
 /// One mailbox of the From header.

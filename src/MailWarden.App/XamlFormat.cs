@@ -59,16 +59,6 @@ public static class XamlFormat
     /// <returns>The line.</returns>
     public static string DateLine(string value) => $"{UiText.DateLabel} {value}";
 
-    /// <summary>Header line with the attachment names.</summary>
-    /// <param name="names">Attachment names.</param>
-    /// <returns>The line.</returns>
-    public static string AttachmentsLine(IReadOnlyList<string> names) => $"{UiText.AttachmentsLabel} {string.Join(", ", names)}";
-
-    /// <summary>Visible when there is at least one name.</summary>
-    /// <param name="names">Attachment names.</param>
-    /// <returns>The visibility.</returns>
-    public static Visibility VisibleWhenAny(IReadOnlyList<string> names) => names.Count > 0 ? Visibility.Visible : Visibility.Collapsed;
-
     /// <summary>Text of the button that loads remote images.</summary>
     /// <param name="blockedCount">Number of blocked resources.</param>
     /// <returns>The button text.</returns>

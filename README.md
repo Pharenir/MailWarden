@@ -17,7 +17,7 @@ processed/missing; no names), reconnects within a pass if the connection was los
 the Gmail folder "Important". A command queue (local to server: flags, move, trash, delete, empty folder; see
 "Command queue") and a background service with schedule and IDLE (see "Background service") are implemented as
 libraries; the app starts the background service. The app works on mail through the command queue; accounts are
-still added with the AuthProbe tool, and attachments cannot be opened or saved yet (AP-04c). The spam filter runs after every sync in the app, but by
+still added with the AuthProbe tool, and attachments can be opened and saved (see "Using the app"). The spam filter runs after every sync in the app, but by
 default it only records its decisions and moves no mail (see "Spam filter"). The address book fills itself from sent mail (see "Address book").
 
 ## Using the app
@@ -36,8 +36,29 @@ the command queue (see "Command queue"). Opening a message does not mark it as r
   wait after an error.
 - **Selecting:** click a message; Ctrl and Shift select several. The actions apply to all selected messages. With
   none or several selected, the reading pane stays empty.
-- **Reading pane:** subject, Von, An, Cc, Datum and the names of the attachments, then the message. Attachments can
-  only be listed, not opened or saved yet. A message that is not downloaded yet says so.
+- **Reading pane:** subject, Von, An, Cc, Datum and the attachments, then the message. A message that is not
+  downloaded yet says so.
+- **Attachments:** each attachment is a row with its name, size, the file extension in a column of its own (capitals,
+  empty without an extension) and the buttons "Öffnen" and "Speichern". At most 500 rows are shown; a notice says how
+  many attachments have no row, those cannot be opened or saved here. A mail attached to the message is saved or
+  opened as an `.eml` file. Opening and saving change no flag and do not touch the server.
+  - "Speichern" asks with the save dialog of Windows, which proposes a cleaned file name (no path parts, no reserved
+    names). Nothing is saved without the dialog. While a large attachment is copied the pane says "Anhang wird
+    kopiert …", afterwards "Anhang gespeichert.". The saved file is marked as coming from the internet where the
+    target drive can hold that mark (NTFS); on other drives (for example a USB stick) it is saved without it.
+  - "Öffnen" copies the attachment into the folder `attachments-open` of the data folder, marks it as coming from the
+    internet and opens it with the program Windows assigns to the file type. Office therefore shows such files in
+    its protected view. If the drive cannot hold the mark, nothing is opened and the pane says so; the attachment can
+    still be saved.
+  - What happens on "Öffnen" depends on the file extension alone, never on the type the mail claims. Programs and
+    scripts (for example `exe`, `bat`, `ps1`, `js`, `msi`, `lnk`) and similar types such as disk images can only be
+    saved; "Öffnen" is switched off. Harmless types (for example `pdf`, `txt`, pictures, `docx`, `xlsx`, `pptx`) open
+    at once. Everything else (also files without an extension, `zip`, `html` and files with macros such as `docm`)
+    asks first with the button "Trotzdem öffnen".
+  - In Junk, Quarantäne, Screener and Trash "Öffnen" always asks first, also for harmless types. If the folder of the
+    mail cannot be determined, it asks as well. The question names no file, sender or subject.
+  - `attachments-open` is emptied at every start and when the app closes. A file that is still open in a program stays
+    until the next start. Links in that folder are removed, never followed.
 - **Actions (toolbar and right-click menu):** "Gelesen", "Ungelesen", "Kennzeichnen" (toggles the flag), "Löschen",
   "Verschieben" and, in Trash and Junk only, "Ordner leeren". Keys in the message list: Ctrl+Q read, Ctrl+U unread,
   Del delete, Shift+Del delete permanently. The keys do nothing while the search box or a dialog has the focus, and
@@ -215,6 +236,7 @@ Layout:
 |---|---|
 | `mailwarden.db` | SQLite database (schema version 6): accounts, folders, message metadata, full-text search index, sync state per folder (initial-window limit and change counter; every message missing locally is fetched on the next sync), command queue, contacts, allow and block lists, progress of the contact collection per folder, classification decisions with their reasons. An older database is upgraded automatically on start. |
 | `mail\` | one `.eml` file per message, stored per account and folder |
+| `attachments-open\` | temporary copies of attachments that were opened with "Öffnen"; emptied at every start and when the app closes |
 | `credentials\` | DPAPI-encrypted sign-in tokens, one `.bin` file per entry |
 | `auth-config.json` | optional OAuth client configuration (see Environment variables) |
 | `ui-settings.json` | optional window settings (layout, theme, sizes, window size and position, read-on-select switch); written by the app when you change them |

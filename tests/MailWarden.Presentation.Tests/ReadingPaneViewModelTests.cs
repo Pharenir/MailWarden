@@ -60,7 +60,7 @@ public sealed class ReadingPaneViewModelTests
         Assert.Contains("recipient_b@example.test", reading.To, StringComparison.Ordinal);
         Assert.Contains("copy_d@example.test", reading.Cc, StringComparison.Ordinal);
         Assert.False(string.IsNullOrWhiteSpace(reading.DateText));
-        Assert.Equal(new[] { "report_a.pdf", "name.txt" }, reading.AttachmentNames.ToArray());
+        Assert.Equal(new[] { "report_a.pdf", "name.txt" }, reading.Attachments.Select(row => row.Name).ToArray());
         Assert.NotNull(reading.DocumentHtml);
         Assert.Contains("html_marker", reading.DocumentHtml, StringComparison.Ordinal);
     }
@@ -142,7 +142,7 @@ public sealed class ReadingPaneViewModelTests
         ReadingPaneViewModel reading = harness.Shell.Reading;
         Assert.Equal(ReadingState.Error, reading.State);
         Assert.Null(reading.DocumentHtml);
-        foreach (string text in new[] { reading.Subject, reading.From, reading.To, reading.Cc, reading.DateText, string.Join("|", reading.AttachmentNames) })
+        foreach (string text in new[] { reading.Subject, reading.From, reading.To, reading.Cc, reading.DateText, string.Join("|", reading.Attachments.Select(row => row.Name)) })
         {
             Assert.DoesNotContain(MarkerSecret, text, StringComparison.Ordinal);
         }
@@ -367,9 +367,9 @@ public sealed class ReadingPaneViewModelTests
         Assert.Contains("copy_0@example.test", reading.Cc, StringComparison.Ordinal);
     }
 
-    // Case 54
+    // Case 54 / A1: 100000 attachments give MaxAttachmentRows rows and one notice that counts the rest.
     [Fact(Timeout = TestTimeouts.PerTestMilliseconds)]
-    public async Task One_hundred_thousand_attachments_give_fifty_names_and_one_summary_entry()
+    public async Task One_hundred_thousand_attachments_give_the_maximum_of_rows_and_a_notice()
     {
         (ShellHarness harness, MailFolder inbox) = NewHarness();
         MailMessage message = harness.ReadModel.AddMessage(inbox);
@@ -377,20 +377,24 @@ public sealed class ReadingPaneViewModelTests
 
         await harness.Shell.Reading.ShowAsync(message);
 
-        string[] names = [.. harness.Shell.Reading.AttachmentNames];
-        Assert.Equal(51, names.Length);
-        Assert.Equal(Enumerable.Range(0, 50).Select(index => $"file_{index}.bin").ToArray(), names.Take(50).ToArray());
-        Assert.Contains("99950", names[50], StringComparison.Ordinal);
-        Assert.Contains("weitere", names[50], StringComparison.Ordinal);
+        ReadingPaneViewModel reading = harness.Shell.Reading;
+        Assert.Equal(500, ReadingPaneViewModel.MaxAttachmentRows);
+        Assert.Equal(ReadingPaneViewModel.MaxAttachmentRows, reading.Attachments.Count);
+        Assert.Equal(Enumerable.Range(0, 500).Select(index => $"file_{index}.bin").ToArray(), reading.Attachments.Select(row => row.Name).ToArray());
+        Assert.True(reading.HasHiddenAttachments);
+        Assert.NotNull(reading.HiddenAttachmentsNotice);
+        Assert.Contains("99500", reading.HiddenAttachmentsNotice, StringComparison.Ordinal);
     }
 
-    // Case 54 positive control: 50 attachments are all listed, 51 give one summary entry for the last one.
+    // Case 54 positive control: up to 500 attachments are all listed and give no notice, 501 give one for the last one.
     [Theory(Timeout = TestTimeouts.PerTestMilliseconds)]
     [InlineData(0, 0)]
     [InlineData(3, 3)]
     [InlineData(50, 50)]
-    [InlineData(51, 51)]
-    public async Task Attachment_list_is_cut_after_fifty_names(int attachmentCount, int expectedEntries)
+    [InlineData(499, 499)]
+    [InlineData(500, 500)]
+    [InlineData(501, 500)]
+    public async Task Attachment_list_is_cut_after_the_maximum_of_rows(int attachmentCount, int expectedRows)
     {
         (ShellHarness harness, MailFolder inbox) = NewHarness();
         MailMessage message = harness.ReadModel.AddMessage(inbox);
@@ -398,15 +402,17 @@ public sealed class ReadingPaneViewModelTests
 
         await harness.Shell.Reading.ShowAsync(message);
 
-        string[] names = [.. harness.Shell.Reading.AttachmentNames];
-        Assert.Equal(expectedEntries, names.Length);
-        if (attachmentCount <= 50)
+        ReadingPaneViewModel reading = harness.Shell.Reading;
+        Assert.Equal(expectedRows, reading.Attachments.Count);
+        Assert.Equal(Enumerable.Range(0, expectedRows).Select(index => $"file_{index}.bin").ToArray(), reading.Attachments.Select(row => row.Name).ToArray());
+        Assert.Equal(attachmentCount > 500, reading.HasHiddenAttachments);
+        if (attachmentCount > 500)
         {
-            Assert.Equal(Enumerable.Range(0, attachmentCount).Select(index => $"file_{index}.bin").ToArray(), names);
+            Assert.Contains("1", reading.HiddenAttachmentsNotice!, StringComparison.Ordinal);
         }
         else
         {
-            Assert.Contains("1 weitere", names[50], StringComparison.Ordinal);
+            Assert.Null(reading.HiddenAttachmentsNotice);
         }
     }
 

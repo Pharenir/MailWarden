@@ -66,6 +66,16 @@ internal sealed class MailboxReadModel : IMailboxReadModel
         return Task.Run(() => ReadContentCoreAsync(message, ct), ct);
     }
 
+    public Task CopyAttachmentAsync(MailMessage message, int attachmentIndex, MailAttachmentInfo expected, Stream destination, CancellationToken ct = default)
+    {
+        ArgumentNullException.ThrowIfNull(message);
+        ArgumentNullException.ThrowIfNull(expected);
+        ArgumentNullException.ThrowIfNull(destination);
+
+        // Files only, like ReadContentAsync: a long copy does not hold up the lists.
+        return Task.Run(() => CopyAttachmentCoreAsync(message, attachmentIndex, expected, destination, ct), ct);
+    }
+
     /// <summary>
     /// Waits for the running query and refuses later ones, so that the connection can be closed safely afterwards.
     /// </summary>
@@ -103,6 +113,32 @@ internal sealed class MailboxReadModel : IMailboxReadModel
 
         inMemoryEml.Position = 0;
         return await MailContentReader.ReadAsync(inMemoryEml, ct).ConfigureAwait(false);
+    }
+
+    private async Task CopyAttachmentCoreAsync(MailMessage message, int attachmentIndex, MailAttachmentInfo expected, Stream destination, CancellationToken ct)
+    {
+        if (message.EmlPath is null)
+        {
+            throw new FileNotFoundException("The message has no local copy.");
+        }
+
+        Stream emlFile;
+        try
+        {
+            emlFile = await emlStore.OpenReadAsync(message.EmlPath, ct).ConfigureAwait(false);
+        }
+        catch (EmlNotFoundException)
+        {
+            // Without the inner exception: it names the path of the file.
+            throw new FileNotFoundException("The message has no local copy.");
+        }
+
+        await using (emlFile.ConfigureAwait(false))
+        {
+            await MailContentReader
+                .CopyAttachmentAsync(emlFile, attachmentIndex, expected, destination, ct)
+                .ConfigureAwait(false);
+        }
     }
 
     private Task<TResult> RunSerialisedAsync<TResult>(Func<CancellationToken, Task<TResult>> query, CancellationToken ct)

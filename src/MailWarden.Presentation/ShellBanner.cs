@@ -46,6 +46,9 @@ internal sealed class ShellBanner
 
         /// <summary>A permanent delete has probably only reached the Trash.</summary>
         DeleteReachedTrash,
+
+        /// <summary>A save failed after another mail was selected, so the reading pane has no place for it any more.</summary>
+        AttachmentSave,
     }
 
     /// <summary>All current texts joined, or null when nothing is to report.</summary>

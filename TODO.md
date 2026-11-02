@@ -3,6 +3,7 @@
 ## Offen
 - [ ] **Dennis: manuelle Tests nach `work\manual-tests.md`** (AP-02a Fälle 28–30, AP-03a Fall 28,
   Begründungstexte AP-07a/b, AP-04a Fälle 42–48 = Teil 6) – ersetzt die Einzelpunkte unten; „fertig“ erst danach
+- [ ] Wunsch Dennis 2026-11-02: Werkzeug in MailWarden zum Finden und Zusammenführen ähnlicher Kontakte, z. B. anhand gleicher Namen, E-Mail-Adressen oder zumindest gleicher Domänen (Ort beim Planen festlegen, naheliegend AP-08)
 - [ ] Wunsch Dennis 2026-11-01: je Ordner eine Grenze für Archivierung und eine eigene für Löschung einstellbar (gehört zu AP-08/AP-09; offen beim Planen: Grenze nach Alter, Anzahl oder Größe; Löschen nur über die Warteschlange, Standard aus)
 - [ ] Wunsch Dennis 2026-11-01 (AP-04b): beim Auswählen als gelesen markieren per Schalter in den Einstellungen, Standard aus; läuft als Befehl über die Warteschlange – umgesetzt in AP-04b (verify.6 2655/2655); manueller Test (Fall 21/22) offen
 - [ ] AP-13: `.ico` aus `assets\mailwarden-512.png` erzeugen (Exe-Icon, Installer)
@@ -18,7 +19,7 @@
 - [ ] Logging-Regel (AP-02b/AP-04): bei `AuthenticationFailedException` nur Provider, Reason, ProviderErrorCode, Message,
   Typ der inneren Ausnahme – nie `ToString()` (innere Meldungen enthalten Servertexte bzw. Dateipfade mit Benutzername)
 - [ ] AP-13: Obergrenze für Credential-Dateien (z. B. 1 MB, heute `OverflowException` > 2 GB)
-- [ ] Widerruf beim Server beim Entfernen eines Kontos (Google revoke-Endpunkt)
+- [ ] Widerruf beim Server beim Entfernen eines Kontos: bei jedem Anbieter, erneutes Hinzufügen braucht neue Autorisierung → AP-02b (Dennis 2026-11-02)
 - [ ] Aufräumen verwaister Grants beim Start, **einschließlich `*.tmp`** im Credentials-Ordner (secure N5/N7)
 - [ ] Zugriff mehrerer Prozesse auf denselben Credentials-Ordner (AuthProbe + App) ist ungeschützt (A9: Sperre nur im Prozess)
 - [ ] AP-03: lokale Mail-Dateien beim Entfernen eines Kontos löschen (Non-goal AP-02a)
@@ -77,14 +78,20 @@ Original-Headern (Outlook.com); 1.870 ohne Header (vermutlich IMAP-/Gmail-Ordner
   zu secure M2 AP-03a und AP-02a-ACL-Punkt, 2026-10-31) → bewusst akzeptiert, keine Änderung
 
 ## Testzähler
-Testzähler: 0/4 seit letztem S3 (zuletzt 2026-11-02: S3 auf dem Testbranch von AP-04e vor dem Merge, 2965/2965 – Core 536, Presentation 629, Infrastructure 1800; seither nur Doku geändert)
+Testzähler: 0/4 seit letztem S3 (zuletzt 2026-11-02: S3 je Testprojekt auf dem Endstand vor dem Merge nach `main`, 3364/3364 – Core 536, Presentation 921, Infrastructure 1907)
 
-## Übergabe – so geht es weiter (Sessionende 2026-11-01)
-**Stand `main`:** AP-06, AP-04b und AP-04d gemergt und auf GitHub; von Dennis geprüft. Fall 18 (AP-07d) bestanden. `Act` ist nirgends eingeschaltet. Keine Worktrees offen.
+## Übergabe – so geht es weiter (Sessionende 2026-11-02)
+**Stand `main`:** AP-04e (Nightshade), Plan-Archiv und AP-04c (Anhänge) sind gemergt und gepusht, CPM Dennis 2026-11-02, S3 auf dem Endstand 3364/3364. `Act` ist nirgends eingeschaltet.
 
-**AP-04e Nightshade-Thema (Branch `feat/ap-04e-nightshade-theme`, lokal, nicht gemergt):** umgesetzt; verify.2 S3 2965/2965, secure.1 ohne Kritisch/Hoch. Es wartet auf Dennis: `work\manual-tests.md` Teil 10 (Fälle 23–28), danach CPM. Danach `chore/plan-archive` mergen (baut auf AP-04e auf) und AP-04e selbst ins Archiv verschieben. `_private\themes.md`, Zeile MailWarden, beim Merge nachziehen.
+**Zuerst: Handtests, sie sind offen.** Die Oberfläche von AP-04e und AP-04c lief noch nie im echten Fenster, auch nicht der Speichern-Dialog und das Öffnen einer Datei (`WindowAttachmentHost`). Beide Pakete bleiben deshalb in `PLAN.md` und kommen erst nach bestandenem Handtest ins Archiv.
+- `work\manual-tests.md`, Teil 10 (AP-04e) und Teil 11 (AP-04c), mit dem künstlichen Datenordner: `dotnet build MailWarden.sln`, dann `$env:MAILWARDEN_DATA_DIR = 'K:\Projekte\Windows-Tools\MailWarden\_scratch\testdata-ui\data'` und `src\MailWarden.App\bin\x64\Debug\net9.0-windows10.0.19041.0\win-x64\MailWarden.App.exe` starten. Ordner erzeugt von `_scratch\attachment-testdata` (lokal, nur künstliche Mails, Testkonto ohne Anmeldung).
+- Schlägt in Fall 21 oder 22 etwas fehl, ändert sich nur `WindowAttachmentHost`. Danach README und `PRIVACY.md` gegen das Verhalten prüfen.
+- Dazu: App-Start mit einem Ordner `...` in `attachments-open`: Sie startet, der Ordner ist weg.
+- Dennis entscheidet dort: Reicht bei gesperrten Typen die Zeile mit nur „Speichern“? Stört die Windows-blaue Markierung in den Kopfzeilen?
 
-**Danach:** AP-04c (Konten-UI, Anhänge), AP-08 (Regeln, Warum-Ansicht, Oberfläche Adressbuch, Bilder bei `TrustedContact` direkt laden, zurückgehaltene Mails), AP-05 (Versand), AP-09 (Ordnergrenzen).
+**In Arbeit, nicht auf `main`: AP-02b (Einstellungsseite und Konten),** Branch `feat/ap-02b-account-ui`, nur lokal, Worktrees `feat-ap-02b` und `test-ap-02b`. Stand beim Sessionende: verify.2 S3 3735/3735, review.2 CHANGES ohne BLOCK, secure.2 ohne Kritisch/Hoch; fix.2 lag beim Builder. Es fehlen: Abschluss von fix.2 prüfen (`git log`, Abschnitt „Decisions fix.2“ in `work\AP-02b\requirement.md`), `main` hineinmergen, Test-Branch zusammenführen, verify.3, review.3, secure.3, dann Teil 12 der Handtests, dann CPM. Runde 3 von 4. Die Adresse der Microsoft-Kontoseite ist unbestätigt (Handtest, Teil 12, Fall 6).
+
+**Danach:** AP-08 (Regeln, Warum-Ansicht, Oberfläche Adressbuch, Werkzeug für ähnliche Kontakte, Bilder bei `TrustedContact` direkt laden, zurückgehaltene Mails), AP-05 (Versand), AP-09 (Ordnergrenzen).
 
 **Entscheidungen von Dennis vor `Act`** (Abschnitt „Bedingungen vor `Act`“): Ordner leeren gegen Rettung aus Junk (Empfehlung: bestätigtes Löschen hat Vorrang); Junk kürzer abfragen, denn neue Mail dort löst keinen Zyklus aus und wartet bis zu 15 Minuten.
 
@@ -96,7 +103,7 @@ Testzähler: 0/4 seit letztem S3 (zuletzt 2026-11-02: S3 auf dem Testbranch von 
 - In Bash einem `cd` nicht trauen, wenn der Arbeitsordner wechselt: `git -C <Pfad>` und absolute Pfade (ein Commit landete so auf dem falschen Branch).
 - Doppelte Backslashes in Bash-Heredocs kommen einfach an. Patch-Skripte mit Backslashes im Text über das Write-Werkzeug anlegen, Text in einer eigenen Datei. Befehlsketten vor dem Merge mit `&&` trennen: Ein gescheitertes Skript hat den Merge sonst nicht aufgehalten.
 - Die Rolle `security-reviewer` kann nicht schreiben, ihr Bericht kommt vom Koordinator in `work\<AP>\security-review.md`.
-- Der Branch `chore/ap-06-04b-requirements` ist gemergt und noch vorhanden; Löschen nur nach Rückfrage.
+- S3 läuft je Testprojekt über den Wächter, nicht über die Solution (Projekt-`CLAUDE.md`). Regex-Ersetzungen in Patch-Skripten mit Backslashes im Text: eine Funktion als Ersetzung (ist dreimal gescheitert).
 
 ## Session 4 (2026-11-01)
 - Entscheidungen Dennis: AP-04a und AP-07c **parallel**; HTML-Bereinigung mit Paket HtmlSanitizer; Liste und Lesebereich
@@ -334,6 +341,17 @@ Erledigt aus AP-07c: D8, J4 (Bremse) und die Sichtbarkeit von `EvaluationFailed`
 - [ ] AP-13: Der Installer darf nur `data\` beschreibbar machen, nicht `<install>`, sonst wären DLLs und das kompilierte Wörterbuch austauschbar (secure.1)
 - [ ] Bei einem WinAppSDK-Update `WINUI_PACKAGE_VERSION` in `tools\make_nightshade_theme.py` anpassen und das Wörterbuch neu erzeugen
 
+### Vertagt aus AP-04c
+- [ ] Eine Mail, die in einen anderen Ordner wandert, behält bis zum nächsten Anzeigen die Rolle ihrer Zeile; bräuchte ein Lesen je Nachrichten-ID (secure.1 L2)
+- [ ] Der MIME-Parser hat keine Grenze für die Zahl der Teile: 12 MB EML mit 300.000 Teilen brauchen 1,5 GB beim Lesen (secure.1 L7); die Anzeige ist bei 500 Zeilen gedeckelt
+- [ ] AP-13: Rechte auf `data\` einschränken: geöffnete Anhänge und Mails liegen sonst für andere Konten lesbar (secure.1 L9)
+- [ ] Jedes Öffnen legt eine vollständige Kopie an, bis zum nächsten Start oder Beenden (secure.1 L8, akzeptiert); ein mehrfach geöffneter Anhang könnte dieselbe Kopie nutzen
+- [ ] „Harmlos“ hängt am zugeordneten Programm: Der Internet-Vermerk hilft nur, wo das Programm ihn auswertet (secure.1 L1, Dennis informiert)
+
+- [ ] Rest-Rennen in `Clear`: Ein Prozess desselben Benutzers kann einen Ordner in Mikrosekunden gegen einen Link tauschen; ein Durchlauf über Handles wäre ein Umbau (secure.2 S2, secure.3 L2 auch für `Discard`, akzeptiert)
+- [ ] `Clear` läuft auf dem UI-Thread: bei der Grenze von 100.000 Ordnern rund 30 s beim Start und Beenden; dazu braucht es einen lokalen Prozess (secure.3 L3, akzeptiert)
+- [ ] Liegt der Datenordner in einem Cloud-Ordner, gelten dessen Ordner als Links: `attachments-open` bleibt gefüllt, Anhänge werden mit hochgeladen, und falls der Ordner selbst als Link gilt, öffnet kein Anhang mehr (review.2 N3, review.3 S3)
+
 ### Vertagt aus AP-06
 Stand: S3 2406/2406, review.3 APPROVE, Sicherheitsprüfung ohne Kritisch/Hoch (solange `Act` aus ist). Fall 19 (echte Daten) nach T5
 nicht erneut gezählt.
@@ -349,7 +367,7 @@ nicht erneut gezählt.
 **Ohne Bedingung:**
 - [ ] AP-08 braucht eine Oberfläche für Kontakte, Listen und Import
 - [ ] AP-08: gelöschte Kontakte kommen nach einem UIDVALIDITY-Wechsel zurück (sperren statt löschen oder eine Löschmarke)
-- [ ] AP-08: Kontoentfernung und die Kontakte des Kontos
+- [ ] Kontoentfernung und die Kontakte des Kontos → AP-02b: Herkunft speichern, bestehende Kontakte lokal löschen und neu sammeln (Dennis 2026-11-02, Testversion)
 - [ ] AP-08: Warnung bei jedem Allow-Eintrag auf eine Domain (nicht nur `FreemailDomains`), weil Subdomains mitzählen
 - [ ] AP-08: Bestätigung mit Anzahl vor einem Import
 - [ ] UIDs, die später unter der Marke nachgeladen werden, und vorübergehend unlesbare Mails werden nicht mehr gesammelt

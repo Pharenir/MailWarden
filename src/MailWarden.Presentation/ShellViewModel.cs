@@ -18,12 +18,16 @@ namespace MailWarden.Presentation;
 public sealed record PendingActionRow(long CommandId, string Text);
 
 /// <summary>
-/// A question to the user before something cannot be undone. The text holds counts and fixed words only, never a sender or a
-/// subject. The window answers true to go on; anything else stops the action.
+/// A question to the user before something cannot be undone or an attachment opens. The text holds counts and fixed words only,
+/// never a sender, a subject or a file name. The window answers true to go on; anything else stops the action.
 /// </summary>
 /// <param name="Text">The question.</param>
 /// <param name="Answer">Completed with the answer of the user.</param>
-public sealed record ConfirmationRequest(string Text, TaskCompletionSource<bool> Answer);
+public sealed record ConfirmationRequest(string Text, TaskCompletionSource<bool> Answer)
+{
+    /// <summary>Text of the button that goes on; it names what happens then.</summary>
+    public string AcceptText { get; init; } = UiText.ConfirmationAccept;
+}
 
 /// <summary>
 /// Root view model of the main window: connects navigation, message list, reading pane, search and background service, and
@@ -115,7 +119,13 @@ public sealed class ShellViewModel : ObservableObject, IDisposable
     /// Builds the reading document from content, approval of remote images, approval of embedded images and theme; null means
     /// <see cref="ReadingDocumentBuilder.Build"/>.
     /// </param>
-    /// <exception cref="ArgumentNullException">A parameter is null.</exception>
+    /// <param name="attachmentHost">
+    /// Save dialog and starting of programs. Null, together with <paramref name="attachmentOpenFolder"/>, for a shell that cannot
+    /// save or open attachments: the rows are listed, and an action only shows a notice.
+    /// </param>
+    /// <param name="attachmentOpenFolder">Fully qualified folder for opened attachments, see <paramref name="attachmentHost"/>.</param>
+    /// <exception cref="ArgumentNullException">A required parameter is null.</exception>
+    /// <exception cref="ArgumentException">Only one of the two attachment parameters is given, or the folder is not fully qualified.</exception>
     public ShellViewModel(
         IMailboxReadModel readModel,
         IMailboxController controller,
@@ -124,7 +134,9 @@ public sealed class ShellViewModel : ObservableObject, IDisposable
         IUiSettingsStore settings,
         ICriticalLog log,
         TimeProvider timeProvider,
-        Func<MailContent, bool, bool, ReadingTheme, ReadingDocument>? documentBuilder = null)
+        Func<MailContent, bool, bool, ReadingTheme, ReadingDocument>? documentBuilder = null,
+        IAttachmentHost? attachmentHost = null,
+        string? attachmentOpenFolder = null)
     {
         this.readModel = readModel ?? throw new ArgumentNullException(nameof(readModel));
         this.actions = actions ?? throw new ArgumentNullException(nameof(actions));
@@ -139,7 +151,15 @@ public sealed class ShellViewModel : ObservableObject, IDisposable
         permanentDeleteWatcher = new PermanentDeleteWatcher(readModel, banner);
         Messages = new MessageListViewModel(readModel, log, banner, timeProvider, pendingMail);
         Search = new SearchViewModel(Messages);
-        Reading = new ReadingPaneViewModel(readModel, log, timeProvider, documentBuilder ?? ReadingDocumentBuilder.Build);
+        Reading = new ReadingPaneViewModel(
+            readModel,
+            log,
+            banner,
+            timeProvider,
+            documentBuilder ?? ReadingDocumentBuilder.Build,
+            attachmentHost,
+            attachmentOpenFolder,
+            ConfirmOpeningInTurnAsync);
         toggleLayoutCommand = new RelayCommand(ToggleLayout);
         refreshCommand = new RelayCommand(Refresh);
         markReadCommand = new RelayCommand(() => StartOnSelection(rows => ChangeSeenAsync(rows, true)), HasSelection);
@@ -319,7 +339,10 @@ public sealed class ShellViewModel : ObservableObject, IDisposable
     /// <summary>Discards a failed command; the parameter is its <see cref="PendingActionRow"/>. Its rows come back.</summary>
     public ICommand DiscardFailedActionCommand => discardFailedActionCommand;
 
-    /// <summary>Raised on the caller's context before something that cannot be undone; without a subscriber nothing happens.</summary>
+    /// <summary>
+    /// Raised on the caller's context before something that cannot be undone and before an attachment that needs a question opens;
+    /// without a subscriber nothing happens.
+    /// </summary>
     public event EventHandler<ConfirmationRequest>? ConfirmationRequested;
 
     /// <summary>Raised after an action has taken rows out of the list; the window gives the focus back to the list.</summary>
@@ -920,8 +943,26 @@ public sealed class ShellViewModel : ObservableObject, IDisposable
         }
     }
 
+    // A question of the reading pane takes its turn among the actions, so there is one dialog at a time here as well. Nothing is
+    // stored, so it does not need the rest of RunActionAsync.
+    private async Task<bool> ConfirmOpeningInTurnAsync(string text)
+    {
+        var turn = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        Task previousAction = actionTail;
+        actionTail = turn.Task;
+        try
+        {
+            await previousAction;
+            return await ConfirmAsync(text, UiText.ConfirmationOpenAttachment);
+        }
+        finally
+        {
+            turn.TrySetResult();
+        }
+    }
+
     // No subscriber, no answer or no means nothing is enqueued.
-    private async Task<bool> ConfirmAsync(string text)
+    private async Task<bool> ConfirmAsync(string text, string? acceptText = null)
     {
         EventHandler<ConfirmationRequest>? handlers = ConfirmationRequested;
         if (handlers is null || isDisposed)
@@ -933,7 +974,8 @@ public sealed class ShellViewModel : ObservableObject, IDisposable
         openConfirmation = answer;
         try
         {
-            handlers(this, new ConfirmationRequest(text, answer));
+            var request = new ConfirmationRequest(text, answer);
+            handlers(this, acceptText is null ? request : request with { AcceptText = acceptText });
             bool isConfirmed = await answer.Task;
             return isConfirmed && !isDisposed;
         }

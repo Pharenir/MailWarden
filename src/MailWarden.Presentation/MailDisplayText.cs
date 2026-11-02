@@ -1,3 +1,4 @@
+using System.Globalization;
 using MailWarden.Core.Text;
 using MailWarden.Infrastructure.Mime;
 
@@ -24,9 +25,6 @@ internal static class MailDisplayText
     /// <summary>Maximum length of a link target under the mouse.</summary>
     public const int MaxLinkCharacters = 500;
 
-    /// <summary>Attachment names listed before "und N weitere".</summary>
-    public const int MaxAttachmentNames = 50;
-
     // No valid host name is longer.
     private const int MaxLinkHostCharacters = 255;
 
@@ -37,6 +35,11 @@ internal static class MailDisplayText
     private const int MaxAddressCharactersWithName = 60;
 
     private const string Ellipsis = "…";
+
+    private const long BytesPerUnit = 1024;
+
+    // With one decimal place, from here on a value would read 1024,0.
+    private const double RoundsUpToNextUnit = 0.05;
 
     /// <summary>The shortened subject; a fixed text when it is empty.</summary>
     /// <param name="subject">Raw subject.</param>
@@ -145,21 +148,41 @@ internal static class MailDisplayText
         return SafeDisplayText.Shorten(string.Join(", ", recipients), MaxRecipientCharacters);
     }
 
-    /// <summary>At most <see cref="MaxAttachmentNames"/> names, then one entry with the number of the others.</summary>
-    /// <param name="fileNames">Raw file names.</param>
-    /// <returns>The entries to show.</returns>
-    public static List<string> AttachmentNames(IReadOnlyCollection<string> fileNames)
+    /// <summary>The name of one attachment for display; a fixed text when it is empty.</summary>
+    /// <param name="fileName">Raw file name.</param>
+    /// <returns>The text to show.</returns>
+    public static string AttachmentName(string fileName)
     {
-        List<string> names = fileNames
-            .Take(MaxAttachmentNames)
-            .Select(name => SafeDisplayText.Shorten(name, MaxAttachmentNameCharacters))
-            .Select(name => name.Length == 0 ? UiText.UnnamedAttachment : name)
-            .ToList();
-        if (fileNames.Count > MaxAttachmentNames)
+        string shortened = SafeDisplayText.Shorten(fileName, MaxAttachmentNameCharacters);
+        return shortened.Length == 0 ? UiText.UnnamedAttachment : shortened;
+    }
+
+    /// <summary>The size of one attachment in the largest fitting unit, in the German format of the other texts.</summary>
+    /// <param name="sizeInBytes">Decoded size; null when unknown.</param>
+    /// <returns>For instance <c>512 B</c> or <c>1,5 MB</c>; empty when the size is unknown.</returns>
+    public static string AttachmentSize(long? sizeInBytes)
+    {
+        if (sizeInBytes is not long bytes)
         {
-            names.Add(UiText.MoreAttachments(fileNames.Count - MaxAttachmentNames));
+            return string.Empty;
         }
 
-        return names;
+        if (bytes < BytesPerUnit)
+        {
+            return string.Create(CultureInfo.InvariantCulture, $"{bytes} B");
+        }
+
+        string[] units = ["KB", "MB", "GB", "TB"];
+        double value = bytes;
+        int unitIndex = -1;
+        do
+        {
+            value /= BytesPerUnit;
+            unitIndex++;
+        }
+        while (value >= BytesPerUnit - RoundsUpToNextUnit && unitIndex < units.Length - 1);
+
+        string number = value.ToString("0.0", CultureInfo.InvariantCulture).Replace('.', ',');
+        return $"{number} {units[unitIndex]}";
     }
 }
