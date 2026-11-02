@@ -352,4 +352,37 @@ public sealed partial class NightshadeThemeXamlTests
         Assert.True(Contrast(selectionText, selection) >= 4.5d, $"selection text on selection {Contrast(selectionText, selection):F1}:1");
         Assert.True(Contrast(window, accent) >= 4.5d, $"accent text on accent {Contrast(window, accent):F1}:1");
     }
+
+    // Blends an #AARRGGBB (or #RRGGBB) colour over an opaque #RRGGBB background.
+    private static string BlendOver(string colour, string background)
+    {
+        if (colour.Length == 7)
+        {
+            return colour;
+        }
+
+        double alpha = int.Parse(colour.AsSpan(1, 2), NumberStyles.HexNumber, CultureInfo.InvariantCulture) / 255d;
+        string Mix(int offset)
+        {
+            int top = int.Parse(colour.AsSpan(3 + offset, 2), NumberStyles.HexNumber, CultureInfo.InvariantCulture);
+            int below = int.Parse(background.AsSpan(1 + offset, 2), NumberStyles.HexNumber, CultureInfo.InvariantCulture);
+            return ((int)Math.Round((top * alpha) + (below * (1 - alpha)))).ToString("X2", CultureInfo.InvariantCulture);
+        }
+
+        return "#" + Mix(0) + Mix(2) + Mix(4);
+    }
+
+    // Button hover must be visible against the resting button; disabled text must stay legible on the disabled fill.
+    [Fact(Timeout = TestTimeouts.PerTestMilliseconds)]
+    public async Task Button_hover_and_disabled_text_are_distinguishable()
+    {
+        await Task.Yield();
+        string hover = RequiredColour("ControlFillColorSecondaryBrush");
+        string resting = RequiredColour("ButtonBackground");
+        string disabledFill = RequiredColour("ControlFillColorDisabledBrush");
+        string disabledText = BlendOver(RequiredColour("TextFillColorDisabledBrush"), disabledFill);
+
+        Assert.True(Contrast(hover, resting) >= 1.2d, $"hover on resting button {Contrast(hover, resting):F2}:1");
+        Assert.True(Contrast(disabledText, disabledFill) >= 3d, $"disabled text on disabled fill {Contrast(disabledText, disabledFill):F2}:1");
+    }
 }
