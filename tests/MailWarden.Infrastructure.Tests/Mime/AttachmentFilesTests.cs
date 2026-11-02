@@ -539,7 +539,8 @@ public sealed class AttachmentFilesTests : IDisposable
     /// <summary>Hard limit that the test enforces itself: a hanging Clear would otherwise stop the whole run.</summary>
     private static readonly TimeSpan ClearLimit = TimeSpan.FromSeconds(20);
 
-    private static readonly string[] TrickyNames = [". ", ".. ", "...", ".... ", ". .", ".. .", "x.", "x ", "...x ", " . "];
+    private static readonly string[] TrickyNames = [". ", ".. ", "...", ".... ", ". .", ".. .", "x.", "x ", "...x ", " . ",
+        "..  ", "....", ". . ", " .", " ..", "..   "];
 
     public static TheoryData<string, string> TrickyNamesByKind()
     {
@@ -829,6 +830,24 @@ public sealed class AttachmentFilesTests : IDisposable
 
         Assert.Null(again);
         Assert.Null(never);
+    }
+
+    // Contract: a path that only leads out of the open folder through ".." is refused; the file beside the open folder stays.
+    [Theory]
+    [InlineData(@"..\x")]
+    [InlineData(@"g\..\..\x")]
+    public void Discard_refuses_a_path_that_leaves_the_open_folder_through_dot_dot(string relativePath)
+    {
+        (string parent, string openFolder) = NewOpenFolderWithNeighbours("discard_dotdot");
+        string neighbour = Path.Combine(parent, "x");
+        File.WriteAllBytes(neighbour, [9, 9, 9]);
+        var files = new AttachmentFiles(openFolder);
+
+        Assert.Throws<ArgumentException>(() => files.Discard(openFolder + "\\" + relativePath));
+
+        Assert.Equal(new byte[] { 9, 9, 9 }, File.ReadAllBytes(neighbour));
+        AssertNeighboursIntact(parent);
+        Assert.True(Directory.Exists(openFolder));
     }
 
     // Contract: Discard of a locked file does not throw; Clear finishes the job later.
