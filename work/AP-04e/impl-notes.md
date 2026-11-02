@@ -16,7 +16,7 @@ None in the signatures. Three additions the contract leaves open:
 - `AppThemes.ToReadingTheme` does not throw for an unknown `AppTheme` (E4 "otherwise as today"), `DisplayName` does (contract).
 
 ## Additions to the role table of the spike
-All in `tools\make_nightshade_theme.py`; none is in the spike, so none was seen on screen.
+All in `tools\make_nightshade_theme.py`; none was in the first spike. The planner later ran the real dictionary in it, which shows the search box; hover and pressed states were not seen.
 
 - `ControlElevationBorderBrush` → `#3E355C`, `TextControlElevationBorderBrush` → `#463C66`: originals are white-alpha gradients,
   and `inputBorder` of the palette would otherwise appear nowhere on the search box.
@@ -62,7 +62,7 @@ theme change or start. Until then a solid background can stay under system text 
   `UiSettingsFileTests.Defaults_are_side_by_side_system_280_and_420`, which expects the old default (E2 changes it).
 
 ## Tested / untested
-- Tested: nothing by a test stage.
+- Tested in later rounds by the tester: verify.1 and verify.2, see `test-result.md`. Nothing by a test stage in this step.
 - Only built here; the planner then ran the real `WindowThemeChrome` and the real dictionary in the spike (planner, fix.1): the
   read back of `palette.ThemeDictionaries["Dark"]["..."]` works, and so does every direction including System. `MainWindow` itself
   has never run: the first run with mails is Dennis's first start.

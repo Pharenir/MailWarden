@@ -8,3 +8,6 @@ Decisions: `requirement.md`, "Decisions fix.2".
 ## review.2 (reviewer, 2026-11-02): CHANGES, text only
 Code without a finding; `isFirstApply` and `ApplyThemeWhileRunning` correct by reading, `MainWindow` never ran. Generator output byte-identical to the file. S1 manual cases could move a real mail; S2 `impl-notes.md` partly outdated; S3 a failed switch is saved, needs a decision and a line in the behaviour. NIT: N1 to N3 wording of the manual cases, N4 points for `TODO.md`, N5 button border on hover.
 Decisions: `requirement.md`, "Decisions fix.3".
+
+## review.3 (reviewer, 2026-11-02): APPROVE
+Text round only, no code touched. S1 and S2 of review.2 fixed, E17 and the deferred points in `TODO.md` match the code. Three NITs on wording, fixed without a new round: the context menu exists on the Junk of one account only and the dialog needs at least one mail; the setting "mark read" could set a flag during the viewing cases; `impl-notes.md` still said nothing was tested.
