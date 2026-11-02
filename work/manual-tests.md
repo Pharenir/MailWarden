@@ -254,11 +254,11 @@ Start wie in Teil 8. Nur Testmails anfassen (Betreff beginnt mit `MailWarden tes
 
 ## 9 – Lesebereich und Thema (AP-04d Fälle 13, 21)
 Nur Ansehen, keine Aktionen auf dem Server.
-- [ ] Dunkel, Newsletter: Das Blatt ist abgedunkelt und gut lesbar, seine Farben bleiben erkennbar.
-- [ ] Dunkel, Newsletter: Ein Link lässt sich anklicken, der Tooltip zeigt das echte Ziel, Text lässt sich markieren und kopieren.
-- [ ] Hell, gleicher Newsletter: kein Schleier, sieht aus wie bisher.
-- [ ] Design System: Windows bei laufender App zwischen Hell und Dunkel umstellen. Die App und der Lesebereich gehen mit.
-- [ ] Dunkel, vom Newsletter auf eine reine Textmail wechseln: Kein störendes Aufblitzen.
+- [x] Dunkel, Newsletter: Das Blatt ist abgedunkelt und gut lesbar, seine Farben bleiben erkennbar.
+- [x] Dunkel, Newsletter: Ein Link lässt sich anklicken, der Tooltip zeigt das echte Ziel, Text lässt sich markieren und kopieren.
+- [x] Hell, gleicher Newsletter: kein Schleier, sieht aus wie bisher.
+- [x] Design System: Windows bei laufender App zwischen Hell und Dunkel umstellen. Die App und der Lesebereich gehen mit.
+- [x] Dunkel, vom Newsletter auf eine reine Textmail wechseln: Kein störendes Aufblitzen.
 
 ## 10 – Nightshade-Thema (AP-04e Fälle 23–29)
 Nur Ansehen, keine Aktionen auf dem Server: **Rückfragen immer mit „Abbrechen“ schließen**, und nur die unten genannten Wege nutzen (die Taste Entf außerhalb des Papierkorbs verschiebt ohne Frage). „Beim Anzeigen als gelesen markieren“ ausschalten oder nur gelesene Mails öffnen. Deine bisherige Einstellung bleibt erhalten, also wählst du Nightshade einmal von Hand.
