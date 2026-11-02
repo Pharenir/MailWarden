@@ -55,28 +55,27 @@ public static class MailContentReader
     /// </summary>
     /// <param name="eml">Raw message, read from its current position; seekable, so nothing is copied into memory. Not disposed.</param>
     /// <param name="attachmentIndex">Position in <see cref="MailContent.Attachments"/>.</param>
-    /// <param name="shownAttachments">
-    /// The list the user chose from; the part at that position must still be the same. Null when no list is known.
-    /// </param>
+    /// <param name="expected">The entry the user chose from the list; the part at that position must still be this one.</param>
     /// <param name="destination">Receives the content; not disposed.</param>
     /// <param name="ct">Cancellation token.</param>
     /// <returns>A task that completes when the content is written.</returns>
-    /// <exception cref="ArgumentNullException"><paramref name="eml"/> or <paramref name="destination"/> is null.</exception>
+    /// <exception cref="ArgumentNullException"><paramref name="eml"/>, <paramref name="expected"/> or <paramref name="destination"/> is null.</exception>
     /// <exception cref="ArgumentOutOfRangeException"><paramref name="attachmentIndex"/> lies outside the list of this message.</exception>
     /// <exception cref="MailContentException">
-    /// The stream cannot be parsed, the part has no content, or it no longer matches <paramref name="shownAttachments"/>. Nothing
-    /// was written then.
+    /// The stream cannot be parsed, the part has no content, or its name, type or size differ from <paramref name="expected"/>.
+    /// Nothing was written then.
     /// </exception>
     /// <exception cref="IOException">Reading or writing failed; passed on unchanged.</exception>
     /// <exception cref="OperationCanceledException">The copy was cancelled.</exception>
     public static async Task CopyAttachmentAsync(
         Stream eml,
         int attachmentIndex,
-        IReadOnlyList<MailAttachmentInfo>? shownAttachments,
+        MailAttachmentInfo expected,
         Stream destination,
         CancellationToken ct = default)
     {
         ArgumentNullException.ThrowIfNull(eml);
+        ArgumentNullException.ThrowIfNull(expected);
         ArgumentNullException.ThrowIfNull(destination);
         ArgumentOutOfRangeException.ThrowIfNegative(attachmentIndex);
 
@@ -90,9 +89,7 @@ public static class MailContentReader
             ArgumentOutOfRangeException.ThrowIfGreaterThanOrEqual(attachmentIndex, attachments.Count);
 
             ListedAttachment attachment = attachments[attachmentIndex];
-            bool isStillTheSamePart = shownAttachments is null
-                || (attachmentIndex < shownAttachments.Count && shownAttachments[attachmentIndex] == attachment.Info);
-            if (!isStillTheSamePart)
+            if (attachment.Info != expected)
             {
                 throw new MailContentException();
             }

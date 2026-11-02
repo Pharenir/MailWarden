@@ -4,8 +4,8 @@ namespace MailWarden.Infrastructure.Mime;
 
 /// <summary>
 /// The files that attachments become: a chosen target for saving, and a folder of its own for opening. A file is either
-/// complete or not there, and an opened file always carries the mark "from the internet", so that Windows and the opening
-/// program treat it as foreign. Everything runs off the caller's thread.
+/// complete or not there. It carries the mark "from the internet", so that Windows and the opening program treat it as foreign:
+/// an opened file always, a saved one wherever the target drive can hold it. Everything runs off the caller's thread.
 /// </summary>
 /// <param name="openFolder">Fully qualified folder for opened attachments, <c>&lt;data&gt;\attachments-open</c>.</param>
 public sealed class AttachmentFiles(string openFolder)
@@ -25,8 +25,10 @@ public sealed class AttachmentFiles(string openFolder)
     private readonly string openFolder = NormaliseFolder(openFolder);
 
     /// <summary>
-    /// Writes the content beside the target and moves it over the target. On any failure and on cancellation the temporary file
-    /// is gone and an empty target, as the save dialog of Windows leaves it, is removed; an existing target with content stays.
+    /// Writes the content beside the target, marks it as from the internet and moves it over the target, so the target never
+    /// exists without the mark where the drive can hold one. A drive that cannot, such as a USB stick without NTFS, gets the file
+    /// without it: the save does not fail for that. On any failure and on cancellation the temporary file is gone and an empty
+    /// target, as the save dialog of Windows leaves it, is removed; an existing target with content stays.
     /// </summary>
     /// <param name="writeContent">Writes the content to the stream it gets.</param>
     /// <param name="targetPath">Fully qualified path the user chose.</param>
@@ -144,6 +146,9 @@ public sealed class AttachmentFiles(string openFolder)
         try
         {
             await WriteFileAsync(writeContent, temporaryPath, ct).ConfigureAwait(false);
+
+            // Beside the target means on its drive, so the move is a rename and takes the stream along. The result is optional here.
+            _ = TryWriteMark(temporaryPath);
             File.Move(temporaryPath, targetPath, overwrite: true);
         }
         catch
@@ -160,7 +165,14 @@ public sealed class AttachmentFiles(string openFolder)
         {
             Directory.CreateDirectory(fileFolder);
             await WriteFileAsync(writeContent, filePath, ct).ConfigureAwait(false);
-            WriteMark(filePath);
+            if (!TryWriteMark(filePath))
+            {
+                // Names no path.
+                var failure = new IOException("The mark of the file could not be written.");
+                failure.Data[MarkFailureDataKey] = true;
+                throw failure;
+            }
+
             return filePath;
         }
         catch
@@ -190,26 +202,18 @@ public sealed class AttachmentFiles(string openFolder)
         }
     }
 
-    // Read back, because a file system may accept the stream without keeping it. The exception names no path.
-    private static void WriteMark(string filePath)
+    // Read back, because a file system may accept the stream without keeping it.
+    private static bool TryWriteMark(string filePath)
     {
         string markPath = filePath + ZoneStreamSuffix;
-        bool isMarked;
         try
         {
             File.WriteAllText(markPath, ZoneMark);
-            isMarked = File.ReadAllText(markPath) == ZoneMark;
+            return File.ReadAllText(markPath) == ZoneMark;
         }
         catch (Exception exception) when (exception is IOException or UnauthorizedAccessException or NotSupportedException)
         {
-            isMarked = false;
-        }
-
-        if (!isMarked)
-        {
-            var failure = new IOException("The mark of the file could not be written.");
-            failure.Data[MarkFailureDataKey] = true;
-            throw failure;
+            return false;
         }
     }
 

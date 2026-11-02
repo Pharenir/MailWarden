@@ -687,7 +687,7 @@ public sealed class ReadingPaneViewModel : ObservableObject
 
     private Func<Stream, CancellationToken, Task> ContentWriterOf(AttachmentRow row)
     {
-        return (destination, ct) => readModel.CopyAttachmentAsync(row.Message, row.Index, destination, ct);
+        return (destination, ct) => readModel.CopyAttachmentAsync(row.Message, row.Index, row.Attachment, destination, ct);
     }
 
     // The type name only: messages of file exceptions name the path, and that names the attachment.

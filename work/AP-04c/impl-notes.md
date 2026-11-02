@@ -1,22 +1,21 @@
 # AP-04c - implementation notes (implement.1)
 
-STEP-RESULT: implemented in full against the contract, with the one deviation on A9 below. No window was started.
+STEP-RESULT: implemented in full against the contract as updated by fix.1 (see below). No window was started.
 
 Build from the worktree:
 - `dotnet build src\MailWarden.App\MailWarden.App.csproj -warnaserror`: 0 warnings, 0 errors (holds App, Presentation, Infrastructure, Core).
 - `dotnet build MailWarden.sln -warnaserror`: **1 error, in the tests**, expected and for the planner to merge with the tester:
-  `tests\MailWarden.Presentation.Tests\TestSupport\Fakes.cs(215,46)`: CS0535, `FakeMailboxReadModel` lacks `IMailboxReadModel.CopyAttachmentAsync(MailMessage, int, Stream, CancellationToken)`. `tests\` was neither read nor changed.
+  `tests\MailWarden.Presentation.Tests\TestSupport\Fakes.cs(215,46)`: CS0535, `FakeMailboxReadModel` lacks `IMailboxReadModel.CopyAttachmentAsync(MailMessage, int, MailAttachmentInfo, Stream, CancellationToken)`. `tests\` was neither read nor changed.
 
 Branch `feat/ap-04c-attachments`. No new package, no csproj change.
 
-## Deviation from the contract
-**A9: the signature carries no expected values.** `CopyAttachmentAsync(message, index, destination, ct)` has nothing to compare name and size with. The signature is the contract and the tester's fake implements it, so it stayed. Instead `MailboxReadModel` remembers the attachment lists it delivered through `ReadContentAsync`, per EML path, the last 8 (`MailboxReadModel.cs:152`), and hands them to `MailContentReader.CopyAttachmentAsync`.
-- Read, change the EML, copy: `MailContentException`. This is the flow of test case 9.
-- Copy without a read before: no list known, so no check; the bytes of that position are delivered. Test case 8 can run that way.
-- The comparison is the whole `MailAttachmentInfo` record: name, size and type. A9 names only name and size; a changed type is another part as well.
-- A longer list in the new EML with the same entry at that position still passes: only the addressed entry counts.
+## fix.1 (decisions of the planner, recorded in `requirement.md`)
+- **A9:** `CopyAttachmentAsync(message, attachmentIndex, expected, destination, ct)`. The reader compares the whole `MailAttachmentInfo` record with the part at that position and throws `MailContentException` on any difference, always, also without a read before. The remembered lists of implement.1 are gone, the read model holds no state for this. `AttachmentRow` keeps the entry (`internal Attachment`). A longer list in a changed EML with the same entry at that position still passes: only the addressed entry counts.
+- **A2:** `SaveAsync` writes the mark on the temporary file, then moves. So the target never exists without the mark where the drive can hold one, and an overwritten target takes on the new stream. A drive without the stream saves without the mark, no notice and no log line. `TryWriteMark` is the one way for both uses; only `PrepareForOpeningAsync` turns `false` into the `IOException`.
+- Unchanged: `HasContent`, `AcceptText`, `zip`.
 
-If the planner prefers an explicit parameter (`MailAttachmentInfo expected`), that is a small change to the interface, `ReadingPaneViewModel.ContentWriterOf` and the fake, and the remembered lists go away. Stateless would be cleaner; I did not change a contract the tester writes against.
+## Deviation from the contract
+None after fix.1.
 
 ## Additions the contract leaves open
 - **`ConfirmationRequest.AcceptText`** (`ShellViewModel.cs:29`, init property, default as before). The dialog button was fixed to "Endgültig löschen", which is wrong for an attachment. The attachment question uses "Trotzdem öffnen". `MainWindow` reads the property. Existing questions are unchanged.
@@ -61,12 +60,10 @@ Case-insensitive, last extension of the name after A4.
 
 ## Tested / untested
 Only as self-control, no proof, tester stages not run. Console probe with artificial data, `_scratch\ap04c-probe` (ignored by git):
-- Ran green: `ToSafe` for all names of test case 1 and 2; `Classify` samples; base64, quoted-printable and 8bit bytes; attached message and `text/rfc822-headers` written; index outside; changed record refused; `AttachmentFiles` (zone stream reads `ZoneId=3` on `K:`, writer failure, empty target removed, existing target kept, cancelled save, locked and read-only files in `Clear`); read model on a real runtime with an artificial data folder (changed EML, missing EML, no EML); view model through its internal constructor with a fake: rows, inbox without question, `Ask` no and yes, Junk, Quarantine, Screener and unknown role, host false, cancelled dialog, copy failure with type name in the log, another mail during a save.
+- Ran green: `ToSafe` for all names of test case 1 and 2; `Classify` samples; base64, quoted-printable and 8bit bytes; attached message and `text/rfc822-headers` written; index outside; a difference in name, type or size refused with no bytes written; `AttachmentFiles` (zone stream reads `ZoneId=3` on `K:`, also read from the saved target after the move and after overwriting a target, writer failure, empty target removed, existing target kept, cancelled save, locked and read-only files in `Clear`); read model on a real runtime with an artificial data folder (another entry refused without a read before, changed EML after a read, missing EML, no EML); view model through its internal constructor with a fake: rows, inbox without question, `Ask` no and yes, Junk, Quarantine, Screener and unknown role, host false, cancelled dialog, copy failure with type name in the log, another mail during a save.
 - Measured: a 148 MB EML, 108 MB decoded, 10 MB allocated during the copy.
 
-Untested: the window, XAML layout, `WindowAttachmentHost` (never run), the mark on a drive without NTFS (no such drive here; code path by reading only), `ShellViewModel` wiring of the question (`ConfirmOpeningInTurnAsync`), the disk-full path.
+Untested: the window, XAML layout, `WindowAttachmentHost` (never run), the mark on a drive without NTFS for opening and for saving (no such drive here; code paths by reading only), `ShellViewModel` wiring of the question (`ConfirmOpeningInTurnAsync`), the disk-full path.
 
 ## Questions
-1. A9, see above: keep the remembered lists, or an explicit parameter? `src\MailWarden.Infrastructure\Composition\MailboxReadModel.cs:152`.
-2. Saved files carry no zone mark: A2 does not ask for it and a save target may have no NTFS. With a mark, a saved attachment would be treated the same as an opened one, which is what browsers do. For Dennis or the security review: `src\MailWarden.Infrastructure\Mime\AttachmentFiles.cs:140`.
-3. `zip` opens at once by A5. Explorer shows the archive, and what is started from inside it depends on Explorer passing the mark on. As decided by Dennis; named for the security review.
+1. `zip` opens at once by A5. Explorer shows the archive, and what is started from inside it depends on Explorer passing the mark on. As decided by Dennis; named for the security review.

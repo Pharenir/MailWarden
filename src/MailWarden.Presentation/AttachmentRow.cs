@@ -18,6 +18,7 @@ public sealed class AttachmentRow
     {
         Message = message;
         FolderRole = folderRole;
+        Attachment = attachment;
         Index = index;
         Name = MailDisplayText.AttachmentName(attachment.FileName);
         SizeText = MailDisplayText.AttachmentSize(attachment.Size);
@@ -51,6 +52,9 @@ public sealed class AttachmentRow
 
     /// <summary>The mail of the attachment.</summary>
     internal MailMessage Message { get; }
+
+    /// <summary>The entry this row was made from; the part must still match it when it is copied.</summary>
+    internal MailAttachmentInfo Attachment { get; }
 
     /// <summary>Role of the folder of the mail when it was shown; null when it is unknown.</summary>
     internal FolderRole? FolderRole { get; }
