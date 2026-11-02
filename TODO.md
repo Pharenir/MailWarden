@@ -78,12 +78,17 @@ Original-Headern (Outlook.com); 1.870 ohne Header (vermutlich IMAP-/Gmail-Ordner
   zu secure M2 AP-03a und AP-02a-ACL-Punkt, 2026-10-31) → bewusst akzeptiert, keine Änderung
 
 ## Testzähler
-Testzähler: 0/4 seit letztem S3 (zuletzt 2026-11-02: S3 auf dem Testbranch von AP-04c vor dem Merge, 3344/3344 – Core 536, Presentation 921, Infrastructure 1887)
+Testzähler: 0/4 seit letztem S3 (zuletzt 2026-11-02: S3 je Testprojekt auf dem Testbranch von AP-04c vor dem Merge, 3364/3364 – Core 536, Presentation 921, Infrastructure 1907)
 
 ## Übergabe – so geht es weiter (Sessionende 2026-11-01)
 **Stand `main`:** AP-06, AP-04b und AP-04d gemergt und auf GitHub; von Dennis geprüft. Fall 18 (AP-07d) bestanden. `Act` ist nirgends eingeschaltet. Keine Worktrees offen.
 
-**AP-04e Nightshade-Thema (Branch `feat/ap-04e-nightshade-theme`, lokal, nicht gemergt):** umgesetzt; verify.2 S3 2965/2965, secure.1 ohne Kritisch/Hoch. Es wartet auf Dennis: `work\manual-tests.md` Teil 10 (Fälle 23–28), danach CPM. Danach `chore/plan-archive` mergen (baut auf AP-04e auf) und AP-04e selbst ins Archiv verschieben. `_private\themes.md`, Zeile MailWarden, beim Merge nachziehen.
+**Wartet auf Dennis, nichts davon ist auf `main` (Stand 2026-11-02):**
+- Branches bauen aufeinander auf, Merge in dieser Reihenfolge: `feat/ap-04e-nightshade-theme` → `chore/plan-archive` → `chore/ap-04c-requirement` → `feat/ap-04c-attachments`. Das Archiv trägt danach auch AP-04e und AP-04c nach.
+- Handtest aus dem Stand `feat/ap-04c-attachments`, der AP-04e enthält, mit dem künstlichen Datenordner `_scratch\testdata-ui\data`: `work\manual-tests.md` Teile 10 und 11. Erzeugt von `_scratch\attachment-testdata`, bei Bedarf in einen leeren Ordner neu erzeugen.
+- AP-04c: `FileSavePicker` und der Start einer Datei liefen noch nie (`WindowAttachmentHost`). Das klärt Fall 21 und 22; schlägt dort etwas fehl, ändert sich nur diese Klasse. Danach README und `PRIVACY.md` gegen das Verhalten prüfen.
+- AP-04c: Eine Probe mit einem Ordner `...` in `attachments-open` beim App-Start steht aus: Die App startet, der Ordner ist weg.
+- `_private\themes.md`, Zeile MailWarden, beim Merge nachziehen.
 
 **Danach:** AP-04c (Anhänge, Entwurf `work\AP-04c\requirement.md` wartet auf Freigabe), AP-02b (Konten-UI, Entwurf `work\AP-02b\requirement.md`), AP-08 (Regeln, Warum-Ansicht, Oberfläche Adressbuch, Bilder bei `TrustedContact` direkt laden, zurückgehaltene Mails), AP-05 (Versand), AP-09 (Ordnergrenzen).
 

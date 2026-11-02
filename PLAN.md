@@ -209,7 +209,7 @@ was nur der manuelle Test belegt, steht als „manuell Dennis – offen“ (Fäl
 Vollständiger Schnittstellenvertrag: `work\AP-04a\requirement.md`.
 
 ### AP-04c Anhänge öffnen und speichern
-Freigabe Dennis 2026-11-02. Vollständiger Vertrag: `work\AP-04c\requirement.md`. Stand: verify.4 S3 3344/3344 (Core 536, Presentation 921, Infrastructure 1887), review.3 APPROVE, secure.2 ohne Kritisch/Hoch/Mittel. Das Fenster läuft in keinem Test; was nur der Handtest belegt, steht als „manuell Dennis“.
+Freigabe Dennis 2026-11-02. Vollständiger Vertrag: `work\AP-04c\requirement.md`. Stand: verify.5 S3 3364/3364 (Core 536, Presentation 921, Infrastructure 1907), review.3 APPROVE, secure.3 ohne Kritisch/Hoch/Mittel. Das Fenster läuft in keinem Test; was nur der Handtest belegt, steht als „manuell Dennis“.
 | # | Sollverhalten | Umgesetzt | Getestet |
 |---|---|---|---|
 | A1 | Jeder Anhang der offenen Mail steht im Lesebereich mit Name, Endung als eigener Spalte, Größe, Öffnen und Speichern; höchstens 500 Zeilen plus Hinweis auf die übrigen | ✅ `Presentation\AttachmentRow.cs` (`ExtensionText`), `ReadingPaneViewModel.Attachments`/`HiddenAttachmentsNotice`, `App\MainWindow.xaml` | ⚠️ Zeilen, Größen und Endung: Fall 7 und `AttachmentRowTests`. Das Fenster läuft in keinem Test: **Manuell Dennis – offen** (Fälle 21, 26) |
