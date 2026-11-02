@@ -23,7 +23,7 @@ Split from AP-04c by Dennis (2026-11-02), follows after the attachments. Not sta
 | B2 | Konto hinzufügen: Microsoft or Google, the browser opens, cancelling leaves nothing behind and is not an error. The new account appears in the tree and syncs without a restart (`AccountsChangedAsync`) |
 | B3 | Neu anmelden, offered when the status is `NeedsSignIn`; a different account in the browser is refused with a clear message |
 | B4 | Verbindung testen with the existing `ConnectionProbe`; the result names IMAP and SMTP, no server text |
-| B5 | Konto entfernen, decision of Dennis: an **additional confirmation** (address, number of local mails) and then **all local data of this account** goes: sign-in, loop stopped, database cascade, EML files, decision log, also the contacts that came only from this account. **Nothing on the server changes** |
+| B5 | Konto entfernen, decision of Dennis: an **additional confirmation** (address, number of local mails) and then **all local data of this account** goes: sign-in, loop stopped, database cascade, EML files, decision log, also the contacts that came only from this account. **The authorization is revoked at the provider**, so adding the account again needs a new sign-in. The mails on the server stay |
 | B6 | Missing or wrong `auth-config.json`: a clear message instead of a crash; the rest of the app keeps working |
 | B7 | Logging rule from AP-02a: of an `AuthenticationFailedException` only provider, reason, code; never `ToString()`. Tokens never leave `ICredentialStore` |
 | B8 | Points from `TODO.md` this part closes: the totals of the hint after a removal, cleanup of orphaned grants and `*.tmp` at the start, `DataPaths.CredentialsDirectory`/`AuthConfigPath`, the shared token providers in one `AccountService` |
@@ -32,7 +32,9 @@ Security review required (sign-in, token cache, deleting).
 
 ## Decisions of Dennis (2026-11-02)
 - Removing an account deletes all local data of the account after an additional confirmation (B5).
+- This is a test version: existing contacts may be deleted locally and collected again, with their origin recorded from then on. So no contact without an origin stays, and no migration has to keep the old ones.
+- A contact seen in two accounts stays until the last of them goes (planner, follows from recording the origin).
+- Revoke at every provider when an account is removed. An account added again must be authorized anew.
 
 ## Open
-- Contacts: to delete those of one account the origin must be recorded (a new table contact to account, schema change, S3). A contact seen in two accounts stays until the last one goes. Contacts collected before that change have no origin: proposal, they stay, and the question says so. To be decided by Dennis. Moves a part of the AP-08 point "Kontoentfernung und die Kontakte des Kontos" here.
-- Revoking at Google: not "local data" and "nothing on the server changes", so left out for now; the point stays in `TODO.md`.
+- How far revoking goes per provider, to be researched at the start of this AP. Google has a revoke endpoint. Ich bin mir unsicher: for personal Microsoft accounts I know of no endpoint that revokes only this app; if there is none, the app deletes its tokens and shows the page of the account where the user can withdraw the consent. Dennis decides then. A failed revoke does not block the removal, and the app says so.

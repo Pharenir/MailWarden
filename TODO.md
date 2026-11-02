@@ -3,6 +3,7 @@
 ## Offen
 - [ ] **Dennis: manuelle Tests nach `work\manual-tests.md`** (AP-02a Fälle 28–30, AP-03a Fall 28,
   Begründungstexte AP-07a/b, AP-04a Fälle 42–48 = Teil 6) – ersetzt die Einzelpunkte unten; „fertig“ erst danach
+- [ ] Wunsch Dennis 2026-11-02: Werkzeug in MailWarden zum Finden und Zusammenführen ähnlicher Kontakte, z. B. anhand gleicher Namen, E-Mail-Adressen oder zumindest gleicher Domänen (Ort beim Planen festlegen, naheliegend AP-08)
 - [ ] Wunsch Dennis 2026-11-01: je Ordner eine Grenze für Archivierung und eine eigene für Löschung einstellbar (gehört zu AP-08/AP-09; offen beim Planen: Grenze nach Alter, Anzahl oder Größe; Löschen nur über die Warteschlange, Standard aus)
 - [ ] Wunsch Dennis 2026-11-01 (AP-04b): beim Auswählen als gelesen markieren per Schalter in den Einstellungen, Standard aus; läuft als Befehl über die Warteschlange – umgesetzt in AP-04b (verify.6 2655/2655); manueller Test (Fall 21/22) offen
 - [ ] AP-13: `.ico` aus `assets\mailwarden-512.png` erzeugen (Exe-Icon, Installer)
@@ -18,7 +19,7 @@
 - [ ] Logging-Regel (AP-02b/AP-04): bei `AuthenticationFailedException` nur Provider, Reason, ProviderErrorCode, Message,
   Typ der inneren Ausnahme – nie `ToString()` (innere Meldungen enthalten Servertexte bzw. Dateipfade mit Benutzername)
 - [ ] AP-13: Obergrenze für Credential-Dateien (z. B. 1 MB, heute `OverflowException` > 2 GB)
-- [ ] Widerruf beim Server beim Entfernen eines Kontos (Google revoke-Endpunkt)
+- [ ] Widerruf beim Server beim Entfernen eines Kontos: bei jedem Anbieter, erneutes Hinzufügen braucht neue Autorisierung → AP-02b (Dennis 2026-11-02)
 - [ ] Aufräumen verwaister Grants beim Start, **einschließlich `*.tmp`** im Credentials-Ordner (secure N5/N7)
 - [ ] Zugriff mehrerer Prozesse auf denselben Credentials-Ordner (AuthProbe + App) ist ungeschützt (A9: Sperre nur im Prozess)
 - [ ] AP-03: lokale Mail-Dateien beim Entfernen eines Kontos löschen (Non-goal AP-02a)
@@ -349,7 +350,7 @@ nicht erneut gezählt.
 **Ohne Bedingung:**
 - [ ] AP-08 braucht eine Oberfläche für Kontakte, Listen und Import
 - [ ] AP-08: gelöschte Kontakte kommen nach einem UIDVALIDITY-Wechsel zurück (sperren statt löschen oder eine Löschmarke)
-- [ ] AP-08: Kontoentfernung und die Kontakte des Kontos
+- [ ] Kontoentfernung und die Kontakte des Kontos → AP-02b: Herkunft speichern, bestehende Kontakte lokal löschen und neu sammeln (Dennis 2026-11-02, Testversion)
 - [ ] AP-08: Warnung bei jedem Allow-Eintrag auf eine Domain (nicht nur `FreemailDomains`), weil Subdomains mitzählen
 - [ ] AP-08: Bestätigung mit Anzahl vor einem Import
 - [ ] UIDs, die später unter der Marke nachgeladen werden, und vorübergehend unlesbare Mails werden nicht mehr gesammelt
