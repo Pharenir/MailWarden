@@ -145,3 +145,10 @@ None. Own test errors in this round: one (class a): `Extended()` lost a backslas
 - Discard on a missing or locked file does not throw: already covered by the verify.3 tests, assumption confirmed.
 - Result: Core.Tests 536/536, Presentation.Tests 921/921, Infrastructure.Tests 1887/1887; total 3344 of 3344 green (verify.3: 3341). Run 28 s via watchdog, no soft limit, no abort. Build with `-warnaserror`: 0 warnings.
 - Not run by me: manual cases 21 to 26 (Dennis), non-NTFS path, file symbolic links.
+
+## verify.5 (2026-11-02, S3, green)
+
+- Added: `Discard_refuses_a_path_that_leaves_the_open_folder_through_dot_dot` (`<open>\..\x` and `<open>\g\..\..\x`: `ArgumentException`, the file beside the open folder and the neighbours stay). `Clear` name list extended by `..` + 2 spaces, `....`, `. . `, space + `.`, space + `..`, `..` + 3 spaces (`.. .` was already there); each name as empty folder, folder with file and file (+18 cases), also in the "together" and "nested" tests.
+- Result: Core.Tests 536/536, Infrastructure.Tests 1907/1907, Presentation.Tests 921/921; total 3364 of 3364 green (verify.4: 3344). Per project through the watchdog (2 s, 30 s, 21 s), no soft limit, no abort. Build with `-warnaserror`: 0 warnings.
+- Own test error (class a): first Infrastructure run had 2 failures because `Timeout` was set on a synchronous theory (xUnit: only async); attribute removed, rerun green.
+- Not run by me: manual cases 21 to 26 (Dennis), non-NTFS path, file symbolic links.
