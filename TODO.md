@@ -77,17 +77,12 @@ Original-Headern (Outlook.com); 1.870 ohne Header (vermutlich IMAP-/Gmail-Ordner
   zu secure M2 AP-03a und AP-02a-ACL-Punkt, 2026-10-31) → bewusst akzeptiert, keine Änderung
 
 ## Testzähler
-Testzähler: 0/4 seit letztem S3 (zuletzt 2026-11-01: S3 auf `feat/ap-04d-reading-theme` vor dem Merge nach `main`, 2772/2772 – Core 536, Presentation 559, Infrastructure 1677; seither nur Doku geändert)
+Testzähler: 0/4 seit letztem S3 (zuletzt 2026-11-02: S3 auf dem Testbranch von AP-04e vor dem Merge, 2965/2965 – Core 536, Presentation 629, Infrastructure 1800; seither nur Doku geändert)
 
 ## Übergabe – so geht es weiter (Sessionende 2026-11-01)
 **Stand `main`:** AP-06, AP-04b und AP-04d gemergt und auf GitHub; von Dennis geprüft. Fall 18 (AP-07d) bestanden. `Act` ist nirgends eingeschaltet. Keine Worktrees offen.
 
-**Als Nächstes: AP-04e Nightshade-Thema (Wunsch Dennis 2026-11-01), noch nicht begonnen.**
-- Neben Hell, Dunkel und System ein Thema Nightshade, und zwar als Standard. Wer schon ein Thema gespeichert hat, behält es.
-- Farben aus dem Nightshade-Projekt, nicht aus dem Icon: `K:\Projekte\_private\themes.md` (Sammeldatei von Dennis), Quelle `K:\Projekte\Windows-Tools\nightshade\src\Nightshade.Core\themes\nightshade.json`. Fenster `#1A1626`, Flächen `#231E33`, Text `#ECE8F7`, Akzent `#FF8A3D`, Auswahl `#4A3B7A`.
-- Lesebereich: Mail ohne eigene Farben auf `#231E33` mit Text `#ECE8F7` und Links `#FF8A3D` (rechnerisch 13,4:1 und 6,9:1); Mail mit eigenen Farben helles Blatt unter dem Schleier wie im Dunkelmodus. `ReadingTheme` bekommt einen dritten Wert.
-- Zuerst klären: Wie weit lassen sich die WinUI-Standardfarben umfärben, und klappt das live beim Umschalten? Geht etwas nicht, Dennis fragen.
-- Sicherheitsprüfung nötig (WebView2, HTML-Ausgabe). Handtest durch Dennis.
+**AP-04e Nightshade-Thema (Branch `feat/ap-04e-nightshade-theme`, lokal, nicht gemergt):** umgesetzt; verify.2 S3 2965/2965, secure.1 ohne Kritisch/Hoch. Es wartet auf Dennis: `work\manual-tests.md` Teil 10 (Fälle 23–28), danach CPM. Danach `chore/plan-archive` mergen (baut auf AP-04e auf) und AP-04e selbst ins Archiv verschieben. `_private\themes.md`, Zeile MailWarden, beim Merge nachziehen.
 
 **Danach:** AP-04c (Konten-UI, Anhänge), AP-08 (Regeln, Warum-Ansicht, Oberfläche Adressbuch, Bilder bei `TrustedContact` direkt laden, zurückgehaltene Mails), AP-05 (Versand), AP-09 (Ordnergrenzen).
 
@@ -329,6 +324,15 @@ Erledigt aus AP-07c: D8, J4 (Bremse) und die Sichtbarkeit von `EvaluationFailed`
 - [ ] Bilder bei vertrauenswürdiger Mail automatisch laden (Wunsch aus der Anforderung, später)
 - [ ] Befund der Tester: das Maximum der Bremse (1000) entspricht der Befehlsgröße, ein Aufteilen von Verschiebungen
   im Durchlauf gibt es nicht mehr – bewusst bestätigen (Planer)
+
+### Vertagt aus AP-04e
+- [ ] Ein Button mit Tastaturfokus behält bei Windows im Hellmodus kurz die alte Farbe (Spike, simuliert)
+- [ ] Text in den Mail-Kopfzeilen markiert in `#0078D4`, in jedem Thema; Dennis entscheidet in Fall 26b
+- [ ] Ein Wechsel, der dauerhaft scheitert (beschädigte Installation), wird gespeichert; der nächste Start endet im Fehlerfenster, zurück nur über `ui-settings.json` (review.2 S3, akzeptiert)
+- [ ] Eine fehlende Ressource beim Start kann im Fehlerfenster wie „ungültiger Datenordner“ aussehen, weil `DescribeStartFailure` IO- und Argumentfehler so einordnet; altes Muster (review.1 N4)
+- [ ] Hochkontrast bei laufender App wirkt erst ab dem nächsten Themenwechsel oder Start: das Abonnieren wirft in der App ohne Paket (secure.1 L2)
+- [ ] AP-13: Der Installer darf nur `data\` beschreibbar machen, nicht `<install>`, sonst wären DLLs und das kompilierte Wörterbuch austauschbar (secure.1)
+- [ ] Bei einem WinAppSDK-Update `WINUI_PACKAGE_VERSION` in `tools\make_nightshade_theme.py` anpassen und das Wörterbuch neu erzeugen
 
 ### Vertagt aus AP-06
 Stand: S3 2406/2406, review.3 APPROVE, Sicherheitsprüfung ohne Kritisch/Hoch (solange `Act` aus ist). Fall 19 (echte Daten) nach T5
