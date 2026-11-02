@@ -25,6 +25,7 @@ public sealed class AttachmentRow
         SafeFileName = attachment.IsAttachedMessage
             ? AttachmentFileName.ToSafeForMessage(attachment.FileName, index)
             : AttachmentFileName.ToSafe(attachment.FileName, index);
+        ExtensionText = Path.GetExtension(SafeFileName).TrimStart('.').ToUpperInvariant();
         Risk = AttachmentPolicy.Classify(SafeFileName);
         HasContent = attachment.HasContent;
     }
@@ -37,6 +38,12 @@ public sealed class AttachmentRow
 
     /// <summary>Size for display; empty when the size is unknown.</summary>
     public string SizeText { get; }
+
+    /// <summary>
+    /// The last extension of <see cref="SafeFileName"/> in capitals without the dot, the one Windows goes by; empty without one. The
+    /// row always shows it, because a name that is cut can hide it.
+    /// </summary>
+    public string ExtensionText { get; }
 
     /// <summary>Risk level of <see cref="SafeFileName"/>.</summary>
     public AttachmentRisk Risk { get; }

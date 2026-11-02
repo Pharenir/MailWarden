@@ -114,6 +114,12 @@ public static class UiText
     /// <summary>Save dialog: name of the file type.</summary>
     public static string AttachmentFileType => "Anhang";
 
+    /// <summary>Attachment notice: a copy is running.</summary>
+    public static string AttachmentCopying => "Anhang wird kopiert …";
+
+    /// <summary>Attachment notice: the file is complete at the chosen place.</summary>
+    public static string AttachmentSaved => "Anhang gespeichert.";
+
     /// <summary>Attachment notice: the window offers no way to save or open here.</summary>
     public static string AttachmentActionsUnavailable => "Anhänge können hier nicht geöffnet oder gespeichert werden.";
 
@@ -126,7 +132,7 @@ public static class UiText
 
     /// <summary>Attachment notice: saving failed for another reason.</summary>
     public static string AttachmentSaveFailed =>
-        "Der Anhang konnte nicht gespeichert werden. Ist das Laufwerk voll oder der Ordner schreibgeschützt?";
+        "Der Anhang konnte nicht gespeichert werden. Ist das Laufwerk voll, der Ordner schreibgeschützt oder die Datei noch geöffnet?";
 
     /// <summary>Attachment notice: preparing the file for opening failed for another reason.</summary>
     public static string AttachmentOpenFailed =>
@@ -186,6 +192,10 @@ public static class UiText
             CultureInfo.InvariantCulture,
             $"Spamfilter seit dem Start: nicht bewertet {evaluationFailed}, von der Bremse zurückgehalten {brakeHeld}. Diese Mails bleiben in ihrem Ordner.");
     }
+
+    /// <summary>Banner: a save failed after another mail was selected.</summary>
+    public static string BannerAttachmentSaveFailed =>
+        "Ein Anhang einer zuvor angezeigten Mail konnte nicht gespeichert werden. Ist das Laufwerk voll, der Ordner schreibgeschützt oder die Datei noch geöffnet?";
 
     /// <summary>Banner: the queued actions could not be read.</summary>
     public static string BannerActionsReadFailed => "Die offenen Aktionen konnten nicht gelesen werden.";
@@ -268,9 +278,10 @@ public static class UiText
     /// Question before opening an attachment: the reasons of A5 and A6 in fixed words, never a file name, sender or subject.
     /// </summary>
     /// <param name="risk">Risk level of the file.</param>
-    /// <param name="folderRole">Role of the folder of the mail; null when it is unknown.</param>
+    /// <param name="folderRole">Role of the folder of the mail now; null when it is unknown.</param>
+    /// <param name="hasFolderChanged">True when the role is another one than when the mail was shown.</param>
     /// <returns>The text.</returns>
-    internal static string ConfirmOpenAttachment(AttachmentRisk risk, FolderRole? folderRole)
+    internal static string ConfirmOpenAttachment(AttachmentRisk risk, FolderRole? folderRole, bool hasFolderChanged)
     {
         string folderReason = folderRole switch
         {
@@ -278,6 +289,8 @@ public static class UiText
             FolderRole.Junk => "Diese Mail liegt im Junk-Ordner. ",
             FolderRole.Quarantine => "Diese Mail liegt in der Quarantäne. ",
             FolderRole.Screener => "Diese Mail liegt im Screener, ihr Absender ist noch nicht bestätigt. ",
+            FolderRole.Trash => "Diese Mail liegt im Papierkorb. ",
+            _ when hasFolderChanged => "Der Ordner dieser Mail hat sich geändert. ",
             _ => string.Empty,
         };
         string typeReason = risk == AttachmentRisk.Ask
@@ -362,12 +375,14 @@ public static class UiText
         return string.Create(CultureInfo.InvariantCulture, $"+{count} weitere");
     }
 
-    /// <summary>Last entry of a long attachment list.</summary>
-    /// <param name="count">Number of attachments not listed.</param>
-    /// <returns>The entry.</returns>
-    public static string MoreAttachments(int count)
+    /// <summary>Under a long attachment list: how many have no row.</summary>
+    /// <param name="count">Number of attachments without a row.</param>
+    /// <returns>The notice.</returns>
+    public static string AttachmentsNotListed(int count)
     {
-        return string.Create(CultureInfo.InvariantCulture, $"und {count} weitere");
+        return count == 1
+            ? "1 weiterer Anhang wird nicht aufgeführt."
+            : string.Create(CultureInfo.InvariantCulture, $"{count} weitere Anhänge werden nicht aufgeführt.");
     }
 
     /// <summary>Status text of an account node: fixed text per state, plus counts during a sync.</summary>

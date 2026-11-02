@@ -154,6 +154,7 @@ public sealed class ShellViewModel : ObservableObject, IDisposable
         Reading = new ReadingPaneViewModel(
             readModel,
             log,
+            banner,
             timeProvider,
             documentBuilder ?? ReadingDocumentBuilder.Build,
             attachmentHost,

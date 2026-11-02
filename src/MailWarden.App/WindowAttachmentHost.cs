@@ -1,5 +1,6 @@
 using System.ComponentModel;
 using System.Diagnostics;
+using System.Globalization;
 using MailWarden.Infrastructure.Logging;
 using MailWarden.Presentation;
 using Microsoft.UI.Xaml;
@@ -13,7 +14,7 @@ namespace MailWarden.App;
 /// how they work in an application without a package stays in this class. A failure of the dialog reaches the caller, which shows
 /// it as a notice; nothing here may end the running application.
 /// </summary>
-/// <param name="log">Critical log; type names only, because the messages of these exceptions can name the file.</param>
+/// <param name="log">Critical log; type names and codes only, because the messages of these exceptions can name the file.</param>
 internal sealed class WindowAttachmentHost(ICriticalLog log) : IAttachmentHost
 {
     // The picker needs a file type; this one stands for "no extension".
@@ -44,7 +45,7 @@ internal sealed class WindowAttachmentHost(ICriticalLog log) : IAttachmentHost
 
         // Without a package the picker does not find its window by itself.
         WinRT.Interop.InitializeWithWindow.Initialize(picker, WinRT.Interop.WindowNative.GetWindowHandle(window));
-        StorageFile? file = await picker.PickSaveFileAsync();
+        StorageFile? file = await picker.PickSaveFileAsync().AsTask(ct);
         return file?.Path;
     }
 
@@ -83,7 +84,12 @@ internal sealed class WindowAttachmentHost(ICriticalLog log) : IAttachmentHost
         }
         catch (Exception exception) when (exception is not OutOfMemoryException)
         {
-            log.Write(CriticalLogLevel.Critical, "WindowAttachmentHost.StartAssignedProgram", $"Starting a program failed: {exception.GetType().Name}");
+            // The only log line of a refused start.
+            int errorCode = exception is Win32Exception win32Exception ? win32Exception.NativeErrorCode : exception.HResult;
+            log.Write(
+                CriticalLogLevel.Critical,
+                "WindowAttachmentHost.StartAssignedProgram",
+                string.Create(CultureInfo.InvariantCulture, $"Starting a program failed: {exception.GetType().Name} (code 0x{errorCode:X8})"));
             return false;
         }
     }

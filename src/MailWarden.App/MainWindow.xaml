@@ -276,6 +276,7 @@
                       <ColumnDefinition Width="Auto" />
                       <ColumnDefinition Width="Auto" />
                       <ColumnDefinition Width="Auto" />
+                      <ColumnDefinition Width="Auto" />
                     </Grid.ColumnDefinitions>
                     <TextBlock
                         Grid.Column="0"
@@ -283,14 +284,23 @@
                         Text="{x:Bind Name}"
                         TextTrimming="CharacterEllipsis"
                         ToolTipService.ToolTip="{x:Bind Name}" />
-                    <TextBlock Grid.Column="1" VerticalAlignment="Center" Opacity="0.7" Text="{x:Bind SizeText}" />
+                    <!-- Its own column, so a long name cannot push the extension Windows goes by out of sight; a long extension is cut here. -->
+                    <TextBlock
+                        Grid.Column="1"
+                        MaxWidth="96"
+                        VerticalAlignment="Center"
+                        FontWeight="SemiBold"
+                        Text="{x:Bind ExtensionText}"
+                        TextTrimming="CharacterEllipsis"
+                        ToolTipService.ToolTip="{x:Bind ExtensionText}" />
+                    <TextBlock Grid.Column="2" VerticalAlignment="Center" Opacity="0.7" Text="{x:Bind SizeText}" />
                     <Button
-                        Grid.Column="2"
+                        Grid.Column="3"
                         Click="OnOpenAttachmentClicked"
                         Content="{x:Bind presentation:UiText.AttachmentOpen}"
                         Visibility="{x:Bind CanOpen}" />
                     <Button
-                        Grid.Column="3"
+                        Grid.Column="4"
                         Click="OnSaveAttachmentClicked"
                         Content="{x:Bind presentation:UiText.AttachmentSave}"
                         Visibility="{x:Bind HasContent}" />
@@ -298,6 +308,11 @@
                 </DataTemplate>
               </ListView.ItemTemplate>
             </ListView>
+            <TextBlock
+                Opacity="0.7"
+                Text="{x:Bind ViewModel.Reading.HiddenAttachmentsNotice, Mode=OneWay}"
+                TextWrapping="Wrap"
+                Visibility="{x:Bind ViewModel.Reading.HasHiddenAttachments, Mode=OneWay}" />
             <TextBlock
                 FontWeight="SemiBold"
                 Text="{x:Bind ViewModel.Reading.AttachmentNotice, Mode=OneWay}"

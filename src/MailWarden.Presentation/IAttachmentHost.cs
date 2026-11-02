@@ -14,6 +14,6 @@ public interface IAttachmentHost
 
     /// <summary>Starts the program Windows assigns to the file, with no arguments of ours. Called on the UI thread.</summary>
     /// <param name="fullPath">Full path of a prepared file.</param>
-    /// <returns>False when Windows refused.</returns>
+    /// <returns>False when Windows refused; the host has written the one log line then, because only it knows the error code.</returns>
     Task<bool> OpenWithDefaultProgramAsync(string fullPath);
 }
